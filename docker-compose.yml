@@ -356,7 +356,7 @@ services:
   grafana:
     container_name: grafana
     profiles: ["obs"]
-    image: grafana/grafana:12.1.0
+    image: grafana/grafana:13.2.3
     environment:
       GF_SECURITY_ADMIN_USER: "admin"
       GF_SECURITY_ADMIN_PASSWORD: "admin"
