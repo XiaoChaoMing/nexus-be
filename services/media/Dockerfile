@@ -11,7 +11,7 @@ COPY services ./services
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /bin/media ./services/media/cmd/media
 
 # Alpine's ffmpeg is built with libx264 and the native AAC encoder (both required by the ladder).
-FROM alpine:3.23
+FROM alpine:3.24
 
 RUN apk add --no-cache ffmpeg ca-certificates \
     && mkdir -p /var/lib/media
