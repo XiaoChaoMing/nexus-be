@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày | Working Plan |
 | --- | --- | --- | --- |
-| 1.0 | Backend đã triển khai (WP1, WP2); web chờ design (WP3–WP5) | 2026-10-14 | `docs/plans/working/2026-10-14-gd02-streaming-close.md` |
+| 1.1 | Đã triển khai backend (WP1, WP2) và web (WP3–WP5) | 2026-10-14 | `docs/plans/working/2026-10-14-gd02-streaming-close.md` |
 
 Quyết định (ông chủ duyệt 14/10, lấy theo đề xuất): G2-Q1 làm playback session ngay, chưa chữ ký · G2-Q2 dùng frame
 pen.dev/Stitch + `DESIGN.md` · G2-Q3 chat giữ chỗ, khối khác ẩn · G2-Q4 gộp tiến độ local lên tài khoản, giữ vị trí xa hơn.
@@ -16,7 +16,8 @@ pen.dev/Stitch + `DESIGN.md` · G2-Q3 chat giữ chỗ, khối khác ẩn · G2-
 ## 2. Phạm vi
 
 Trong: stream-svc (entity, repo, use case `playback`, REST), Nginx (route + CORS header), Swagger.
-Ngoài: web (đổi player sang phiên xem, gộp localStorage — làm cùng R2/R3), chữ ký URL (GĐ5), `matureVisible`
+Web (repo `nexuslive-web`): player mở qua phiên xem, gộp tiến độ localStorage khi đăng nhập (làm cùng R2/R3).
+Ngoài: chữ ký URL (GĐ5), `matureVisible`
 phía server (thuộc identity; web tự gửi `acknowledgeMature` khi người dùng bật).
 
 ## 3. Kịch bản
@@ -108,3 +109,4 @@ tài khoản, nhớ xác nhận, VOD, tiến độ, continue-watching, preflight
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
 | 1.0 | 2026-10-14 | Bản đầu, cùng lúc triển khai backend |
+| 1.1 | 2026-10-14 | Web đã chuyển sang phiên xem; hợp đồng không đổi |
