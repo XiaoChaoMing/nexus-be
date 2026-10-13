@@ -11,6 +11,22 @@ definitions:
       id:
         type: string
     type: object
+  ContinueItem:
+    properties:
+      positionSec:
+        type: integer
+      updatedAt:
+        type: string
+      vod:
+        $ref: '#/definitions/VOD'
+    type: object
+  ContinueList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/ContinueItem'
+        type: array
+    type: object
   Data-Settings:
     properties:
       data:
@@ -20,6 +36,16 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/Stream'
+    type: object
+  Data-internal_controller_restapi_v1_ContinueList:
+    properties:
+      data:
+        $ref: '#/definitions/ContinueList'
+    type: object
+  Data-internal_controller_restapi_v1_Playback:
+    properties:
+      data:
+        $ref: '#/definitions/Playback'
     type: object
   Data-internal_controller_restapi_v1_StreamKeyCreated:
     properties:
@@ -75,6 +101,44 @@ definitions:
       speed:
         type: number
       uploadErrors:
+        type: integer
+    type: object
+  Mature:
+    properties:
+      acknowledged:
+        type: boolean
+      required:
+        type: boolean
+    type: object
+  Playback:
+    properties:
+      anonId:
+        description: AnonID is echoed (or generated) for guests; the client stores
+          it and sends it back in X-NXL-Anon-Id.
+        type: string
+      expiresAt:
+        type: string
+      manifestUrl:
+        type: string
+      mature:
+        $ref: '#/definitions/Mature'
+      sessionId:
+        type: string
+    type: object
+  PlaybackRequest:
+    properties:
+      acknowledgeMature:
+        description: AcknowledgeMature confirms the viewer is 18+; signed-in viewers
+          are not asked again for the channel.
+        type: boolean
+    type: object
+  ProgressRequest:
+    properties:
+      keepFurther:
+        description: KeepFurther keeps the stored position when it is further (merging
+          a browser's local progress on sign-in).
+        type: boolean
+      positionSec:
         type: integer
     type: object
   Settings:
@@ -211,6 +275,15 @@ definitions:
         type: string
       title:
         type: string
+      viewer:
+        allOf:
+        - $ref: '#/definitions/VODViewer'
+        description: Viewer is present only when the request carries a valid token.
+    type: object
+  VODViewer:
+    properties:
+      positionSec:
+        type: integer
     type: object
 info:
   contact: {}
@@ -220,6 +293,71 @@ info:
   title: NexusLive stream-svc API
   version: "1.0"
 paths:
+  /me/continue-watching:
+    get:
+      description: Positions below 5 s and VODs watched to within 10 s of the end
+        are left out, like expired VODs.
+      parameters:
+      - default: 12
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ContinueList'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: VODs the signed-in viewer has not finished, newest first
+      tags:
+      - playback
+  /me/watch-progress/{vodId}:
+    put:
+      consumes:
+      - application/json
+      description: Clients send it at most every 15 s and when leaving. keepFurther=true
+        keeps a further stored position (used to merge a browser's local progress
+        after sign-in).
+      parameters:
+      - description: vod id (uuid)
+        in: path
+        name: vodId
+        required: true
+        type: string
+      - description: position
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ProgressRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Save the VOD position of the signed-in viewer
+      tags:
+      - playback
   /streams:
     get:
       description: channel is null for streams whose channel is unknown to stream-svc.
@@ -276,6 +414,53 @@ paths:
       summary: Stream detail (status, manifestUrl, vodId once the VOD is ready)
       tags:
       - streams
+  /streams/{id}/playback:
+    post:
+      consumes:
+      - application/json
+      description: Guests may call it; send X-NXL-Anon-Id when you have one. Mature
+        streams return mature.required=true and no manifestUrl until called again
+        with acknowledgeMature=true (signed-in viewers are remembered per channel).
+        manifestUrl gains a signature in GĐ5.
+      parameters:
+      - description: stream id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: guest browser id (uuid)
+        in: header
+        name: X-NXL-Anon-Id
+        type: string
+      - description: age confirmation
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/PlaybackRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Playback'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED (token sent but invalid)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Open a live (or ended) stream for playback
+      tags:
+      - playback
   /studio/stream:
     get:
       description: current is null when the channel is offline; health is the latest
@@ -407,6 +592,8 @@ paths:
       - studio
   /vods/{id}:
     get:
+      description: With a token, viewer.positionSec is the caller's saved position
+        (null when never watched).
       parameters:
       - description: vod id (uuid)
         in: path
@@ -420,13 +607,64 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/Data-internal_controller_restapi_v1_VOD'
+        "401":
+          description: UNAUTHORIZED (token sent but invalid)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
         "404":
           description: NOT_FOUND
           schema:
             $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: VOD (READY and not expired)
       tags:
       - vods
+  /vods/{id}/playback:
+    post:
+      consumes:
+      - application/json
+      description: Same rules as /streams/{id}/playback; a VOD inherits the mature
+        flag of its broadcast.
+      parameters:
+      - description: vod id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: guest browser id (uuid)
+        in: header
+        name: X-NXL-Anon-Id
+        type: string
+      - description: age confirmation
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/PlaybackRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Playback'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED (token sent but invalid)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Open a VOD for playback
+      tags:
+      - playback
 securityDefinitions:
   BearerAuth:
     in: header

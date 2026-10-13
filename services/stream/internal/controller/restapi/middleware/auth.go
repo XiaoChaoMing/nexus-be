@@ -39,6 +39,20 @@ func Auth(v verifier) fiber.Handler {
 	}
 }
 
+// OptionalAuth lets guests through and identifies signed-in callers. A token that is sent but invalid is
+// still rejected with 401, so the client refreshes instead of silently watching as a guest.
+func OptionalAuth(v verifier) fiber.Handler {
+	required := Auth(v)
+
+	return func(ctx *fiber.Ctx) error {
+		if strings.TrimSpace(ctx.Get(fiber.HeaderAuthorization)) == "" {
+			return ctx.Next()
+		}
+
+		return required(ctx)
+	}
+}
+
 // bearerToken accepts "Bearer <jwt>" (any case) and, for Swagger UI's API-key dialog where people
 // paste the token alone, a bare JWT. The token is verified either way.
 func bearerToken(header string) (string, bool) {

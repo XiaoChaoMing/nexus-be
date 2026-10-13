@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.3 |
+| **Phiên bản** | 1.4 |
 | **Cập nhật** | 2026-10-13 |
 | **Phạm vi** | REST công khai, API nội bộ giữa service, RTMP/HLS, sự kiện NATS. Gồm API đã chạy và API dự kiến theo lộ trình |
 
@@ -68,7 +68,7 @@ Cấu hình: `deploy/nginx/templates/nxl-edge.conf.template` (envsubst khi conta
 - Vượt → `429 {"error":{"code":"RATE_LIMITED","details":{"retryAfterSec":"60"}}}` + `Retry-After: 60`.
 - **CORS:** chỉ `NXL_WEB_ORIGIN` (dev `http://localhost:5173`) và `NXL_ADMIN_ORIGIN` (dev `http://localhost:5174`), có
   credentials; `/v1/admin/*` chỉ nhận origin admin. Preflight cho phép header `Authorization, Content-Type,
-  X-NXL-Client, X-Request-Id, Idempotency-Key`. Dev qua Vite proxy là cùng origin nên không cần CORS.
+  X-NXL-Client, X-NXL-Anon-Id, X-Request-Id, Idempotency-Key`. Dev qua Vite proxy là cùng origin nên không cần CORS.
 - **Header mọi response:** `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`,
   `X-Frame-Options: DENY`, `X-Request-Id`.
 
@@ -199,9 +199,10 @@ Mã lỗi: `VALIDATION_FAILED`, `USERNAME_TAKEN`, `EMAIL_TAKEN`, `INVALID_CREDEN
 | POST | `/v1/studio/stream/end` | Creator | Kết thúc buổi phát → media-svc ngắt OBS, tạo VOD | ✅ |
 | GET | `/v1/streams?status=live&cursor=&limit=` | — | Danh sách đang phát (LIVE + INTERRUPTED), mới nhất trước; GĐ1 thêm `channel {id, handle, displayName, avatarUrl} \| null` | ✅ · GĐ1 🔧 |
 | GET | `/v1/streams/{id}` | — | Chi tiết, trạng thái, `manifestUrl`, `thumbnailUrl`, `vodId`; GĐ1 thêm `channel` (giữ `channelId`) | ✅ · GĐ1 🔧 |
-| GET | `/v1/vods/{id}` | — | VOD đang READY và còn hạn (hết hạn → `404`; job chuyển EXPIRED mỗi 10 phút); GĐ1 thêm `channel` | ✅ · GĐ1 🔧 |
-| POST | `/v1/streams/{id}/playback-sessions` · `/v1/vods/{id}/playback-sessions` | — / Bearer | Phiên phát có chữ ký, kiểm age gate (NXL-A API 02, F3) | 📋 L4 / GĐ5 |
-| PUT | `/v1/vods/{id}/progress` · GET `/v1/me/continue-watching` | Bearer | Lưu vị trí xem VOD, "Xem tiếp" (A5, UC-A07, C2) | 📋 GĐ4 |
+| GET | `/v1/vods/{id}` | — / Bearer | VOD đang READY và còn hạn (hết hạn → `404`; job chuyển EXPIRED mỗi 10 phút); GĐ1 thêm `channel`; GĐ2: có token → `viewer.positionSec` | ✅ · GĐ2 🔧 |
+| POST | `/v1/streams/{id}/playback` · `/v1/vods/{id}/playback` | — / Bearer | Mở phiên xem: `{acknowledgeMature?}`, header `X-NXL-Anon-Id` (Guest) → `{sessionId, manifestUrl, expiresAt, anonId?, mature{required, acknowledged}}`; 18+ chưa xác nhận → ba trường đầu `null`; tài khoản xác nhận một lần/kênh (TSD GĐ2 §4). Chữ ký URL ở GĐ5 | GĐ2 🔧 (chữ ký 📋 GĐ5) |
+| PUT | `/v1/me/watch-progress/{vodId}` | Bearer | `{positionSec, keepFurther?}` → `204`; `VALIDATION_FAILED` (`positionSec: REQUIRED/RANGE`), `NOT_FOUND` (A5, UC-A07) | GĐ2 🔧 |
+| GET | `/v1/me/continue-watching?limit=` | Bearer | VOD xem dở (≥ 5 s, chưa tới 10 s cuối, còn hạn), mới nhất trước: `{items: [{vod, positionSec, updatedAt}]}` (C2) | GĐ2 🔧 |
 | GET / PATCH / DELETE | `/v1/studio/vods`, `/v1/studio/vods/{id}` | Bearer | Studio Content: danh sách, ẩn, xóa VOD (G2) | 📋 GĐ4 |
 | GET | `/v1/channels/{channelId}/vods` | — | VOD của một kênh (tab Videos, D2) | 📋 GĐ4 |
 | GET | `/metrics` (không có tiền tố `/v1`, không qua cổng vào) | — | Prometheus: `stream_live_streams`, `stream_transitions_total{to}`, `stream_authorize_total{result}`, `http_requests_total`, `http_request_duration_seconds` | ✅ L4 |
@@ -386,6 +387,7 @@ Phá vỡ tương thích REST: xem §3.1.
 
 | Ngày | Thay đổi |
 | --- | --- |
+| 2026-10-14 | v1.4 — GĐ2 backend: phiên xem + cổng 18+ phía server, tiến độ xem theo tài khoản, continue-watching; Nginx chuyển `/v1/me/(watch-progress|continue-watching)` sang stream-svc, CORS thêm `X-NXL-Anon-Id` |
 | 2026-10-13 | v1.3 — GĐ1: toàn bộ endpoint identity của TSD GĐ1 §4.1 (cột Auth), header `X-NXL-Client`, rate limit / CORS / header bảo mật ở cổng vào (§1.1), channel-svc cổng 8094 (§6A, chat-svc dời 8095), stream-svc `NOT_CREATOR` + `channel`, 8 sự kiện mới + header `Nxl-Occurred-At`/`Nxl-Producer`; hai web dev 5173/5174; đơn Creator ở GĐ1 (errata E-14) |
 | 2026-10-12 | L4: `409 RECENTLY_ENDED` ở authorize nội bộ; `/metrics` của stream-svc và media-svc; `/healthz` media thêm `rejectedPublishes`; `ingest.stopped` thêm lý do `recovered`; web có trang `/vod/:vodId` |
 | 2026-10-11 | Middleware xác thực chấp nhận cả `Authorization: <jwt>` không có `Bearer ` (dán token trong Swagger) |

@@ -25,7 +25,9 @@ import (
 //	@securityDefinitions.apikey BearerAuth
 //	@in                         header
 //	@name                       Authorization
-func NewRouter(app *fiber.App, studio usecase.Studio, catalog usecase.Catalog, verifier *jwt.JWKSVerifier, l logger.Interface, o v1.Options, swaggerEnabled bool) {
+func NewRouter(app *fiber.App, studio usecase.Studio, catalog usecase.Catalog, viewer usecase.Viewer, verifier *jwt.JWKSVerifier,
+	l logger.Interface, o v1.Options, swaggerEnabled bool,
+) {
 	app.Use(recover.New())
 
 	if swaggerEnabled {
@@ -34,5 +36,6 @@ func NewRouter(app *fiber.App, studio usecase.Studio, catalog usecase.Catalog, v
 
 	app.Get("/healthz", func(ctx *fiber.Ctx) error { return ctx.SendStatus(http.StatusOK) })
 
-	v1.NewRoutes(app.Group("/v1"), studio, catalog, middleware.Auth(verifier), l, o)
+	auth := v1.Auth{Required: middleware.Auth(verifier), Optional: middleware.OptionalAuth(verifier)}
+	v1.NewRoutes(app.Group("/v1"), studio, catalog, viewer, auth, l, o)
 }

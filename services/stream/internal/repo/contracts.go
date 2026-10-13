@@ -66,6 +66,22 @@ type (
 		UpsertChannel(ctx context.Context, eventID string, c entity.Channel) error
 	}
 
+	// ViewerRepo stores what viewers do: playback sessions, mature consents and VOD positions.
+	ViewerRepo interface {
+		CreatePlaybackSession(ctx context.Context, s entity.PlaybackSession) error
+		HasMatureConsent(ctx context.Context, userID, channelID string) (bool, error)
+		// SaveMatureConsent is idempotent.
+		SaveMatureConsent(ctx context.Context, userID, channelID string) error
+		// SaveProgress upserts the position; keepFurther keeps the stored one when it is further.
+		SaveProgress(ctx context.Context, p entity.WatchProgress, keepFurther bool) error
+		// Progress returns nil when the user never watched the VOD.
+		Progress(ctx context.Context, userID, vodID string) (*int, error)
+		// ContinueWatching lists READY, unexpired VODs watched past MinResumeSec and not finished, newest first.
+		ContinueWatching(ctx context.Context, userID string, limit int) ([]entity.ContinueItem, error)
+		// PurgePlaybackSessions deletes sessions that expired before the given time; returns how many.
+		PurgePlaybackSessions(ctx context.Context, before time.Time) (int64, error)
+	}
+
 	// VODInput -.
 	VODInput struct {
 		StreamID     string

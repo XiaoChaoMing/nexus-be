@@ -15,6 +15,104 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/me/continue-watching": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Positions below 5 s and VODs watched to within 10 s of the end are left out, like expired VODs.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "playback"
+                ],
+                "summary": "VODs the signed-in viewer has not finished, newest first",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 12,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_ContinueList"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/watch-progress/{vodId}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clients send it at most every 15 s and when leaving. keepFurther=true keeps a further stored position (used to merge a browser's local progress after sign-in).",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "playback"
+                ],
+                "summary": "Save the VOD position of the signed-in viewer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "vod id (uuid)",
+                        "name": "vodId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "position",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ProgressRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/streams": {
             "get": {
                 "description": "channel is null for streams whose channel is unknown to stream-svc.",
@@ -89,6 +187,75 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/Data-Stream"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/streams/{id}/playback": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Guests may call it; send X-NXL-Anon-Id when you have one. Mature streams return mature.required=true and no manifestUrl until called again with acknowledgeMature=true (signed-in viewers are remembered per channel). manifestUrl gains a signature in GĐ5.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "playback"
+                ],
+                "summary": "Open a live (or ended) stream for playback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "stream id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "guest browser id (uuid)",
+                        "name": "X-NXL-Anon-Id",
+                        "in": "header"
+                    },
+                    {
+                        "description": "age confirmation",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/PlaybackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Playback"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED (token sent but invalid)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
                         }
                     },
                     "404": {
@@ -302,6 +469,12 @@ const docTemplate = `{
         },
         "/vods/{id}": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "With a token, viewer.positionSec is the caller's saved position (null when never watched).",
                 "produces": [
                     "application/json"
                 ],
@@ -323,6 +496,81 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/Data-internal_controller_restapi_v1_VOD"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED (token sent but invalid)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/vods/{id}/playback": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Same rules as /streams/{id}/playback; a VOD inherits the mature flag of its broadcast.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "playback"
+                ],
+                "summary": "Open a VOD for playback",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "vod id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "guest browser id (uuid)",
+                        "name": "X-NXL-Anon-Id",
+                        "in": "header"
+                    },
+                    {
+                        "description": "age confirmation",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/PlaybackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Playback"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED (token sent but invalid)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
                         }
                     },
                     "404": {
@@ -353,6 +601,31 @@ const docTemplate = `{
                 }
             }
         },
+        "ContinueItem": {
+            "type": "object",
+            "properties": {
+                "positionSec": {
+                    "type": "integer"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "vod": {
+                    "$ref": "#/definitions/VOD"
+                }
+            }
+        },
+        "ContinueList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ContinueItem"
+                    }
+                }
+            }
+        },
         "Data-Settings": {
             "type": "object",
             "properties": {
@@ -366,6 +639,22 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/Stream"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_ContinueList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ContinueList"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Playback": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Playback"
                 }
             }
         },
@@ -453,6 +742,59 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "uploadErrors": {
+                    "type": "integer"
+                }
+            }
+        },
+        "Mature": {
+            "type": "object",
+            "properties": {
+                "acknowledged": {
+                    "type": "boolean"
+                },
+                "required": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Playback": {
+            "type": "object",
+            "properties": {
+                "anonId": {
+                    "description": "AnonID is echoed (or generated) for guests; the client stores it and sends it back in X-NXL-Anon-Id.",
+                    "type": "string"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "manifestUrl": {
+                    "type": "string"
+                },
+                "mature": {
+                    "$ref": "#/definitions/Mature"
+                },
+                "sessionId": {
+                    "type": "string"
+                }
+            }
+        },
+        "PlaybackRequest": {
+            "type": "object",
+            "properties": {
+                "acknowledgeMature": {
+                    "description": "AcknowledgeMature confirms the viewer is 18+; signed-in viewers are not asked again for the channel.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "ProgressRequest": {
+            "type": "object",
+            "properties": {
+                "keepFurther": {
+                    "description": "KeepFurther keeps the stored position when it is further (merging a browser's local progress on sign-in).",
+                    "type": "boolean"
+                },
+                "positionSec": {
                     "type": "integer"
                 }
             }
@@ -661,6 +1003,22 @@ const docTemplate = `{
                 },
                 "title": {
                     "type": "string"
+                },
+                "viewer": {
+                    "description": "Viewer is present only when the request carries a valid token.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/VODViewer"
+                        }
+                    ]
+                }
+            }
+        },
+        "VODViewer": {
+            "type": "object",
+            "properties": {
+                "positionSec": {
+                    "type": "integer"
                 }
             }
         }

@@ -107,4 +107,6 @@ type VOD struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	ExpiresAt    time.Time `json:"expiresAt"`
 	Channel      *Channel  `json:"channel"`
+	// Viewer is present only when the request carries a valid token.
+	Viewer *VODViewer `json:"viewer,omitempty"`
 }

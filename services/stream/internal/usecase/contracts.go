@@ -52,6 +52,26 @@ type (
 		GetVOD(ctx context.Context, vodID string) (entity.VOD, error)
 	}
 
+	// PlaybackInput identifies the viewer opening a stream or VOD.
+	PlaybackInput struct {
+		Target entity.PlaybackTarget
+		// UserID is empty for guests; AnonID is the guest's browser id (generated when empty).
+		UserID            string
+		AnonID            string
+		AcknowledgeMature bool
+	}
+
+	// Viewer is what a viewer does around playback: open a session past the age gate and resume VODs.
+	Viewer interface {
+		Open(ctx context.Context, in PlaybackInput) (entity.PlaybackGrant, error)
+		SaveProgress(ctx context.Context, p entity.WatchProgress, keepFurther bool) error
+		// Progress returns nil when the user never watched the VOD.
+		Progress(ctx context.Context, userID, vodID string) (*int, error)
+		ContinueWatching(ctx context.Context, userID string, limit int) ([]entity.ContinueItem, error)
+		// PurgeSessions removes expired playback sessions; returns how many.
+		PurgeSessions(ctx context.Context) (int64, error)
+	}
+
 	// StudioOverview -.
 	StudioOverview struct {
 		Settings entity.Settings

@@ -52,6 +52,10 @@ func (fakeCatalog) Get(_ context.Context, id string) (entity.Stream, error) {
 }
 
 func newApp(studio usecase.Studio) *fiber.App {
+	return newAppWith(studio, &fakeViewer{})
+}
+
+func newAppWith(studio usecase.Studio, viewer usecase.Viewer) *fiber.App {
 	app := fiber.New()
 	// Stands in for middleware.Auth: the "X-User" header becomes the authenticated user id.
 	auth := func(ctx *fiber.Ctx) error {
@@ -62,7 +66,8 @@ func newApp(studio usecase.Studio) *fiber.App {
 		return ctx.Next()
 	}
 
-	v1.NewRoutes(app.Group("/v1"), studio, fakeCatalog{}, auth, logger.New("error"), v1.Options{HLSBase: "/hls"})
+	v1.NewRoutes(app.Group("/v1"), studio, fakeCatalog{}, viewer, v1.Auth{Required: auth, Optional: auth},
+		logger.New("error"), v1.Options{HLSBase: "/hls"})
 
 	return app
 }

@@ -2,7 +2,7 @@
 
 | Track | Trạng thái | Ngày |
 | --- | --- | --- |
-| Full (nhiều gói, stream-svc + web, cross-repo) | Draft — chờ duyệt | 2026-10-14 |
+| Full (nhiều gói, stream-svc + web, cross-repo) | Approved 14/10 (G2-Q1…Q4 theo đề xuất) — WP1, WP2 backend xong; WP3–WP5 chờ design | 2026-10-14 |
 
 Lịch lộ trình GĐ2: 16/11 → 04/12, mốc **M2**. Lõi GĐ2 (stream key, state machine, media-svc, VOD, Studio, trang
 xem 8/9 trạng thái) đã làm ở L1–L4; GĐ1 đã nối Creator/kênh thật. Plan này gom **phần còn lại** để đóng GĐ2 sớm

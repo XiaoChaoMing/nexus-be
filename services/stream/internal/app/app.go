@@ -23,6 +23,7 @@ import (
 	v1 "github.com/minhnn/nexuslive-be/services/stream/internal/controller/restapi/v1"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/metrics"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/repo/persistent"
+	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/playback"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/streams"
 )
 
@@ -57,6 +58,8 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	uc := streams.New(store, store, store, store, cfg.Stream.GracePeriod, cfg.Stream.VODRetention, l,
 		streams.EndCooldown(cfg.Stream.EndCooldown), streams.WithObserver(m))
 
+	viewer := playback.New(store, store, store, l)
+
 	// Outgoing events (stream.started / stream.ended) leave through the outbox.
 	go outbox.New(pg.Pool, bus, l).Run(ctx)
 
@@ -77,12 +80,16 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 		if _, err := uc.ExpireVODs(ctx); err != nil {
 			l.Warn("stream - vod expiry: %v", err)
 		}
+
+		if _, err := viewer.PurgeSessions(ctx); err != nil {
+			l.Warn("stream - playback session purge: %v", err)
+		}
 	})
 
 	public := httpserver.New(l, httpserver.Port(cfg.HTTP.Port))
 	// Before the routes, so every request is counted (GET /metrics included).
 	public.App.Use(httpmetrics.New(m.Registerer()))
-	restapi.NewRouter(public.App, uc, uc, jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l, v1.Options{
+	restapi.NewRouter(public.App, uc, uc, viewer, jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l, v1.Options{
 		RTMPPublicURL: cfg.Stream.RTMPPublicURL,
 		HLSBase:       cfg.Stream.HLSBase,
 	}, cfg.Swagger.Enabled)

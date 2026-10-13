@@ -44,15 +44,26 @@ type Options struct {
 type routes struct {
 	studio  usecase.Studio
 	catalog usecase.Catalog
+	viewer  usecase.Viewer
 	l       logger.Interface
 	o       Options
 }
 
-// NewRoutes registers /v1/studio, /v1/streams and /v1/vods.
-func NewRoutes(group fiber.Router, studio usecase.Studio, catalog usecase.Catalog, auth fiber.Handler, l logger.Interface, o Options) {
-	r := &routes{studio: studio, catalog: catalog, l: l, o: o}
+// Auth holds the two authentication middlewares: Required rejects guests, Optional identifies callers when a
+// token is sent.
+type Auth struct {
+	Required fiber.Handler
+	Optional fiber.Handler
+}
 
-	st := group.Group("/studio", auth, r.requireCreator)
+// NewRoutes registers /v1/studio, /v1/streams, /v1/vods and the viewer's /v1/me/watch-progress and
+// /v1/me/continue-watching.
+func NewRoutes(group fiber.Router, studio usecase.Studio, catalog usecase.Catalog, viewer usecase.Viewer, auth Auth,
+	l logger.Interface, o Options,
+) {
+	r := &routes{studio: studio, catalog: catalog, viewer: viewer, l: l, o: o}
+
+	st := group.Group("/studio", auth.Required, r.requireCreator)
 	{
 		st.Post("/stream-key", r.createKey)
 		st.Get("/stream-key", r.keyInfo)
@@ -63,7 +74,12 @@ func NewRoutes(group fiber.Router, studio usecase.Studio, catalog usecase.Catalo
 
 	group.Get("/streams", r.listLive)
 	group.Get("/streams/:id", r.getStream)
-	group.Get("/vods/:id", r.getVOD)
+	group.Post("/streams/:id/playback", auth.Optional, r.openStream)
+	group.Get("/vods/:id", auth.Optional, r.getVOD)
+	group.Post("/vods/:id/playback", auth.Optional, r.openVOD)
+
+	group.Put("/me/watch-progress/:vodId", auth.Required, r.saveProgress)
+	group.Get("/me/continue-watching", auth.Required, r.continueWatching)
 }
 
 func errorJSON(ctx *fiber.Ctx, status int, code, message string, details map[string]string) error {
@@ -364,13 +380,16 @@ func (r *routes) getStream(ctx *fiber.Ctx) error {
 
 // getVOD godoc
 //
-//	@Summary VOD (READY and not expired)
-//	@Tags    vods
-//	@Produce json
-//	@Param   id  path     string true "vod id (uuid)"
-//	@Success 200 {object} Data[VOD]
-//	@Failure 404 {object} ErrorResponse "NOT_FOUND"
-//	@Router  /vods/{id} [get]
+//	@Summary     VOD (READY and not expired)
+//	@Description With a token, viewer.positionSec is the caller's saved position (null when never watched).
+//	@Tags        vods
+//	@Produce     json
+//	@Security    BearerAuth
+//	@Param       id  path     string true "vod id (uuid)"
+//	@Success     200 {object} Data[VOD]
+//	@Failure     401 {object} ErrorResponse "UNAUTHORIZED (token sent but invalid)"
+//	@Failure     404 {object} ErrorResponse "NOT_FOUND"
+//	@Router      /vods/{id} [get]
 func (r *routes) getVOD(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
 	if _, err := uuid.Parse(id); err != nil {
@@ -386,7 +405,24 @@ func (r *routes) getVOD(ctx *fiber.Ctx) error {
 		return r.internal(ctx, "getVOD", err)
 	}
 
-	return ctx.JSON(Data[VOD]{Data: VOD{
+	body := r.vodBody(v)
+
+	if userID, ok := middleware.UserID(ctx); ok {
+		pos, perr := r.viewer.Progress(ctx.UserContext(), userID, v.ID)
+		if perr != nil {
+			return r.internal(ctx, "getVOD - progress", perr)
+		}
+
+		body.Viewer = &VODViewer{PositionSec: pos}
+
+		ctx.Set(fiber.HeaderCacheControl, "no-store")
+	}
+
+	return ctx.JSON(Data[VOD]{Data: body})
+}
+
+func (r *routes) vodBody(v entity.VOD) VOD {
+	return VOD{
 		ID:           v.ID,
 		StreamID:     v.StreamID,
 		ChannelID:    v.ChannelID,
@@ -398,7 +434,7 @@ func (r *routes) getVOD(ctx *fiber.Ctx) error {
 		CreatedAt:    v.CreatedAt.UTC(),
 		ExpiresAt:    v.ExpiresAt.UTC(),
 		Channel:      channelRef(v.Channel),
-	}})
+	}
 }
 
 // ---- mapping -------------------------------------------------------------------------------------

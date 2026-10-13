@@ -32,7 +32,8 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	t.Cleanup(pg.Close)
 
 	_, err = pg.Pool.Exec(context.Background(),
-		`TRUNCATE vods, streams, stream_keys, stream_settings, creator_channels, outbox, processed_events CASCADE`)
+		`TRUNCATE vods, streams, stream_keys, stream_settings, creator_channels, outbox, processed_events,
+		 playback_sessions, watch_progress, mature_consents CASCADE`)
 	require.NoError(t, err)
 
 	return persistent.New(pg), pg
@@ -348,4 +349,113 @@ func TestCreatorChannels(t *testing.T) { //nolint:paralleltest // shared databas
 	empty, err := r.ChannelsByID(ctx, nil)
 	require.NoError(t, err)
 	require.Empty(t, empty)
+}
+
+// insertVOD stores an ENDED stream and its READY VOD of durationSec; returns the VOD.
+func insertVOD(t *testing.T, pg *postgres.Postgres, channelID string, durationSec int, expiresAt time.Time) entity.VOD {
+	t.Helper()
+
+	ctx := context.Background()
+	streamID, vodID := uuid.NewString(), uuid.NewString()
+
+	_, err := pg.Pool.Exec(ctx,
+		`INSERT INTO streams (id, channel_id, title, status, started_at, ended_at, end_reason)
+		 VALUES ($1, $2, 't', 'ENDED', now() - interval '1 hour', now(), 'creator')`, streamID, channelID)
+	require.NoError(t, err)
+
+	_, err = pg.Pool.Exec(ctx,
+		`INSERT INTO vods (id, stream_id, channel_id, title, duration_sec, playlist_path, status, expires_at)
+		 VALUES ($1, $2, $3, 't', $4, 'streams/x/vod.m3u8', 'READY', $5)`, vodID, streamID, channelID, durationSec, expiresAt)
+	require.NoError(t, err)
+
+	return entity.VOD{ID: vodID, StreamID: streamID, ChannelID: channelID, DurationSec: durationSec}
+}
+
+func TestViewer(t *testing.T) { //nolint:paralleltest,funlen // shared database, one story
+	r, pg := setup(t)
+	ctx := context.Background()
+	user, channel := uuid.NewString(), uuid.NewString()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	// Mature consent is idempotent and per channel.
+	ok, err := r.HasMatureConsent(ctx, user, channel)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.NoError(t, r.SaveMatureConsent(ctx, user, channel))
+	require.NoError(t, r.SaveMatureConsent(ctx, user, channel))
+	ok, err = r.HasMatureConsent(ctx, user, channel)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// Sessions for a signed-in user and a guest, then purge of the expired one.
+	watched := insertVOD(t, pg, channel, 600, now.Add(24*time.Hour))
+	require.NoError(t, r.CreatePlaybackSession(ctx, entity.PlaybackSession{
+		ID: uuid.NewString(), Target: entity.PlaybackTarget{VODID: watched.ID}, UserID: user,
+		CreatedAt: now, ExpiresAt: now.Add(time.Hour),
+	}))
+	require.NoError(t, r.CreatePlaybackSession(ctx, entity.PlaybackSession{
+		ID: uuid.NewString(), Target: entity.PlaybackTarget{StreamID: watched.StreamID}, AnonID: uuid.NewString(),
+		MatureAcknowledged: true, CreatedAt: now.Add(-6 * time.Hour), ExpiresAt: now.Add(-2 * time.Hour),
+	}))
+	n, err := r.PurgePlaybackSessions(ctx, now.Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+
+	// Progress: keepFurther keeps the larger value, a plain save overwrites.
+	pos, err := r.Progress(ctx, user, watched.ID)
+	require.NoError(t, err)
+	require.Nil(t, pos)
+
+	save := func(p int, keep bool, at time.Time) {
+		require.NoError(t, r.SaveProgress(ctx, entity.WatchProgress{UserID: user, VODID: watched.ID, PositionSec: p, UpdatedAt: at}, keep))
+	}
+
+	save(300, false, now)
+	save(100, true, now.Add(time.Second))
+
+	pos, err = r.Progress(ctx, user, watched.ID)
+	require.NoError(t, err)
+	require.Equal(t, 300, *pos)
+
+	save(120, false, now.Add(2*time.Second))
+
+	pos, err = r.Progress(ctx, user, watched.ID)
+	require.NoError(t, err)
+	require.Equal(t, 120, *pos)
+
+	// Continue watching skips barely started, finished and expired VODs; newest first.
+	finished := insertVOD(t, pg, channel, 600, now.Add(24*time.Hour))
+	barely := insertVOD(t, pg, channel, 600, now.Add(24*time.Hour))
+	expired := insertVOD(t, pg, channel, 600, now.Add(-time.Minute))
+	later := insertVOD(t, pg, channel, 900, now.Add(24*time.Hour))
+
+	for _, p := range []entity.WatchProgress{
+		{VODID: finished.ID, PositionSec: 595},
+		{VODID: barely.ID, PositionSec: 3},
+		{VODID: expired.ID, PositionSec: 50},
+		{VODID: later.ID, PositionSec: 60, UpdatedAt: now.Add(time.Minute)},
+	} {
+		if p.UpdatedAt.IsZero() {
+			p.UpdatedAt = now
+		}
+
+		p.UserID = user
+		require.NoError(t, r.SaveProgress(ctx, p, false))
+	}
+
+	items, err := r.ContinueWatching(ctx, user, 10)
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	require.Equal(t, later.ID, items[0].VOD.ID)
+	require.Equal(t, 60, items[0].PositionSec)
+	require.Equal(t, 900, items[0].VOD.DurationSec)
+	require.Equal(t, watched.ID, items[1].VOD.ID)
+
+	items, err = r.ContinueWatching(ctx, user, 1)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	items, err = r.ContinueWatching(ctx, uuid.NewString(), 10)
+	require.NoError(t, err)
+	require.Empty(t, items)
 }
