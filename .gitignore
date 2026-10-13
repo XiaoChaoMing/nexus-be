@@ -23,3 +23,6 @@ bin/
 vendor/
 
 coverage.txt
+
+# Benchmark output (make nxl-bench)
+bench-out/
