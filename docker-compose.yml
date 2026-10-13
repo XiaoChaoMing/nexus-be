@@ -255,7 +255,7 @@ services:
   minio:
     container_name: minio
     # MinIO no longer publishes community images on Docker Hub / Quay; Chainguard ships a free rebuild.
-    image: cgr.dev/chainguard/minio:latest@sha256:7df55d002b698e4494a131b848dd553361bbe58b7e19f62d9623c29af1ba9ccf
+    image: cgr.dev/chainguard/minio:latest@sha256:dc455cdd4db6e390b1b26514f15ff37681a777bf8dab41aac445a0259f751e56
     # The image's non-root user (65532) fails with "file access denied" on Docker Desktop.
     user: "0:0"
     command: ["server", "/data", "--console-address", ":9001"]
