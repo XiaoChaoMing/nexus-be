@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS user_blocks;
+DROP TABLE IF EXISTS creator_applications;
+DROP TABLE IF EXISTS email_tokens;
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS credentials;
+DROP TABLE IF EXISTS users;
+DROP EXTENSION IF EXISTS citext;

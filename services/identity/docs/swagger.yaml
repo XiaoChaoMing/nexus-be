@@ -1,0 +1,958 @@
+basePath: /v1
+definitions:
+  AdminApplication:
+    properties:
+      age:
+        type: integer
+      birthDate:
+        description: YYYY-MM-DD.
+        example: "2000-01-31"
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      legalName:
+        description: Applicant's legal name.
+        type: string
+      note:
+        type: string
+      rejectReason:
+        type: string
+      reviewedAt:
+        type: string
+      status:
+        example: PENDING
+        type: string
+      user:
+        $ref: '#/definitions/Applicant'
+    type: object
+  Applicant:
+    properties:
+      createdAt:
+        type: string
+      displayName:
+        type: string
+      email:
+        type: string
+      emailVerified:
+        type: boolean
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+  Application:
+    properties:
+      birthDate:
+        description: YYYY-MM-DD.
+        example: "2000-01-31"
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      legalName:
+        description: Applicant's legal name.
+        type: string
+      note:
+        type: string
+      rejectReason:
+        type: string
+      reviewedAt:
+        type: string
+      status:
+        example: PENDING
+        type: string
+    type: object
+  ApplicationPage:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/AdminApplication'
+        type: array
+      nextCursor:
+        description: Null on the last page.
+        type: string
+    type: object
+  ChangePassword:
+    properties:
+      currentPassword:
+        maxLength: 72
+        type: string
+      newPassword:
+        type: string
+    required:
+    - currentPassword
+    - newPassword
+    type: object
+  Data-AdminApplication:
+    properties:
+      data:
+        $ref: '#/definitions/AdminApplication'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Application:
+    properties:
+      data:
+        $ref: '#/definitions/Application'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_ApplicationPage:
+    properties:
+      data:
+        $ref: '#/definitions/ApplicationPage'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Me:
+    properties:
+      data:
+        $ref: '#/definitions/Me'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session:
+    properties:
+      data:
+        $ref: '#/definitions/Session'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_User:
+    properties:
+      data:
+        $ref: '#/definitions/User'
+    type: object
+  Error:
+    properties:
+      error:
+        $ref: '#/definitions/ErrorBody'
+    type: object
+  ErrorBody:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  ForgotPassword:
+    properties:
+      email:
+        maxLength: 254
+        type: string
+    required:
+    - email
+    type: object
+  JWK:
+    properties:
+      alg:
+        type: string
+      crv:
+        type: string
+      kid:
+        type: string
+      kty:
+        type: string
+      use:
+        type: string
+      x:
+        type: string
+    type: object
+  JWKS:
+    properties:
+      keys:
+        items:
+          $ref: '#/definitions/JWK'
+        type: array
+    type: object
+  Login:
+    properties:
+      login:
+        description: Email or username.
+        maxLength: 254
+        type: string
+      password:
+        maxLength: 72
+        type: string
+    required:
+    - login
+    - password
+    type: object
+  Me:
+    properties:
+      channelId:
+        type: string
+      isCreator:
+        type: boolean
+      preferences:
+        $ref: '#/definitions/Preferences'
+      roles:
+        description: Always VIEWER; CREATOR when the user owns a channel; ADMIN for
+          admins.
+        example:
+        - VIEWER
+        items:
+          type: string
+        type: array
+      unreadNotifications:
+        type: integer
+      user:
+        $ref: '#/definitions/User'
+    type: object
+  Preferences:
+    properties:
+      matureVisible:
+        type: boolean
+      sidebarCollapsed:
+        type: boolean
+    type: object
+  Register:
+    properties:
+      acceptTerms:
+        description: Must be true (terms of service, 13+ self-declared).
+        type: boolean
+      displayName:
+        maxLength: 50
+        type: string
+      email:
+        maxLength: 254
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    required:
+    - acceptTerms
+    - email
+    - password
+    - username
+    type: object
+  RejectApplication:
+    properties:
+      reason:
+        description: Trimmed, 10-500 characters; shown to the applicant.
+        maxLength: 500
+        minLength: 10
+        type: string
+    required:
+    - reason
+    type: object
+  ResetPassword:
+    properties:
+      password:
+        type: string
+      token:
+        maxLength: 128
+        type: string
+    required:
+    - password
+    - token
+    type: object
+  Session:
+    properties:
+      accessToken:
+        type: string
+      expiresIn:
+        type: integer
+      user:
+        $ref: '#/definitions/User'
+    type: object
+  SubmitApplication:
+    properties:
+      acceptCreatorTerms:
+        description: Must be true.
+        type: boolean
+      birthDate:
+        description: YYYY-MM-DD, not in the future.
+        type: string
+      legalName:
+        description: Trimmed, 2-100 characters.
+        maxLength: 100
+        minLength: 2
+        type: string
+      note:
+        maxLength: 500
+        type: string
+    required:
+    - acceptCreatorTerms
+    - birthDate
+    - legalName
+    type: object
+  UpdateMe:
+    properties:
+      birthDate:
+        description: YYYY-MM-DD, not in the future; can only be set while empty.
+        type: string
+      displayName:
+        description: Trimmed, 1-50 characters.
+        maxLength: 50
+        minLength: 1
+        type: string
+      locale:
+        enum:
+        - vi
+        - en
+        type: string
+      preferences:
+        $ref: '#/definitions/Preferences'
+      timezone:
+        description: IANA name, e.g. Asia/Ho_Chi_Minh.
+        maxLength: 50
+        type: string
+    type: object
+  User:
+    properties:
+      birthDate:
+        description: YYYY-MM-DD, null until set.
+        example: "2000-01-31"
+        type: string
+      channelId:
+        description: Null until the user owns a channel.
+        type: string
+      createdAt:
+        type: string
+      displayName:
+        type: string
+      email:
+        type: string
+      emailVerified:
+        type: boolean
+      globalRole:
+        type: string
+      id:
+        type: string
+      isCreator:
+        type: boolean
+      locale:
+        example: vi
+        type: string
+      timezone:
+        example: Asia/Ho_Chi_Minh
+        type: string
+      username:
+        type: string
+    type: object
+  VerifyEmail:
+    properties:
+      token:
+        maxLength: 128
+        type: string
+    required:
+    - token
+    type: object
+info:
+  contact: {}
+  description: |-
+    Accounts, sessions, account self-service and creator applications. Access tokens are EdDSA
+    JWTs; other services verify them with the JWKS. /admin routes need an access token with role ADMIN.
+  title: NexusLive identity-svc API
+  version: "1.0"
+paths:
+  /admin/creator-applications:
+    get:
+      description: Oldest first. Pass nextCursor back as cursor for the next page.
+      parameters:
+      - description: Status filter (default PENDING)
+        enum:
+        - PENDING
+        - APPROVED
+        - REJECTED
+        - CANCELLED
+        - ALL
+        in: query
+        name: status
+        type: string
+      - description: Opaque cursor from nextCursor
+        in: query
+        name: cursor
+        type: string
+      - description: Page size 1-50 (default 20)
+        in: query
+        maximum: 50
+        minimum: 1
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_ApplicationPage'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: List creator applications (admin)
+      tags:
+      - admin
+  /admin/creator-applications/{id}:
+    get:
+      parameters:
+      - description: Application id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminApplication'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Get a creator application (admin)
+      tags:
+      - admin
+  /admin/creator-applications/{id}/approve:
+    post:
+      description: PENDING only. Copies the birth date to the account; channel-svc
+        then creates the channel.
+      parameters:
+      - description: Application id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminApplication'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN (not an admin, or own application)
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Approve a creator application (admin)
+      tags:
+      - admin
+  /admin/creator-applications/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: PENDING only. The reason (10-500 characters, trimmed) is shown
+        to the applicant.
+      parameters:
+      - description: Application id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/RejectApplication'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminApplication'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN (not an admin, or own application)
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Reject a creator application (admin)
+      tags:
+      - admin
+  /auth/.well-known/jwks.json:
+    get:
+      description: Public keys other services use to verify access tokens locally.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/JWKS'
+      summary: JWKS
+      tags:
+      - auth
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Login with email or username. Copy data.accessToken into Authorize
+        (Bearer) to call protected endpoints.
+      parameters:
+      - description: Credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/Login'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: INVALID_CREDENTIALS
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: ACCOUNT_LOCKED (details.lockedUntil when the lock is temporary)
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Login
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      description: Revokes the refresh session in the cookie and clears it. Requires
+        the X-NXL-Client header (CSRF guard).
+      parameters:
+      - description: Calling app (CSRF guard)
+        enum:
+        - web
+        - admin
+        in: header
+        name: X-NXL-Client
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: FORBIDDEN (details.header = REQUIRED)
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Logout
+      tags:
+      - auth
+  /auth/me:
+    get:
+      description: Kept for compatibility; GET /me returns the same user with roles
+        and preferences.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_User'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Current user
+      tags:
+      - auth
+  /auth/password/forgot:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Always 202, whether or not the e-mail is registered (and when rate limited), so accounts
+        cannot be discovered. The link ({web}/reset-password?token=...) is valid for 30 minutes.
+      parameters:
+      - description: Account e-mail
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ForgotPassword'
+      responses:
+        "202":
+          description: Accepted
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Request a password reset e-mail
+      tags:
+      - auth
+  /auth/password/reset:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Consumes the reset token, stores the new password, signs out every session and lifts a
+        temporary lock.
+      parameters:
+      - description: Token from the e-mail link and the new password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ResetPassword'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: VALIDATION_FAILED / TOKEN_INVALID
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Reset the password
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      description: |-
+        Uses the HttpOnly cookie nxl_rt (sent automatically by the browser) and rotates it.
+        The X-NXL-Client header (web or admin) is required as a CSRF guard; Swagger UI cannot send the
+        SameSite=Strict cookie cross-origin, so try this from the web app.
+      parameters:
+      - description: Calling app (CSRF guard)
+        enum:
+        - web
+        - admin
+        in: header
+        name: X-NXL-Client
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session'
+        "401":
+          description: SESSION_EXPIRED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN (details.header = REQUIRED) / ACCOUNT_LOCKED
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Refresh the access token
+      tags:
+      - auth
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Creates an account and signs in: returns an access token and sets the refresh cookie nxl_rt.
+        acceptTerms must be true. A verification e-mail is sent (auth.email_requested.v1).
+      parameters:
+      - description: New account
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/Register'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session'
+        "400":
+          description: VALIDATION_FAILED (details.acceptTerms = REQUIRED, ...)
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: USERNAME_TAKEN / EMAIL_TAKEN (details.<field> = TAKEN)
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Register
+      tags:
+      - auth
+  /auth/verify-email:
+    post:
+      consumes:
+      - application/json
+      description: Consumes the one-time token from the verification e-mail ({web}/verify-email?token=...).
+      parameters:
+      - description: Token from the e-mail link
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/VerifyEmail'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_User'
+        "400":
+          description: VALIDATION_FAILED / TOKEN_INVALID (unknown, expired or used)
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Verify the e-mail address
+      tags:
+      - auth
+  /auth/verify-email/resend:
+    post:
+      description: Issues a new token (older links stop working). At most one per
+        60 s and 5 per hour.
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: CONFLICT (already verified)
+          schema:
+            $ref: '#/definitions/Error'
+        "429":
+          description: RATE_LIMITED (details.retryAfterSec, header Retry-After)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Resend the verification e-mail
+      tags:
+      - auth
+  /creator-applications:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Needs a verified e-mail, no pending application and no channel. legalName 2-100 characters,
+        birthDate YYYY-MM-DD (age at least IDENTITY_CREATOR_MIN_AGE), note up to 500, acceptCreatorTerms true.
+      parameters:
+      - description: Application
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/SubmitApplication'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Application'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: EMAIL_NOT_VERIFIED
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: APPLICATION_PENDING / ALREADY_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "422":
+          description: UNDERAGE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Apply to become a creator
+      tags:
+      - creator
+  /creator-applications/{id}:
+    delete:
+      parameters:
+      - description: Application id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE (not pending)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Cancel my pending application
+      tags:
+      - creator
+  /creator-applications/me:
+    get:
+      description: data is null when the user never applied.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Application'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: My latest creator application
+      tags:
+      - creator
+  /me:
+    get:
+      description: The user plus roles (always VIEWER; CREATOR with a channel; ADMIN),
+        channel and preferences.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Me'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Signed-in account
+      tags:
+      - me
+    patch:
+      consumes:
+      - application/json
+      description: |-
+        Changes only the fields present. displayName 1-50 characters (trimmed); locale vi or en;
+        timezone an IANA name; birthDate YYYY-MM-DD, not in the future, only while it is empty.
+      parameters:
+      - description: Fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateMe'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Me'
+        "400":
+          description: VALIDATION_FAILED (details.birthDate = ALREADY_SET / INVALID,
+            ...)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Update the account
+      tags:
+      - me
+  /me/password:
+    post:
+      consumes:
+      - application/json
+      description: Signs out every other session and returns a new one (new access
+        token and nxl_rt cookie).
+      parameters:
+      - description: Current and new password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ChangePassword'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session'
+        "400":
+          description: VALIDATION_FAILED / WRONG_PASSWORD
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Change the password
+      tags:
+      - me
+securityDefinitions:
+  BearerAuth:
+    description: '"Bearer " + data.accessToken from /auth/login'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

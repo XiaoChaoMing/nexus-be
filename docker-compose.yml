@@ -1,0 +1,405 @@
+# NexusLive dev stack (docs/plans/technical/2026-10-13-gd00-infra.md §4.4, GĐ1: 2026-10-13-gd01-identity-web-shell.md).
+# Profiles: (none) = infrastructure · nxl = services (identity, channel, stream, media) + Nginx edge ·
+# obs = Prometheus, Grafana, Jaeger.
+#   make nxl-infra-up · make nxl-up-all (everything) · make nxl-down
+# Dev accounts (NXL_ENV=dev): admin@nexuslive.dev and creator@nexuslive.dev, password IDENTITY_DEV_SEED_PASSWORD.
+
+# Fixed project name: container, network and volume names no longer depend on the folder name.
+name: nexuslive-be
+
+x-db-environment: &x-db-environment
+  POSTGRES_SSL_MODE: "disable"
+  POSTGRES_HOST: "db"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "db"
+  POSTGRES_PASSWORD: "myAwEsOm3pa55@w0rd"
+  POSTGRES_USER: "user"
+
+x-minio-environment: &x-minio-environment
+  MINIO_ROOT_USER: "minioadmin"
+  MINIO_ROOT_PASSWORD: "minioadmin123"
+
+services:
+  db:
+    container_name: db
+    image: postgres:18.6-alpine
+    environment:
+      <<: *x-db-environment
+    volumes:
+      - db_data:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      app_network:
+        aliases:
+          - db.lvh.me
+
+  # Creates the NexusLive databases on an existing volume too; initdb.d scripts only run on an empty one.
+  db-init:
+    container_name: db-init
+    profiles: ["nxl"]
+    image: postgres:18.6-alpine
+    environment:
+      PGHOST: "db"
+      PGUSER: "user"
+      PGPASSWORD: "myAwEsOm3pa55@w0rd"
+      PGDATABASE: "db"
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/init/init-databases.sql"]
+    volumes:
+      - ./deploy/postgres/init-databases.sql:/init/init-databases.sql:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+
+  db-migrate:
+    container_name: db-migrate
+    profiles: ["nxl"]
+    image: migrate/migrate:v4.18.3
+    environment:
+      NXL_PG_BASE: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432"
+      NXL_SERVICES: "identity channel stream chat safety notification billing"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        for svc in $$NXL_SERVICES; do
+          echo "migrate nxl_$$svc"
+          migrate -path "/services/$$svc/migrations" -database "$$NXL_PG_BASE/nxl_$$svc?sslmode=disable" up
+        done
+    volumes:
+      - ./services:/services:ro
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    networks:
+      - app_network
+
+  identity:
+    container_name: identity
+    profiles: ["nxl"]
+    build:
+      context: .
+      dockerfile: services/identity/Dockerfile
+    environment:
+      NXL_ENV: "dev"
+      IDENTITY_HTTP_PORT: "8090"
+      IDENTITY_LOG_LEVEL: "debug"
+      NXL_PG_URL_IDENTITY: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432/nxl_identity?sslmode=disable"
+      # Empty in dev: a random key is generated and sessions must sign in again after a restart.
+      IDENTITY_JWT_PRIVATE_KEY: "${IDENTITY_JWT_PRIVATE_KEY:-}"
+      NATS_URL: "nats://guest:guest@nats:4222/"
+      # Verification and password-reset e-mails go to Mailpit (UI http://localhost:8025).
+      IDENTITY_SMTP_ADDR: "mailpit:1025"
+      # Links in e-mails point at the web app.
+      IDENTITY_WEB_BASE_URL: "${NXL_WEB_ORIGIN:-http://localhost:5173}"
+      IDENTITY_DEV_SEED_PASSWORD: "${IDENTITY_DEV_SEED_PASSWORD:-nexuslive123}"
+    ports:
+      - "8090:8090"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      mailpit:
+        condition: service_started
+    networks:
+      app_network:
+        aliases:
+          - identity.lvh.me
+
+  # Channels: created on creator.approved, live flag from stream.started / stream.ended, public channel page.
+  channel:
+    container_name: channel
+    profiles: ["nxl"]
+    build:
+      context: .
+      dockerfile: services/channel/Dockerfile
+    environment:
+      NXL_ENV: "dev"
+      CHANNEL_LOG_LEVEL: "debug"
+      CHANNEL_HTTP_PORT: "8094"
+      NXL_PG_URL_CHANNEL: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432/nxl_channel?sslmode=disable"
+      NATS_URL: "nats://guest:guest@nats:4222/"
+    ports:
+      - "8094:8094"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    networks:
+      app_network:
+        aliases:
+          - channel.lvh.me
+
+  # Stream keys, stream lifecycle (NXL-A §7A) and the live/VOD catalogue.
+  stream:
+    container_name: stream
+    profiles: ["nxl"]
+    build:
+      context: .
+      dockerfile: services/stream/Dockerfile
+    environment:
+      NXL_ENV: "dev"
+      STREAM_LOG_LEVEL: "debug"
+      STREAM_HTTP_PORT: "8092"
+      STREAM_INTERNAL_PORT: "8093"
+      NXL_PG_URL_STREAM: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432/nxl_stream?sslmode=disable"
+      NATS_URL: "nats://guest:guest@nats:4222/"
+      NXL_INTERNAL_SECRET: "${NXL_INTERNAL_SECRET:-dev-internal-secret}"
+      STREAM_JWKS_URL: "http://identity:8090/v1/auth/.well-known/jwks.json"
+      STREAM_RTMP_PUBLIC_URL: "rtmp://localhost:1935/live"
+      STREAM_HLS_BASE: "/hls"
+      STREAM_INGEST_GRACE_PERIOD: "${STREAM_INGEST_GRACE_PERIOD:-60s}"
+    ports:
+      - "8092:8092"   # public API (8093 internal API stays inside the Docker network)
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+    networks:
+      app_network:
+        aliases:
+          - stream.lvh.me
+
+  # RTMP ingest + ffmpeg ABR + HLS upload (docs/plans/technical/2026-10-11-core-livestream-rtmp-hls.md).
+  # OBS -> rtmp://localhost:1935/live, key from POST /v1/studio/stream-key; test page http://localhost:8091/dev/player
+  media:
+    container_name: media
+    profiles: ["nxl"]
+    build:
+      context: .
+      dockerfile: services/media/Dockerfile
+    environment:
+      NXL_ENV: "dev"
+      MEDIA_LOG_LEVEL: "info"
+      MEDIA_RTMP_PUBLIC_URL: "rtmp://localhost:1935/live"
+      # Keys are checked by stream-svc; events go to NATS. Unset MEDIA_STREAM_SVC_URL and set
+      # MEDIA_STATIC_STREAM_KEY to run media-svc alone (phase L1 mode).
+      MEDIA_STREAM_SVC_URL: "http://stream:8093"
+      NXL_INTERNAL_SECRET: "${NXL_INTERNAL_SECRET:-dev-internal-secret}"
+      NATS_URL: "nats://guest:guest@nats:4222/"
+      MEDIA_MAX_CONCURRENT_STREAMS: "${MEDIA_MAX_CONCURRENT_STREAMS:-2}"
+      MEDIA_GRACE_PERIOD: "${MEDIA_GRACE_PERIOD:-90s}"
+      MEDIA_X264_PRESET: "${MEDIA_X264_PRESET:-veryfast}"
+      MEDIA_S3_ENDPOINT: "minio:9000"
+      # Dev only: root credentials. A write-only user per service comes with signed URLs (phase L4).
+      MEDIA_S3_ACCESS_KEY: "minioadmin"
+      MEDIA_S3_SECRET_KEY: "minioadmin123"
+      MEDIA_S3_BUCKET: "nxl-media"
+    ports:
+      - "1935:1935"   # RTMP ingest
+      - "8091:8091"   # /healthz, /dev/player, /hls proxy
+    volumes:
+      - media_work:/var/lib/media
+    # ffmpeg needs time to close playlists and the uploader to flush on docker stop.
+    stop_grace_period: 30s
+    depends_on:
+      minio:
+        condition: service_started
+      nats:
+        condition: service_started
+      stream:
+        condition: service_started
+    networks:
+      app_network:
+        aliases:
+          - media.lvh.me
+
+  # Web UI for the databases on http://127.0.0.1:5050 (dev only: no pgAdmin login, no master password).
+  pgadmin:
+    container_name: pgadmin
+    profiles: ["nxl"]
+    image: dpage/pgadmin4:9.8
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "admin@nexuslive.dev"
+      PGADMIN_DEFAULT_PASSWORD: "admin123"
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      # Read only when the pgadmin_data volume is first created.
+      - ./deploy/pgadmin/servers.json:/pgadmin4/servers.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      app_network:
+        aliases:
+          - pgadmin.lvh.me
+
+  nats:
+    container_name: nats
+    image: nats:2.15-alpine
+    command: ["-js", "-m", "8222", "-sd", "/nats-data", "-user", "guest", "-pass", "guest"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/nats-data
+    networks:
+      app_network:
+        aliases:
+          - nats.lvh.me
+
+  minio:
+    container_name: minio
+    # MinIO no longer publishes community images on Docker Hub / Quay; Chainguard ships a free rebuild.
+    image: cgr.dev/chainguard/minio:latest@sha256:7df55d002b698e4494a131b848dd553361bbe58b7e19f62d9623c29af1ba9ccf
+    # The image's non-root user (65532) fails with "file access denied" on Docker Desktop.
+    user: "0:0"
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      <<: *x-minio-environment
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    volumes:
+      - minio_data:/data
+    networks:
+      app_network:
+        aliases:
+          - minio.lvh.me
+
+  # Rate limits, presence, viewer counts and chat caches from GĐ3 on; nothing uses it yet.
+  redis:
+    container_name: redis
+    image: redis:7.4.5-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      app_network:
+        aliases:
+          - redis.lvh.me
+
+  # Catches every e-mail sent in dev (verification, password reset from GĐ1): UI http://localhost:8025
+  mailpit:
+    container_name: mailpit
+    image: axllent/mailpit:v1.27.0
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    networks:
+      app_network:
+        aliases:
+          - mailpit.lvh.me
+
+  # Single entry point for the browser (architecture §4): /v1/* -> services, /hls/* -> MinIO.
+  # Rate limits, CORS and security headers (GĐ1); signed HLS URLs (secure_link) come in GĐ5.
+  # templates/*.template are rendered with the NXL_* variables below into /etc/nginx/conf.d at start.
+  nginx:
+    container_name: nginx
+    profiles: ["nxl"]
+    image: nginx:1.31.3-alpine
+    environment:
+      # Only NXL_* variables are substituted, so nginx's own $variables survive envsubst.
+      NGINX_ENVSUBST_FILTER: "^NXL_"
+      NXL_WEB_ORIGIN: "${NXL_WEB_ORIGIN:-http://localhost:5173}"
+      NXL_ADMIN_ORIGIN: "${NXL_ADMIN_ORIGIN:-http://localhost:5174}"
+      NXL_EDGE_AUTH_RATE: "${NXL_EDGE_AUTH_RATE:-10r/m}"
+      NXL_EDGE_WRITE_RATE: "${NXL_EDGE_WRITE_RATE:-60r/m}"
+      NXL_EDGE_READ_RATE: "${NXL_EDGE_READ_RATE:-600r/m}"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      - ./deploy/nginx/snippets:/etc/nginx/snippets:ro
+    ports:
+      - "${NXL_EDGE_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # Upstreams are resolved per request, so the edge starts even when a service is down.
+    depends_on:
+      - minio
+    networks:
+      app_network:
+        aliases:
+          - nginx.lvh.me
+
+  prometheus:
+    container_name: prometheus
+    profiles: ["obs"]
+    image: prom/prometheus:v3.5.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=2d"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      app_network:
+        aliases:
+          - prometheus.lvh.me
+
+  # http://localhost:3000 — anonymous Viewer; admin/admin to edit. Dashboard "NexusLive — Livestream".
+  grafana:
+    container_name: grafana
+    profiles: ["obs"]
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: "admin"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_USERS_DEFAULT_THEME: "dark"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/livestream.json"
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      app_network:
+        aliases:
+          - grafana.lvh.me
+
+  jaeger:
+    container_name: jaeger
+    profiles: ["obs"]
+    image: jaegertracing/all-in-one:1.76.0
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+      - "6831:6831/udp" # Jaeger agent UDP
+    networks:
+      app_network:
+        aliases:
+          - jaeger.lvh.me
+
+networks:
+  app_network:
+    external: false
+
+volumes:
+  db_data:
+  nats_data:
+  minio_data:
+  pgadmin_data:
+  media_work:
+  prometheus_data:
+  grafana_data:

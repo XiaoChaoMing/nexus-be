@@ -1,0 +1,117 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Public channel pages. Channels are created by channel-svc when an admin approves a creator application.",
+        "title": "NexusLive channel-svc API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/v1",
+    "paths": {
+        "/channels/{handle}": {
+            "get": {
+                "description": "The handle is case-insensitive (3–25 characters of [A-Za-z0-9_]); anything else is 404.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "channels"
+                ],
+                "summary": "Public channel page by handle",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel handle",
+                        "name": "handle",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Channel"
+                        }
+                    },
+                    "403": {
+                        "description": "CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "Channel": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "bio": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "currentStreamId": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "isLive": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Channel": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Channel"
+                }
+            }
+        },
+        "ErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/ErrorBody"
+                }
+            }
+        }
+    }
+}

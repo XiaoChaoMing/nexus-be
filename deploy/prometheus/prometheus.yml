@@ -1,0 +1,25 @@
+# Scrapes the services inside the compose network (their /metrics is not exposed through Nginx).
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: identity
+    static_configs:
+      - targets: ["identity:8090"]
+
+  - job_name: channel
+    static_configs:
+      - targets: ["channel:8094"]
+
+  - job_name: stream
+    static_configs:
+      - targets: ["stream:8092"]
+
+  - job_name: media
+    static_configs:
+      - targets: ["media:8091"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

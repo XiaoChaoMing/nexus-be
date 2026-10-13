@@ -1,0 +1,11 @@
+{{define "subject"}}Verify your NexusLive e-mail{{end}}{{define "body"}}Hi {{.Username}},
+
+Thanks for signing up to NexusLive. Open the link below to verify your e-mail address:
+
+{{.Link}}
+
+The link is valid for {{.ValidFor}} and works only once.
+If you did not create an account, you can ignore this e-mail.
+
+— NexusLive
+{{end}}

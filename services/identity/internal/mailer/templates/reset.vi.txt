@@ -1,0 +1,11 @@
+{{define "subject"}}Đặt lại mật khẩu NexusLive{{end}}{{define "body"}}Chào {{.Username}},
+
+Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Mở liên kết dưới đây để đặt mật khẩu mới:
+
+{{.Link}}
+
+Liên kết có hiệu lực trong {{.ValidFor}} và chỉ dùng được một lần. Sau khi đặt lại, mọi thiết bị sẽ bị đăng xuất.
+Nếu bạn không yêu cầu, hãy bỏ qua email này — mật khẩu hiện tại vẫn giữ nguyên.
+
+— NexusLive
+{{end}}

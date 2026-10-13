@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS search_history;
+DROP TABLE IF EXISTS search_documents;
+DROP TABLE IF EXISTS reminders;
+DROP TABLE IF EXISTS schedules;
+DROP TABLE IF EXISTS follows;
+DROP TABLE IF EXISTS channels;
+DROP TABLE IF EXISTS categories;
+DROP FUNCTION IF EXISTS immutable_unaccent(text);
+DROP EXTENSION IF EXISTS unaccent;
+DROP EXTENSION IF EXISTS citext;

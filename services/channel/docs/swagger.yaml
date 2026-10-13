@@ -1,0 +1,78 @@
+basePath: /v1
+definitions:
+  Channel:
+    properties:
+      avatarUrl:
+        type: string
+      bio:
+        type: string
+      createdAt:
+        type: string
+      currentStreamId:
+        type: string
+      displayName:
+        type: string
+      handle:
+        type: string
+      id:
+        type: string
+      isLive:
+        type: boolean
+    type: object
+  Data-internal_controller_restapi_v1_Channel:
+    properties:
+      data:
+        $ref: '#/definitions/Channel'
+    type: object
+  ErrorBody:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/ErrorBody'
+    type: object
+info:
+  contact: {}
+  description: Public channel pages. Channels are created by channel-svc when an admin
+    approves a creator application.
+  title: NexusLive channel-svc API
+  version: "1.0"
+paths:
+  /channels/{handle}:
+    get:
+      description: The handle is case-insensitive (3–25 characters of [A-Za-z0-9_]);
+        anything else is 404.
+      parameters:
+      - description: channel handle
+        in: path
+        name: handle
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Channel'
+        "403":
+          description: CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Public channel page by handle
+      tags:
+      - channels
+swagger: "2.0"

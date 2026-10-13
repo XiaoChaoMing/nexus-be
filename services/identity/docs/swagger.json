@@ -1,0 +1,1423 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Accounts, sessions, account self-service and creator applications. Access tokens are EdDSA\nJWTs; other services verify them with the JWKS. /admin routes need an access token with role ADMIN.",
+        "title": "NexusLive identity-svc API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/v1",
+    "paths": {
+        "/admin/creator-applications": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Oldest first. Pass nextCursor back as cursor for the next page.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List creator applications (admin)",
+                "parameters": [
+                    {
+                        "enum": [
+                            "PENDING",
+                            "APPROVED",
+                            "REJECTED",
+                            "CANCELLED",
+                            "ALL"
+                        ],
+                        "type": "string",
+                        "description": "Status filter (default PENDING)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Opaque cursor from nextCursor",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "maximum": 50,
+                        "minimum": 1,
+                        "type": "integer",
+                        "description": "Page size 1-50 (default 20)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_ApplicationPage"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/creator-applications/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get a creator application (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminApplication"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/creator-applications/{id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "PENDING only. Copies the birth date to the account; channel-svc then creates the channel.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Approve a creator application (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminApplication"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN (not an admin, or own application)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/creator-applications/{id}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "PENDING only. The reason (10-500 characters, trimmed) is shown to the applicant.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Reject a creator application (admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/RejectApplication"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminApplication"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN (not an admin, or own application)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/.well-known/jwks.json": {
+            "get": {
+                "description": "Public keys other services use to verify access tokens locally.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "JWKS",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/JWKS"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/login": {
+            "post": {
+                "description": "Login with email or username. Copy data.accessToken into Authorize (Bearer) to call protected endpoints.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Login",
+                "parameters": [
+                    {
+                        "description": "Credentials",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Login"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "INVALID_CREDENTIALS",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "ACCOUNT_LOCKED (details.lockedUntil when the lock is temporary)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/logout": {
+            "post": {
+                "description": "Revokes the refresh session in the cookie and clears it. Requires the X-NXL-Client header (CSRF guard).",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Logout",
+                "parameters": [
+                    {
+                        "enum": [
+                            "web",
+                            "admin"
+                        ],
+                        "type": "string",
+                        "description": "Calling app (CSRF guard)",
+                        "name": "X-NXL-Client",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "FORBIDDEN (details.header = REQUIRED)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Kept for compatibility; GET /me returns the same user with roles and preferences.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Current user",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_User"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/password/forgot": {
+            "post": {
+                "description": "Always 202, whether or not the e-mail is registered (and when rate limited), so accounts\ncannot be discovered. The link ({web}/reset-password?token=...) is valid for 30 minutes.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Request a password reset e-mail",
+                "parameters": [
+                    {
+                        "description": "Account e-mail",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ForgotPassword"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted"
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/password/reset": {
+            "post": {
+                "description": "Consumes the reset token, stores the new password, signs out every session and lifts a\ntemporary lock.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Reset the password",
+                "parameters": [
+                    {
+                        "description": "Token from the e-mail link and the new password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ResetPassword"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED / TOKEN_INVALID",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/refresh": {
+            "post": {
+                "description": "Uses the HttpOnly cookie nxl_rt (sent automatically by the browser) and rotates it.\nThe X-NXL-Client header (web or admin) is required as a CSRF guard; Swagger UI cannot send the\nSameSite=Strict cookie cross-origin, so try this from the web app.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Refresh the access token",
+                "parameters": [
+                    {
+                        "enum": [
+                            "web",
+                            "admin"
+                        ],
+                        "type": "string",
+                        "description": "Calling app (CSRF guard)",
+                        "name": "X-NXL-Client",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session"
+                        }
+                    },
+                    "401": {
+                        "description": "SESSION_EXPIRED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN (details.header = REQUIRED) / ACCOUNT_LOCKED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/register": {
+            "post": {
+                "description": "Creates an account and signs in: returns an access token and sets the refresh cookie nxl_rt.\nacceptTerms must be true. A verification e-mail is sent (auth.email_requested.v1).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Register",
+                "parameters": [
+                    {
+                        "description": "New account",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Register"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (details.acceptTerms = REQUIRED, ...)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "USERNAME_TAKEN / EMAIL_TAKEN (details.\u003cfield\u003e = TAKEN)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/verify-email": {
+            "post": {
+                "description": "Consumes the one-time token from the verification e-mail ({web}/verify-email?token=...).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Verify the e-mail address",
+                "parameters": [
+                    {
+                        "description": "Token from the e-mail link",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/VerifyEmail"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_User"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED / TOKEN_INVALID (unknown, expired or used)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/verify-email/resend": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Issues a new token (older links stop working). At most one per 60 s and 5 per hour.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Resend the verification e-mail",
+                "responses": {
+                    "202": {
+                        "description": "Accepted"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "CONFLICT (already verified)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "429": {
+                        "description": "RATE_LIMITED (details.retryAfterSec, header Retry-After)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/creator-applications": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Needs a verified e-mail, no pending application and no channel. legalName 2-100 characters,\nbirthDate YYYY-MM-DD (age at least IDENTITY_CREATOR_MIN_AGE), note up to 500, acceptCreatorTerms true.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "creator"
+                ],
+                "summary": "Apply to become a creator",
+                "parameters": [
+                    {
+                        "description": "Application",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SubmitApplication"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Application"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "EMAIL_NOT_VERIFIED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "APPLICATION_PENDING / ALREADY_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "422": {
+                        "description": "UNDERAGE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/creator-applications/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "data is null when the user never applied.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "creator"
+                ],
+                "summary": "My latest creator application",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Application"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/creator-applications/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "creator"
+                ],
+                "summary": "Cancel my pending application",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Application id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (not pending)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The user plus roles (always VIEWER; CREATOR with a channel; ADMIN), channel and preferences.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Signed-in account",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Me"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes only the fields present. displayName 1-50 characters (trimmed); locale vi or en;\ntimezone an IANA name; birthDate YYYY-MM-DD, not in the future, only while it is empty.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Update the account",
+                "parameters": [
+                    {
+                        "description": "Fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateMe"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Me"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (details.birthDate = ALREADY_SET / INVALID, ...)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/password": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Signs out every other session and returns a new one (new access token and nxl_rt cookie).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Change the password",
+                "parameters": [
+                    {
+                        "description": "Current and new password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ChangePassword"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED / WRONG_PASSWORD",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "AdminApplication": {
+            "type": "object",
+            "properties": {
+                "age": {
+                    "type": "integer"
+                },
+                "birthDate": {
+                    "description": "YYYY-MM-DD.",
+                    "type": "string",
+                    "example": "2000-01-31"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "legalName": {
+                    "description": "Applicant's legal name.",
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "rejectReason": {
+                    "type": "string"
+                },
+                "reviewedAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "PENDING"
+                },
+                "user": {
+                    "$ref": "#/definitions/Applicant"
+                }
+            }
+        },
+        "Applicant": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "emailVerified": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "Application": {
+            "type": "object",
+            "properties": {
+                "birthDate": {
+                    "description": "YYYY-MM-DD.",
+                    "type": "string",
+                    "example": "2000-01-31"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "legalName": {
+                    "description": "Applicant's legal name.",
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "rejectReason": {
+                    "type": "string"
+                },
+                "reviewedAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "PENDING"
+                }
+            }
+        },
+        "ApplicationPage": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/AdminApplication"
+                    }
+                },
+                "nextCursor": {
+                    "description": "Null on the last page.",
+                    "type": "string"
+                }
+            }
+        },
+        "ChangePassword": {
+            "type": "object",
+            "required": [
+                "currentPassword",
+                "newPassword"
+            ],
+            "properties": {
+                "currentPassword": {
+                    "type": "string",
+                    "maxLength": 72
+                },
+                "newPassword": {
+                    "type": "string"
+                }
+            }
+        },
+        "Data-AdminApplication": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/AdminApplication"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Application": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Application"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_ApplicationPage": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ApplicationPage"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Me": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Me"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Session": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Session"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_User": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/User"
+                }
+            }
+        },
+        "Error": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/ErrorBody"
+                }
+            }
+        },
+        "ErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "ForgotPassword": {
+            "type": "object",
+            "required": [
+                "email"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "maxLength": 254
+                }
+            }
+        },
+        "JWK": {
+            "type": "object",
+            "properties": {
+                "alg": {
+                    "type": "string"
+                },
+                "crv": {
+                    "type": "string"
+                },
+                "kid": {
+                    "type": "string"
+                },
+                "kty": {
+                    "type": "string"
+                },
+                "use": {
+                    "type": "string"
+                },
+                "x": {
+                    "type": "string"
+                }
+            }
+        },
+        "JWKS": {
+            "type": "object",
+            "properties": {
+                "keys": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/JWK"
+                    }
+                }
+            }
+        },
+        "Login": {
+            "type": "object",
+            "required": [
+                "login",
+                "password"
+            ],
+            "properties": {
+                "login": {
+                    "description": "Email or username.",
+                    "type": "string",
+                    "maxLength": 254
+                },
+                "password": {
+                    "type": "string",
+                    "maxLength": 72
+                }
+            }
+        },
+        "Me": {
+            "type": "object",
+            "properties": {
+                "channelId": {
+                    "type": "string"
+                },
+                "isCreator": {
+                    "type": "boolean"
+                },
+                "preferences": {
+                    "$ref": "#/definitions/Preferences"
+                },
+                "roles": {
+                    "description": "Always VIEWER; CREATOR when the user owns a channel; ADMIN for admins.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "VIEWER"
+                    ]
+                },
+                "unreadNotifications": {
+                    "type": "integer"
+                },
+                "user": {
+                    "$ref": "#/definitions/User"
+                }
+            }
+        },
+        "Preferences": {
+            "type": "object",
+            "properties": {
+                "matureVisible": {
+                    "type": "boolean"
+                },
+                "sidebarCollapsed": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Register": {
+            "type": "object",
+            "required": [
+                "acceptTerms",
+                "email",
+                "password",
+                "username"
+            ],
+            "properties": {
+                "acceptTerms": {
+                    "description": "Must be true (terms of service, 13+ self-declared).",
+                    "type": "boolean"
+                },
+                "displayName": {
+                    "type": "string",
+                    "maxLength": 50
+                },
+                "email": {
+                    "type": "string",
+                    "maxLength": 254
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "RejectApplication": {
+            "type": "object",
+            "required": [
+                "reason"
+            ],
+            "properties": {
+                "reason": {
+                    "description": "Trimmed, 10-500 characters; shown to the applicant.",
+                    "type": "string",
+                    "maxLength": 500,
+                    "minLength": 10
+                }
+            }
+        },
+        "ResetPassword": {
+            "type": "object",
+            "required": [
+                "password",
+                "token"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string",
+                    "maxLength": 128
+                }
+            }
+        },
+        "Session": {
+            "type": "object",
+            "properties": {
+                "accessToken": {
+                    "type": "string"
+                },
+                "expiresIn": {
+                    "type": "integer"
+                },
+                "user": {
+                    "$ref": "#/definitions/User"
+                }
+            }
+        },
+        "SubmitApplication": {
+            "type": "object",
+            "required": [
+                "acceptCreatorTerms",
+                "birthDate",
+                "legalName"
+            ],
+            "properties": {
+                "acceptCreatorTerms": {
+                    "description": "Must be true.",
+                    "type": "boolean"
+                },
+                "birthDate": {
+                    "description": "YYYY-MM-DD, not in the future.",
+                    "type": "string"
+                },
+                "legalName": {
+                    "description": "Trimmed, 2-100 characters.",
+                    "type": "string",
+                    "maxLength": 100,
+                    "minLength": 2
+                },
+                "note": {
+                    "type": "string",
+                    "maxLength": 500
+                }
+            }
+        },
+        "UpdateMe": {
+            "type": "object",
+            "properties": {
+                "birthDate": {
+                    "description": "YYYY-MM-DD, not in the future; can only be set while empty.",
+                    "type": "string"
+                },
+                "displayName": {
+                    "description": "Trimmed, 1-50 characters.",
+                    "type": "string",
+                    "maxLength": 50,
+                    "minLength": 1
+                },
+                "locale": {
+                    "type": "string",
+                    "enum": [
+                        "vi",
+                        "en"
+                    ]
+                },
+                "preferences": {
+                    "$ref": "#/definitions/Preferences"
+                },
+                "timezone": {
+                    "description": "IANA name, e.g. Asia/Ho_Chi_Minh.",
+                    "type": "string",
+                    "maxLength": 50
+                }
+            }
+        },
+        "User": {
+            "type": "object",
+            "properties": {
+                "birthDate": {
+                    "description": "YYYY-MM-DD, null until set.",
+                    "type": "string",
+                    "example": "2000-01-31"
+                },
+                "channelId": {
+                    "description": "Null until the user owns a channel.",
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "emailVerified": {
+                    "type": "boolean"
+                },
+                "globalRole": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "isCreator": {
+                    "type": "boolean"
+                },
+                "locale": {
+                    "type": "string",
+                    "example": "vi"
+                },
+                "timezone": {
+                    "type": "string",
+                    "example": "Asia/Ho_Chi_Minh"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "VerifyEmail": {
+            "type": "object",
+            "required": [
+                "token"
+            ],
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "maxLength": 128
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "description": "\"Bearer \" + data.accessToken from /auth/login",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

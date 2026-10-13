@@ -1,0 +1,668 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Stream keys, Studio, live catalog and VODs. Get a token from identity-svc (http://localhost:8090/swagger/index.html → /auth/login) and paste \"Bearer \u003caccessToken\u003e\" into Authorize.",
+        "title": "NexusLive stream-svc API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/v1",
+    "paths": {
+        "/streams": {
+            "get": {
+                "description": "channel is null for streams whose channel is unknown to stream-svc.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "Streams on air (LIVE and INTERRUPTED), newest first",
+                "parameters": [
+                    {
+                        "enum": [
+                            "live"
+                        ],
+                        "type": "string",
+                        "default": "live",
+                        "description": "only live",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 24,
+                        "description": "page size (1–50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_StreamList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/streams/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "Stream detail (status, manifestUrl, vodId once the VOD is ready)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "stream id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-Stream"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/stream": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "current is null when the channel is offline; health is the latest ingest report (5 s).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: the creator's channel, settings and the current broadcast",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Studio"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Applies to the next broadcast and to the one on air, if any. Title 1–140, at most 10 tags of ≤ 25 characters.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Update title / tags / mature flag",
+                "parameters": [
+                    {
+                        "description": "Settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-Settings"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/stream-key": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Stream key status (never the key itself)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_StreamKeyInfo"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The key is returned only here, once. The previous key stops working immediately.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Create / regenerate the stream key",
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_StreamKeyCreated"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/stream/end": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Moves the stream to ENDED; media-svc disconnects OBS and publishes the VOD.",
+                "tags": [
+                    "studio"
+                ],
+                "summary": "End the broadcast",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "NOT_LIVE",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/vods/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "vods"
+                ],
+                "summary": "VOD (READY and not expired)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "vod id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_VOD"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "Channel": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "Data-Settings": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Settings"
+                }
+            }
+        },
+        "Data-Stream": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Stream"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_StreamKeyCreated": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/StreamKeyCreated"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_StreamKeyInfo": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/StreamKeyInfo"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_StreamList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/StreamList"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Studio": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Studio"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_VOD": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/VOD"
+                }
+            }
+        },
+        "ErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/ErrorBody"
+                }
+            }
+        },
+        "Health": {
+            "type": "object",
+            "properties": {
+                "bitrateKbps": {
+                    "type": "number"
+                },
+                "droppedFrames": {
+                    "type": "integer"
+                },
+                "fps": {
+                    "type": "number"
+                },
+                "reportedAt": {
+                    "type": "string"
+                },
+                "speed": {
+                    "type": "number"
+                },
+                "uploadErrors": {
+                    "type": "integer"
+                }
+            }
+        },
+        "Settings": {
+            "type": "object",
+            "properties": {
+                "isMature": {
+                    "type": "boolean"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "SettingsRequest": {
+            "type": "object",
+            "properties": {
+                "isMature": {
+                    "type": "boolean"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "Stream": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "$ref": "#/definitions/Channel"
+                },
+                "channelId": {
+                    "type": "string"
+                },
+                "endReason": {
+                    "type": "string"
+                },
+                "endedAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "isMature": {
+                    "type": "boolean"
+                },
+                "language": {
+                    "type": "string"
+                },
+                "manifestUrl": {
+                    "type": "string"
+                },
+                "startedAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "thumbnailUrl": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "vodId": {
+                    "type": "string"
+                }
+            }
+        },
+        "StreamKeyCreated": {
+            "type": "object",
+            "properties": {
+                "rtmpUrl": {
+                    "type": "string"
+                },
+                "streamKey": {
+                    "type": "string"
+                }
+            }
+        },
+        "StreamKeyInfo": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "hasKey": {
+                    "type": "boolean"
+                },
+                "rtmpUrl": {
+                    "type": "string"
+                }
+            }
+        },
+        "StreamList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Stream"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Studio": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "$ref": "#/definitions/Channel"
+                },
+                "current": {
+                    "$ref": "#/definitions/StudioStream"
+                },
+                "settings": {
+                    "$ref": "#/definitions/Settings"
+                }
+            }
+        },
+        "StudioStream": {
+            "type": "object",
+            "properties": {
+                "health": {
+                    "$ref": "#/definitions/Health"
+                },
+                "interruptedAt": {
+                    "type": "string"
+                },
+                "manifestUrl": {
+                    "type": "string"
+                },
+                "startedAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "streamId": {
+                    "type": "string"
+                }
+            }
+        },
+        "VOD": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "$ref": "#/definitions/Channel"
+                },
+                "channelId": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "durationSec": {
+                    "type": "integer"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "manifestUrl": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "streamId": {
+                    "type": "string"
+                },
+                "thumbnailUrl": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

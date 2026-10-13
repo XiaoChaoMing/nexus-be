@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NexusLive — trang thử HLS (L1)</title>
+<style>
+  :root { color-scheme: dark; --bg:#0e0e10; --panel:#18181b; --line:#2f2f35; --text:#efeff1; --muted:#adadb8; --accent:#9147ff; --live:#eb0400; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:1100px; margin:0 auto; padding:16px; display:grid; gap:16px; grid-template-columns: minmax(0,1fr) 320px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  h1 { font-size:18px; margin:0 0 8px; }
+  video { width:100%; aspect-ratio:16/9; background:#000; border-radius:8px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0; }
+  button, select, input { background:#26262c; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font:inherit; }
+  button.primary { background:var(--accent); border-color:var(--accent); }
+  .badge { padding:2px 8px; border-radius:4px; font-weight:700; font-size:12px; background:#53535f; }
+  .badge.live { background:var(--live); }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0; }
+  dt { color:var(--muted); } dd { margin:0; font-variant-numeric: tabular-nums; }
+  code { color:var(--muted); word-break:break-all; }
+  ul { padding-left:18px; margin:4px 0; }
+  li button { padding:2px 8px; }
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>Trang thử phát HLS <span id="badge" class="badge">—</span></h1>
+    <video id="video" controls muted playsinline></video>
+    <div class="row">
+      <label>Stream ID <input id="sid" size="38" placeholder="uuid"></label>
+      <button class="primary" id="load">Phát</button>
+      <button id="golive">Về trực tiếp</button>
+      <label>Chất lượng <select id="level"><option value="-1">Tự động</option></select></label>
+    </div>
+    <div class="panel">
+      <dl>
+        <dt>Manifest</dt><dd><code id="url">—</code></dd>
+        <dt>Mức đang phát</dt><dd id="cur">—</dd>
+        <dt>Độ trễ (PDT)</dt><dd id="lat">—</dd>
+        <dt>Sau điểm live</dt><dd id="behind">—</dd>
+        <dt>Bộ đệm</dt><dd id="buf">—</dd>
+        <dt>Băng thông ước tính</dt><dd id="bw">—</dd>
+      </dl>
+    </div>
+  </section>
+  <aside class="panel">
+    <strong>Phiên trên server</strong>
+    <div class="row"><code id="rtmp"></code></div>
+    <ul id="sessions"><li>…</li></ul>
+    <p style="color:var(--muted)">Độ trễ PDT = giờ máy − thời điểm ffmpeg ghi đoạn đang phát (chưa gồm độ trễ OBS + mạng). Đo glass-to-glass bằng đồng hồ trong khung hình OBS.</p>
+  </aside>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const video = $('video');
+let hls;
+
+function play(id) {
+  const url = `/hls/streams/${encodeURIComponent(id)}/master.m3u8`;
+  $('url').textContent = url;
+  history.replaceState(null, '', `?stream=${encodeURIComponent(id)}`);
+  if (hls) hls.destroy();
+  if (!window.Hls || !Hls.isSupported()) { video.src = url; video.play(); return; }
+  hls = new Hls({ liveSyncDurationCount: 2, manifestLoadingMaxRetry: 10, levelLoadingMaxRetry: 10 });
+  hls.loadSource(url);
+  hls.attachMedia(video);
+  hls.on(Hls.Events.MANIFEST_PARSED, (_, d) => {
+    const sel = $('level');
+    sel.length = 1;
+    d.levels.forEach((l, i) => sel.add(new Option(`${l.height}p · ${Math.round(l.bitrate / 1000)} kbps`, i)));
+    video.play().catch(() => {});
+  });
+  hls.on(Hls.Events.LEVEL_SWITCHED, (_, d) => { const l = hls.levels[d.level]; $('cur').textContent = `${l.height}p`; });
+  hls.on(Hls.Events.ERROR, (_, d) => console.warn('hls', d.type, d.details, d.fatal));
+}
+
+$('load').onclick = () => $('sid').value.trim() && play($('sid').value.trim());
+$('golive').onclick = () => { if (hls && hls.liveSyncPosition) video.currentTime = hls.liveSyncPosition; };
+$('level').onchange = (e) => { if (hls) hls.currentLevel = Number(e.target.value); };
+
+setInterval(() => {
+  if (!hls) return;
+  const pdt = hls.playingDate;
+  $('lat').textContent = pdt ? `${((Date.now() - pdt.getTime()) / 1000).toFixed(1)} s` : '—';
+  const behind = hls.liveSyncPosition ? hls.liveSyncPosition - video.currentTime : NaN;
+  $('behind').textContent = isFinite(behind) ? `${behind.toFixed(1)} s` : '—';
+  const b = video.buffered.length ? video.buffered.end(video.buffered.length - 1) - video.currentTime : 0;
+  $('buf').textContent = `${b.toFixed(1)} s`;
+  $('bw').textContent = hls.bandwidthEstimate ? `${Math.round(hls.bandwidthEstimate / 1000)} kbps` : '—';
+  const atLive = isFinite(behind) && behind < 8;
+  $('badge').textContent = 'LIVE';
+  $('badge').className = 'badge' + (atLive ? ' live' : '');
+}, 500);
+
+async function refresh() {
+  try {
+    const r = await fetch('/dev/sessions');
+    const d = await r.json();
+    $('rtmp').textContent = d.rtmpUrl;
+    const ul = $('sessions');
+    ul.replaceChildren();
+    if (!d.sessions.length) ul.append(Object.assign(document.createElement('li'), { textContent: 'Chưa có phiên nào' }));
+    for (const s of d.sessions) {
+      const li = document.createElement('li');
+      const p = s.progress || {};
+      li.textContent = `${s.state} · ${s.renditions.join('/') || '…'} · ${p.speed ? p.speed.toFixed(2) + 'x' : ''} drop=${p.dropFrames || 0} upErr=${s.uploadErrors} `;
+      const b = document.createElement('button');
+      b.textContent = 'Xem';
+      b.onclick = () => { $('sid').value = s.streamId; play(s.streamId); };
+      li.append(b);
+      ul.append(li);
+    }
+  } catch (e) { console.warn(e); }
+}
+setInterval(refresh, 2000);
+refresh();
+
+const q = new URLSearchParams(location.search).get('stream');
+if (q) { $('sid').value = q; play(q); }
+</script>
+</body>
+</html>

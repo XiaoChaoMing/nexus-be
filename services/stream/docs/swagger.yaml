@@ -1,0 +1,435 @@
+basePath: /v1
+definitions:
+  Channel:
+    properties:
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      handle:
+        type: string
+      id:
+        type: string
+    type: object
+  Data-Settings:
+    properties:
+      data:
+        $ref: '#/definitions/Settings'
+    type: object
+  Data-Stream:
+    properties:
+      data:
+        $ref: '#/definitions/Stream'
+    type: object
+  Data-internal_controller_restapi_v1_StreamKeyCreated:
+    properties:
+      data:
+        $ref: '#/definitions/StreamKeyCreated'
+    type: object
+  Data-internal_controller_restapi_v1_StreamKeyInfo:
+    properties:
+      data:
+        $ref: '#/definitions/StreamKeyInfo'
+    type: object
+  Data-internal_controller_restapi_v1_StreamList:
+    properties:
+      data:
+        $ref: '#/definitions/StreamList'
+    type: object
+  Data-internal_controller_restapi_v1_Studio:
+    properties:
+      data:
+        $ref: '#/definitions/Studio'
+    type: object
+  Data-internal_controller_restapi_v1_VOD:
+    properties:
+      data:
+        $ref: '#/definitions/VOD'
+    type: object
+  ErrorBody:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/ErrorBody'
+    type: object
+  Health:
+    properties:
+      bitrateKbps:
+        type: number
+      droppedFrames:
+        type: integer
+      fps:
+        type: number
+      reportedAt:
+        type: string
+      speed:
+        type: number
+      uploadErrors:
+        type: integer
+    type: object
+  Settings:
+    properties:
+      isMature:
+        type: boolean
+      language:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      title:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  SettingsRequest:
+    properties:
+      isMature:
+        type: boolean
+      language:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      title:
+        type: string
+    type: object
+  Stream:
+    properties:
+      channel:
+        $ref: '#/definitions/Channel'
+      channelId:
+        type: string
+      endReason:
+        type: string
+      endedAt:
+        type: string
+      id:
+        type: string
+      isMature:
+        type: boolean
+      language:
+        type: string
+      manifestUrl:
+        type: string
+      startedAt:
+        type: string
+      status:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      thumbnailUrl:
+        type: string
+      title:
+        type: string
+      vodId:
+        type: string
+    type: object
+  StreamKeyCreated:
+    properties:
+      rtmpUrl:
+        type: string
+      streamKey:
+        type: string
+    type: object
+  StreamKeyInfo:
+    properties:
+      createdAt:
+        type: string
+      hasKey:
+        type: boolean
+      rtmpUrl:
+        type: string
+    type: object
+  StreamList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Stream'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Studio:
+    properties:
+      channel:
+        $ref: '#/definitions/Channel'
+      current:
+        $ref: '#/definitions/StudioStream'
+      settings:
+        $ref: '#/definitions/Settings'
+    type: object
+  StudioStream:
+    properties:
+      health:
+        $ref: '#/definitions/Health'
+      interruptedAt:
+        type: string
+      manifestUrl:
+        type: string
+      startedAt:
+        type: string
+      status:
+        type: string
+      streamId:
+        type: string
+    type: object
+  VOD:
+    properties:
+      channel:
+        $ref: '#/definitions/Channel'
+      channelId:
+        type: string
+      createdAt:
+        type: string
+      durationSec:
+        type: integer
+      expiresAt:
+        type: string
+      id:
+        type: string
+      manifestUrl:
+        type: string
+      status:
+        type: string
+      streamId:
+        type: string
+      thumbnailUrl:
+        type: string
+      title:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Stream keys, Studio, live catalog and VODs. Get a token from identity-svc
+    (http://localhost:8090/swagger/index.html → /auth/login) and paste "Bearer <accessToken>"
+    into Authorize.
+  title: NexusLive stream-svc API
+  version: "1.0"
+paths:
+  /streams:
+    get:
+      description: channel is null for streams whose channel is unknown to stream-svc.
+      parameters:
+      - default: live
+        description: only live
+        enum:
+        - live
+        in: query
+        name: status
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 24
+        description: page size (1–50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_StreamList'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Streams on air (LIVE and INTERRUPTED), newest first
+      tags:
+      - streams
+  /streams/{id}:
+    get:
+      parameters:
+      - description: stream id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-Stream'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Stream detail (status, manifestUrl, vodId once the VOD is ready)
+      tags:
+      - streams
+  /studio/stream:
+    get:
+      description: current is null when the channel is offline; health is the latest
+        ingest report (5 s).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Studio'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: the creator''s channel, settings and the current broadcast'
+      tags:
+      - studio
+    put:
+      consumes:
+      - application/json
+      description: Applies to the next broadcast and to the one on air, if any. Title
+        1–140, at most 10 tags of ≤ 25 characters.
+      parameters:
+      - description: Settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/SettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-Settings'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Update title / tags / mature flag
+      tags:
+      - studio
+  /studio/stream-key:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_StreamKeyInfo'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Stream key status (never the key itself)
+      tags:
+      - studio
+    post:
+      description: The key is returned only here, once. The previous key stops working
+        immediately.
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_StreamKeyCreated'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Create / regenerate the stream key
+      tags:
+      - studio
+  /studio/stream/end:
+    post:
+      description: Moves the stream to ENDED; media-svc disconnects OBS and publishes
+        the VOD.
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: NOT_LIVE
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: End the broadcast
+      tags:
+      - studio
+  /vods/{id}:
+    get:
+      parameters:
+      - description: vod id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_VOD'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: VOD (READY and not expired)
+      tags:
+      - vods
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

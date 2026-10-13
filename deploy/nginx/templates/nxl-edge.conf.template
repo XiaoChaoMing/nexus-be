@@ -1,0 +1,18 @@
+# Edge settings taken from the environment. The nginx image renders this file with envsubst into
+# /etc/nginx/conf.d/nxl-edge.conf at start; only NXL_* variables are substituted (NGINX_ENVSUBST_FILTER),
+# so nginx variables such as $http_origin are left for nginx.
+
+# NXL-00 §9, per client IP. nxl_auth guards login, register, password forgot/reset and e-mail
+# verification; the write and read keys are empty for other methods (nginx.conf).
+limit_req_zone $binary_remote_addr zone=nxl_auth:10m rate=${NXL_EDGE_AUTH_RATE};
+limit_req_zone $nxl_write_key zone=nxl_write:10m rate=${NXL_EDGE_WRITE_RATE};
+limit_req_zone $nxl_read_key zone=nxl_read:10m rate=${NXL_EDGE_READ_RATE};
+
+# CORS: only the web app and the admin app, and /v1/admin/* only for the admin app.
+map "$nxl_admin_path $http_origin" $nxl_cors_origin
+{
+    default "";
+    "0 ${NXL_WEB_ORIGIN}" $http_origin;
+    "0 ${NXL_ADMIN_ORIGIN}" $http_origin;
+    "1 ${NXL_ADMIN_ORIGIN}" $http_origin;
+}
