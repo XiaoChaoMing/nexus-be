@@ -1,0 +1,215 @@
+// Package gateway implements what the realtime gateway needs besides chat itself.
+package gateway
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/minhnn/nexuslive-be/pkg/jwt"
+	"github.com/minhnn/nexuslive-be/pkg/logger"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/repo"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase"
+)
+
+// Verifier checks access tokens (jwt.JWKSVerifier).
+type Verifier interface {
+	Verify(token string) (*jwt.Claims, error)
+}
+
+// UseCase implements usecase.Gateway.
+type UseCase struct {
+	verifier Verifier
+	chat     usecase.Chat
+	viewers  usecase.Viewers
+	seq      repo.SeqStore
+	presence repo.PresenceStore
+	broker   repo.Broker
+	maxConns int
+	l        logger.Interface
+}
+
+var _ usecase.Gateway = (*UseCase)(nil)
+
+// Deps groups the dependencies of the gateway use case.
+type Deps struct {
+	Verifier Verifier
+	Chat     usecase.Chat
+	Viewers  usecase.Viewers
+	Seq      repo.SeqStore
+	Presence repo.PresenceStore
+	Broker   repo.Broker
+}
+
+// New -.
+func New(d Deps, maxConnsPerUser int, l logger.Interface) *UseCase {
+	return &UseCase{
+		verifier: d.Verifier, chat: d.Chat, viewers: d.Viewers, seq: d.Seq, presence: d.Presence, broker: d.Broker,
+		maxConns: maxConnsPerUser, l: l,
+	}
+}
+
+// Authorize -.
+func (uc *UseCase) Authorize(_ context.Context, token *string, anonID string) (entity.Principal, error) {
+	p := entity.Principal{}
+
+	// A malformed anonId is ignored: the guest is then counted per connection.
+	if u, err := uuid.Parse(anonID); err == nil {
+		p.AnonID = u.String()
+	}
+
+	if token == nil {
+		return p, nil
+	}
+
+	claims, err := uc.verifier.Verify(*token)
+	if err != nil || claims.Subject == "" || claims.ExpiresAt == nil {
+		return entity.Principal{}, entity.ErrInvalidToken
+	}
+
+	p.UserID, p.GlobalRole, p.ExpiresAt = claims.Subject, claims.Role, claims.ExpiresAt.Time
+
+	return p, nil
+}
+
+// ConnOpened -.
+func (uc *UseCase) ConnOpened(ctx context.Context, p entity.Principal) error {
+	if p.Guest() {
+		return nil
+	}
+
+	ok, err := uc.presence.AddConn(ctx, p.UserID, p.ConnID, uc.maxConns)
+	if err != nil {
+		return fmt.Errorf("GatewayUseCase - ConnOpened: %w", err)
+	}
+
+	if !ok {
+		return entity.ErrTooManyConnections
+	}
+
+	return nil
+}
+
+// ConnAlive -.
+func (uc *UseCase) ConnAlive(ctx context.Context, p entity.Principal) {
+	if p.Guest() {
+		return
+	}
+
+	if err := uc.presence.TouchConn(ctx, p.UserID, p.ConnID); err != nil {
+		uc.l.Warn("gateway - touch conn: %v", err)
+	}
+}
+
+// ConnClosed -.
+func (uc *UseCase) ConnClosed(ctx context.Context, p entity.Principal) {
+	if p.Guest() {
+		return
+	}
+
+	if err := uc.presence.RemoveConn(ctx, p.UserID, p.ConnID); err != nil {
+		uc.l.Warn("gateway - remove conn: %v", err)
+	}
+}
+
+// Join -.
+func (uc *UseCase) Join(ctx context.Context, p entity.Principal, topic entity.Topic) (any, error) {
+	switch topic.Kind {
+	case entity.TopicUser:
+		if p.Guest() || topic.ID != p.UserID {
+			return nil, entity.ErrForbidden
+		}
+
+		return nil, nil
+	case entity.TopicChat:
+		snap, err := uc.chat.Snapshot(ctx, p, topic.ID)
+		if err != nil {
+			return nil, fmt.Errorf("GatewayUseCase - Join - chat: %w", err)
+		}
+
+		if _, err = uc.viewers.Join(ctx, topic.ID, p.ViewerKey()); err != nil {
+			uc.l.Warn("gateway - viewer join: %v", err)
+		}
+
+		return snap, nil
+	case entity.TopicStream:
+		return uc.streamSnapshot(ctx, p, topic.ID), nil
+	}
+
+	return nil, entity.ErrInvalidTopic
+}
+
+// streamSnapshot degrades to an unknown status and a zero count when Redis is down: reading stays up.
+func (uc *UseCase) streamSnapshot(ctx context.Context, p entity.Principal, streamID string) usecase.StreamSnapshot {
+	snap := usecase.StreamSnapshot{}
+
+	n, err := uc.viewers.Join(ctx, streamID, p.ViewerKey())
+	if err != nil {
+		uc.l.Warn("gateway - viewer join: %v", err)
+	}
+
+	snap.ViewerCount = n
+
+	status, err := uc.presence.StreamStatus(ctx, streamID)
+	if err != nil {
+		uc.l.Warn("gateway - stream status: %v", err)
+	}
+
+	if status != "" {
+		snap.Status = &status
+	}
+
+	return snap
+}
+
+// Leave -.
+func (uc *UseCase) Leave(p entity.Principal, topic entity.Topic) {
+	if id := topic.StreamID(); id != "" {
+		uc.viewers.Leave(id, p.ViewerKey())
+	}
+}
+
+// Seq -.
+func (uc *UseCase) Seq(ctx context.Context, topic string) (int64, error) {
+	n, err := uc.seq.Seq(ctx, topic)
+	if err != nil {
+		return 0, fmt.Errorf("GatewayUseCase - Seq: %w", err)
+	}
+
+	return n, nil
+}
+
+// Since -.
+func (uc *UseCase) Since(ctx context.Context, topic string, after int64, limit int) ([]entity.Event, bool, error) {
+	evs, ok, err := uc.seq.Since(ctx, topic, after, limit)
+	if err != nil {
+		return nil, false, fmt.Errorf("GatewayUseCase - Since: %w", err)
+	}
+
+	return evs, ok, nil
+}
+
+// Listen -.
+func (uc *UseCase) Listen(topic string, fn func(entity.Event)) (func(), error) {
+	stop, err := uc.broker.Subscribe(topic, func(payload []byte) {
+		var ev entity.Event
+		if err := json.Unmarshal(payload, &ev); err != nil || ev.Topic != topic || ev.Seq <= 0 {
+			uc.l.Warn("gateway - bad realtime payload on %s", topic)
+
+			return
+		}
+
+		fn(ev)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("GatewayUseCase - Listen %s: %w", topic, err)
+	}
+
+	return stop, nil
+}
+
+// TokenGrace is how long a connection may stay open after its access token expired (NXL-00 §10.1).
+const TokenGrace = 60 * time.Second

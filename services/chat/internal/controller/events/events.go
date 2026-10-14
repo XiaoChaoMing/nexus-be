@@ -1,0 +1,139 @@
+// Package events consumes the domain events chat-svc reacts to (JetStream durable consumer "chat-svc":
+// with several instances each event is handled by one of them).
+package events
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
+	"github.com/minhnn/nexuslive-be/pkg/eventbus"
+	"github.com/minhnn/nexuslive-be/pkg/events"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase"
+)
+
+// Durable is the JetStream consumer name of chat-svc.
+const Durable = "chat-svc"
+
+const (
+	_maxUsername    = 25
+	_maxDisplayName = 50
+)
+
+// Types consumed by chat-svc.
+var Types = []string{ //nolint:gochecknoglobals // static list
+	events.TypeStreamStarted, events.TypeStreamEnded, events.TypeStreamStatusChanged, events.TypeStreamUpdated,
+	events.TypeStreamVODReady,
+	events.TypeUserRegistered, events.TypeUserProfileUpdated, events.TypeUserEmailVerified,
+	events.TypeChannelCreated, events.TypeFollowCreated, events.TypeFollowDeleted,
+}
+
+// Handler routes one event to the rooms or grants use case.
+func Handler(rooms usecase.Rooms, grants usecase.Grants) eventbus.Handler {
+	handlers := streamHandlers(rooms)
+	for t, h := range copyHandlers(rooms, grants) {
+		handlers[t] = h
+	}
+
+	return func(ctx context.Context, e eventbus.Event) error {
+		if h, ok := handlers[e.Type]; ok {
+			return h(ctx, e)
+		}
+
+		return nil
+	}
+}
+
+// handle decodes the payload as T and checks its uuids (ids) and the event id before calling fn;
+// payloads that can never be processed are skipped instead of being redelivered forever.
+func handle[T any](ids func(T) []string, fn func(ctx context.Context, eventID string, p T) error) eventbus.Handler {
+	return func(ctx context.Context, e eventbus.Event) error {
+		var p T
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return fmt.Errorf("%w: %s: %w", eventbus.ErrSkip, e.Type, err)
+		}
+
+		for _, id := range ids(p) {
+			if _, err := uuid.Parse(id); err != nil {
+				return fmt.Errorf("%w: %s: bad id", eventbus.ErrSkip, e.Type)
+			}
+		}
+
+		if e.ID != "" {
+			if _, err := uuid.Parse(e.ID); err != nil {
+				return fmt.Errorf("%w: %s: event id is not a uuid", eventbus.ErrSkip, e.Type)
+			}
+		}
+
+		return fn(ctx, e.ID, p)
+	}
+}
+
+func streamHandlers(rooms usecase.Rooms) map[string]eventbus.Handler {
+	return map[string]eventbus.Handler{
+		events.TypeStreamStarted: handle(func(p events.StreamStarted) []string { return []string{p.StreamID, p.ChannelID} },
+			func(ctx context.Context, _ string, p events.StreamStarted) error { return rooms.StreamStarted(ctx, p) }),
+		events.TypeStreamEnded: handle(func(p events.StreamEnded) []string { return []string{p.StreamID} },
+			func(ctx context.Context, _ string, p events.StreamEnded) error { return rooms.StreamEnded(ctx, p) }),
+		events.TypeStreamStatusChanged: handle(func(p events.StreamStatusChanged) []string { return []string{p.StreamID} },
+			func(ctx context.Context, _ string, p events.StreamStatusChanged) error {
+				if p.Status != events.StreamStatusLive && p.Status != events.StreamStatusInterrupted {
+					return fmt.Errorf("%w: status %q", eventbus.ErrSkip, p.Status)
+				}
+
+				return rooms.StreamStatusChanged(ctx, p)
+			}),
+		events.TypeStreamUpdated: handle(func(p events.StreamUpdated) []string { return []string{p.StreamID} },
+			func(ctx context.Context, _ string, p events.StreamUpdated) error { return rooms.StreamUpdated(ctx, p) }),
+		events.TypeStreamVODReady: handle(func(p events.StreamVODReady) []string { return []string{p.StreamID, p.VODID} },
+			func(ctx context.Context, _ string, p events.StreamVODReady) error {
+				return rooms.StreamVODReady(ctx, p)
+			}),
+	}
+}
+
+func copyHandlers(rooms usecase.Rooms, grants usecase.Grants) map[string]eventbus.Handler {
+	return map[string]eventbus.Handler{
+		events.TypeUserRegistered: handle(func(p events.UserRegistered) []string { return []string{p.UserID} },
+			func(ctx context.Context, id string, p events.UserRegistered) error {
+				if n := utf8.RuneCountInString(p.Username); n == 0 || n > _maxUsername || utf8.RuneCountInString(p.DisplayName) > _maxDisplayName {
+					return fmt.Errorf("%w: bad names", eventbus.ErrSkip)
+				}
+
+				return rooms.UserRegistered(ctx, id, entity.User{ID: p.UserID, Username: p.Username, DisplayName: p.DisplayName})
+			}),
+		events.TypeUserProfileUpdated: handle(func(p events.UserProfileUpdated) []string { return []string{p.UserID} },
+			func(ctx context.Context, id string, p events.UserProfileUpdated) error {
+				if utf8.RuneCountInString(p.DisplayName) > _maxDisplayName {
+					return fmt.Errorf("%w: bad displayName", eventbus.ErrSkip)
+				}
+
+				return rooms.UserProfileUpdated(ctx, id, p.UserID, p.DisplayName)
+			}),
+		events.TypeUserEmailVerified: handle(func(p events.UserEmailVerified) []string { return []string{p.UserID} },
+			func(ctx context.Context, id string, p events.UserEmailVerified) error {
+				return rooms.UserEmailVerified(ctx, id, p.UserID)
+			}),
+		events.TypeChannelCreated: handle(func(p events.ChannelCreated) []string { return []string{p.ChannelID, p.OwnerID} },
+			func(ctx context.Context, id string, p events.ChannelCreated) error {
+				return rooms.ChannelCreated(ctx, id, entity.Channel{ID: p.ChannelID, OwnerID: p.OwnerID})
+			}),
+		events.TypeFollowCreated: handle(func(p events.FollowCreated) []string { return []string{p.UserID, p.ChannelID} },
+			func(ctx context.Context, _ string, p events.FollowCreated) error {
+				at := p.CreatedAt
+				if at.IsZero() {
+					at = time.Now()
+				}
+
+				return grants.Follow(ctx, p.ChannelID, p.UserID, at)
+			}),
+		events.TypeFollowDeleted: handle(func(p events.FollowDeleted) []string { return []string{p.UserID, p.ChannelID} },
+			func(ctx context.Context, _ string, p events.FollowDeleted) error {
+				return grants.Unfollow(ctx, p.ChannelID, p.UserID)
+			}),
+	}
+}

@@ -1,0 +1,409 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Chat history, emotes and chat modes. The realtime gateway (WebSocket GET /v1/ws) is described in docs/plans/technical/2026-10-14-gd03-chat-realtime.md §5.1. Get a token from identity-svc and paste \"Bearer \u003caccessToken\u003e\" into Authorize.",
+        "title": "NexusLive chat-svc API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/v1",
+    "paths": {
+        "/channels/{channelId}/chat-settings": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Chat modes of a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ChatSettings"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Change the chat modes of a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "modes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateChatSettings"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ChatSettings"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (details.slowSec / followersMin = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/chat/emotes": {
+            "get": {
+                "description": "Global emotes; channelId is accepted and ignored until channel emotes exist.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Emotes usable in chat",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (ignored for now)",
+                        "name": "channelId",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_EmoteList"
+                        }
+                    }
+                }
+            }
+        },
+        "/chat/rooms/{streamId}/messages": {
+            "get": {
+                "description": "The items have the shape of the WebSocket `message` event. Pass nextCursor as `before` for older messages.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Chat history of a stream, newest first",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "stream id (uuid)",
+                        "name": "streamId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "message id: messages older than this one",
+                        "name": "before",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 50,
+                        "description": "page size (1–100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_MessagePage"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "Author": {
+            "type": "object",
+            "properties": {
+                "badges": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "color": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "ChatSettings": {
+            "type": "object",
+            "properties": {
+                "followersMin": {
+                    "type": "integer"
+                },
+                "slowSec": {
+                    "type": "integer"
+                },
+                "subsOnly": {
+                    "type": "boolean"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ChatSettings": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ChatSettings"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_EmoteList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/EmoteList"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_MessagePage": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/MessagePage"
+                }
+            }
+        },
+        "Emote": {
+            "type": "object",
+            "properties": {
+                "animated": {
+                    "type": "boolean"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "imageUrl": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                }
+            }
+        },
+        "EmoteList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Emote"
+                    }
+                }
+            }
+        },
+        "EmoteRef": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "imageUrl": {
+                    "type": "string"
+                }
+            }
+        },
+        "Error": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/ErrorBody"
+                }
+            }
+        },
+        "ErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "Fragment": {
+            "type": "object",
+            "properties": {
+                "emote": {
+                    "$ref": "#/definitions/EmoteRef"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "Message": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "fragments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Fragment"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "streamId": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/Author"
+                }
+            }
+        },
+        "MessagePage": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Message"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "UpdateChatSettings": {
+            "type": "object",
+            "properties": {
+                "followersMin": {
+                    "description": "FollowersMin ∈ {null (off), 0, 10, 30, 60, 1440, 10080, 43200, 129600} minutes.",
+                    "type": "integer"
+                },
+                "slowSec": {
+                    "description": "SlowSec ∈ {0, 2, 5, 10, 30, 60, 120}.",
+                    "type": "integer"
+                },
+                "subsOnly": {
+                    "type": "boolean"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

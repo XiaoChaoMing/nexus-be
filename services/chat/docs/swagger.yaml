@@ -1,0 +1,272 @@
+basePath: /v1
+definitions:
+  Author:
+    properties:
+      badges:
+        items:
+          type: string
+        type: array
+      color:
+        type: string
+      displayName:
+        type: string
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+  ChatSettings:
+    properties:
+      followersMin:
+        type: integer
+      slowSec:
+        type: integer
+      subsOnly:
+        type: boolean
+      updatedAt:
+        type: string
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ChatSettings:
+    properties:
+      data:
+        $ref: '#/definitions/ChatSettings'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_EmoteList:
+    properties:
+      data:
+        $ref: '#/definitions/EmoteList'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_MessagePage:
+    properties:
+      data:
+        $ref: '#/definitions/MessagePage'
+    type: object
+  Emote:
+    properties:
+      animated:
+        type: boolean
+      code:
+        type: string
+      id:
+        type: string
+      imageUrl:
+        type: string
+      scope:
+        type: string
+    type: object
+  EmoteList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Emote'
+        type: array
+    type: object
+  EmoteRef:
+    properties:
+      code:
+        type: string
+      id:
+        type: string
+      imageUrl:
+        type: string
+    type: object
+  Error:
+    properties:
+      error:
+        $ref: '#/definitions/ErrorBody'
+    type: object
+  ErrorBody:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  Fragment:
+    properties:
+      emote:
+        $ref: '#/definitions/EmoteRef'
+      text:
+        type: string
+      type:
+        type: string
+      userId:
+        type: string
+    type: object
+  Message:
+    properties:
+      body:
+        type: string
+      createdAt:
+        type: string
+      fragments:
+        items:
+          $ref: '#/definitions/Fragment'
+        type: array
+      id:
+        type: string
+      streamId:
+        type: string
+      type:
+        type: string
+      user:
+        $ref: '#/definitions/Author'
+    type: object
+  MessagePage:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Message'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  UpdateChatSettings:
+    properties:
+      followersMin:
+        description: FollowersMin ∈ {null (off), 0, 10, 30, 60, 1440, 10080, 43200,
+          129600} minutes.
+        type: integer
+      slowSec:
+        description: SlowSec ∈ {0, 2, 5, 10, 30, 60, 120}.
+        type: integer
+      subsOnly:
+        type: boolean
+    type: object
+info:
+  contact: {}
+  description: Chat history, emotes and chat modes. The realtime gateway (WebSocket
+    GET /v1/ws) is described in docs/plans/technical/2026-10-14-gd03-chat-realtime.md
+    §5.1. Get a token from identity-svc and paste "Bearer <accessToken>" into Authorize.
+  title: NexusLive chat-svc API
+  version: "1.0"
+paths:
+  /channels/{channelId}/chat-settings:
+    get:
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: channelId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ChatSettings'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Chat modes of a channel
+      tags:
+      - chat
+    put:
+      consumes:
+      - application/json
+      description: Channel owner, its moderators and admins. Every open room of the
+        channel gets mode_change and a system message.
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: modes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateChatSettings'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ChatSettings'
+        "400":
+          description: VALIDATION_FAILED (details.slowSec / followersMin = ENUM)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Change the chat modes of a channel
+      tags:
+      - chat
+  /chat/emotes:
+    get:
+      description: Global emotes; channelId is accepted and ignored until channel
+        emotes exist.
+      parameters:
+      - description: channel id (ignored for now)
+        in: query
+        name: channelId
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_EmoteList'
+      summary: Emotes usable in chat
+      tags:
+      - chat
+  /chat/rooms/{streamId}/messages:
+    get:
+      description: The items have the shape of the WebSocket `message` event. Pass
+        nextCursor as `before` for older messages.
+      parameters:
+      - description: stream id (uuid)
+        in: path
+        name: streamId
+        required: true
+        type: string
+      - description: 'message id: messages older than this one'
+        in: query
+        name: before
+        type: string
+      - default: 50
+        description: page size (1–100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_MessagePage'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Chat history of a stream, newest first
+      tags:
+      - chat
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

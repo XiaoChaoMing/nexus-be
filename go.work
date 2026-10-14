@@ -3,6 +3,7 @@ go 1.27
 use (
 	.
 	./services/channel
+	./services/chat
 	./services/identity
 	./services/media
 	./services/stream
