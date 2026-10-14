@@ -10,7 +10,7 @@ const (
 	ApplicationPending   ApplicationStatus = "PENDING"
 	ApplicationApproved  ApplicationStatus = "APPROVED"
 	ApplicationRejected  ApplicationStatus = "REJECTED"
-	ApplicationCancelled ApplicationStatus = "CANCELLED" //nolint:misspell // value of the database CHECK and the API
+	ApplicationCancelled ApplicationStatus = "CANCELLED"
 )
 
 // Application is a creator application in nxl_identity.creator_applications.

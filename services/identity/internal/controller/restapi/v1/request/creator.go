@@ -13,7 +13,7 @@ type SubmitApplication struct {
 
 // ListApplications is the query of the admin list.
 type ListApplications struct {
-	Status string `query:"status" validate:"omitempty,oneof=PENDING APPROVED REJECTED CANCELLED ALL"` //nolint:misspell // API value
+	Status string `query:"status" validate:"omitempty,oneof=PENDING APPROVED REJECTED CANCELLED ALL"`
 	Cursor string `query:"cursor" validate:"omitempty,max=512"`
 	Limit  *int   `query:"limit"  validate:"omitnil,min=1,max=50"`
 }

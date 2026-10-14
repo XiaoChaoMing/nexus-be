@@ -1,4 +1,3 @@
-//nolint:misspell // CANCELLED is an API value (creator application status), spelled as in the contract
 package v1
 
 import (
