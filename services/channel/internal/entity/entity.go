@@ -2,7 +2,6 @@
 package entity
 
 import (
-	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -37,9 +36,16 @@ type Channel struct {
 	DisplayName     string
 	Bio             *string
 	AvatarURL       *string
+	BannerURL       *string
+	SocialLinks     []SocialLink
+	Verified        bool
+	MatureDefault   bool
 	Status          Status
 	IsLive          bool
 	CurrentStreamID *string
+	FollowerCount   int
+	LastLiveAt      *time.Time
+	HandleChangedAt *time.Time
 	CreatedAt       time.Time
 }
 
@@ -111,12 +117,3 @@ func DisplayName(displayName, username string) string {
 
 	return name
 }
-
-var (
-	// ErrNotFound -.
-	ErrNotFound = errors.New("channel not found")
-	// ErrSuspended -.
-	ErrSuspended = errors.New("channel suspended")
-	// ErrNoFreeHandle means every suffixed candidate is taken (practically unreachable).
-	ErrNoFreeHandle = errors.New("no free handle")
-)

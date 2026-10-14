@@ -10,7 +10,11 @@ require (
 	github.com/gofiber/swagger v1.1.1
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/minio/minio-go/v7 v7.0.100
 	github.com/prometheus/client_golang v1.24.1
+	github.com/redis/go-redis/v9 v9.17.3
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag v1.16.6
+	golang.org/x/image v0.47.0
+	golang.org/x/text v0.42.0
 )

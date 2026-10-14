@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/minhnn/nexuslive-be/pkg/events"
@@ -33,7 +34,11 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	require.NoError(t, err)
 	t.Cleanup(pg.Close)
 
-	_, err = pg.Pool.Exec(context.Background(), `TRUNCATE channels, outbox, processed_events CASCADE`)
+	_, err = pg.Pool.Exec(context.Background(), `TRUNCATE channels, outbox, processed_events, search_history CASCADE`)
+	require.NoError(t, err)
+
+	// Category documents come from the seed migration and stay.
+	_, err = pg.Pool.Exec(context.Background(), `DELETE FROM search_documents WHERE entity_type <> 'CATEGORY'`)
 	require.NoError(t, err)
 
 	return persistent.New(pg), pg
@@ -163,22 +168,35 @@ func TestLiveState(t *testing.T) { //nolint:paralleltest // shared database
 	require.NoError(t, err)
 
 	s1, s2, ev := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	live := func(id string) entity.LiveStream {
+		return entity.LiveStream{StreamID: id, ChannelID: ch.ID, Title: "Rank leo", Tags: []string{"fps"}, Language: "vi", StartedAt: time.Now()}
+	}
 
-	require.NoError(t, r.SetLive(ctx, ev, ch.ID, s1))
-	require.NoError(t, r.SetLive(ctx, ev, ch.ID, s1), "redelivery")
+	require.NoError(t, r.SetLive(ctx, ev, live(s1)))
+	require.NoError(t, r.SetLive(ctx, ev, live(s1)), "redelivery")
 
 	got, err := r.ByHandle(ctx, "liveone")
 	require.NoError(t, err)
 	require.True(t, got.IsLive)
 	require.Equal(t, s1, *got.CurrentStreamID)
 
+	streams, err := r.LiveStreams(ctx, []string{ch.ID})
+	require.NoError(t, err)
+	require.Equal(t, "Rank leo", streams[ch.ID].Title)
+
 	// A late stream.ended of an older stream does not clear the newer one.
-	require.NoError(t, r.SetLive(ctx, uuid.NewString(), ch.ID, s2))
+	require.NoError(t, r.SetLive(ctx, uuid.NewString(), live(s2)))
 	require.NoError(t, r.SetOffline(ctx, uuid.NewString(), ch.ID, s1))
 
 	got, err = r.ByHandle(ctx, "liveone")
 	require.NoError(t, err)
 	require.True(t, got.IsLive)
+
+	docs, err := r.Search(ctx, "rank", entity.DocStream, nil, 10)
+	require.NoError(t, err)
+	require.Len(t, docs, 1, "one stream document per channel")
+	require.Equal(t, s2, docs[0].ID)
+	require.Equal(t, "/live/"+s2, docs[0].Target)
 
 	require.NoError(t, r.SetOffline(ctx, uuid.NewString(), ch.ID, s2))
 
@@ -186,4 +204,13 @@ func TestLiveState(t *testing.T) { //nolint:paralleltest // shared database
 	require.NoError(t, err)
 	require.False(t, got.IsLive)
 	require.Nil(t, got.CurrentStreamID)
+	require.NotNil(t, got.LastLiveAt)
+
+	docs, err = r.Search(ctx, "rank", entity.DocStream, nil, 10)
+	require.NoError(t, err)
+	require.Empty(t, docs)
+
+	ids, err := r.LiveStreamIDs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, ids)
 }

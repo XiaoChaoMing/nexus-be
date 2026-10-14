@@ -4,71 +4,174 @@ package v1
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"github.com/minhnn/nexuslive-be/pkg/logger"
+	"github.com/minhnn/nexuslive-be/services/channel/internal/controller/restapi/middleware"
+	"github.com/minhnn/nexuslive-be/services/channel/internal/controller/restapi/v1/response"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/usecase"
 )
 
-// Error codes shared with the web client.
-const (
-	CodeNotFound         = "NOT_FOUND"
-	CodeChannelSuspended = "CHANNEL_SUSPENDED"
-	CodeInternal         = "INTERNAL_ERROR"
-)
+// UseCases groups what the routes call.
+type UseCases struct {
+	Directory usecase.Directory
+	Follows   usecase.Follows
+	Studio    usecase.Studio
+	Catalog   usecase.Catalog
+	Search    usecase.Search
+	Schedules usecase.Schedules
+	Reminders usecase.Reminders
+}
+
+// Auth holds the two authentication middlewares: Required rejects guests, Optional identifies callers when a
+// token is sent.
+type Auth struct {
+	Required fiber.Handler
+	Optional fiber.Handler
+}
+
+// Options -.
+type Options struct {
+	AvatarMaxBytes int
+	BannerMaxBytes int
+	// ScheduleWindow is the default length of GET /channels/{id}/schedule; ScheduleHorizon its farthest end.
+	ScheduleWindow  time.Duration
+	ScheduleHorizon time.Duration
+}
+
+// _fieldBody names the whole body in VALIDATION_FAILED details.
+const _fieldBody = "body"
 
 type routes struct {
-	dir usecase.Directory
-	l   logger.Interface
+	uc UseCases
+	o  Options
+	l  logger.Interface
 }
 
-// NewRoutes registers /v1/channels.
-func NewRoutes(group fiber.Router, dir usecase.Directory, l logger.Interface) {
-	r := &routes{dir: dir, l: l}
+// NewRoutes registers every channel-svc route under group (/v1). Static routes come before parameterized
+// ones of the same prefix.
+func NewRoutes(group fiber.Router, uc UseCases, auth Auth, o Options, l logger.Interface) {
+	r := &routes{uc: uc, o: o, l: l}
 
-	group.Get("/channels/:handle", r.byHandle)
+	group.Get("/channels/:handle", auth.Optional, r.profile)
+	group.Post("/channels/:id/follow", auth.Required, r.follow)
+	group.Put("/channels/:id/follow", auth.Required, r.setNotifyLevel)
+	group.Delete("/channels/:id/follow", auth.Required, r.unfollow)
+	group.Get("/channels/:id/schedule", auth.Optional, r.channelSchedule)
+
+	group.Get("/me/following/sidebar", auth.Required, r.sidebar)
+	group.Get("/me/following", auth.Required, r.following)
+	group.Get("/me/search-history", auth.Required, r.history)
+	group.Post("/me/search-history", auth.Required, r.remember)
+	group.Delete("/me/search-history", auth.Required, r.forgetAll)
+	group.Delete("/me/search-history/:id", auth.Required, r.forget)
+
+	group.Get("/categories", r.categories)
+	group.Get("/categories/:slug", r.category)
+	group.Get("/search/suggest", r.suggest)
+	group.Get("/search", r.search)
+
+	group.Post("/schedules/:id/reminders", auth.Required, r.remind)
+	group.Delete("/schedules/:id/reminders", auth.Required, r.unremind)
+
+	st := group.Group("/studio", auth.Required)
+	{
+		st.Get("/channel/stats", r.stats)
+		st.Get("/channel", r.studioChannel)
+		st.Patch("/channel", r.updateChannel)
+		st.Put("/channel/avatar", r.uploadAvatar)
+		st.Put("/channel/banner", r.uploadBanner)
+		st.Get("/schedules", r.schedules)
+		st.Post("/schedules", r.createSchedule)
+		st.Put("/schedules/:id", r.updateSchedule)
+		st.Delete("/schedules/:id", r.cancelSchedule)
+		st.Put("/schedules/:id/occurrences/:occurrenceAt", r.moveOccurrence)
+		st.Delete("/schedules/:id/occurrences/:occurrenceAt", r.cancelOccurrence)
+	}
 }
 
-func errorJSON(ctx *fiber.Ctx, status int, code, message string) error {
-	return ctx.Status(status).JSON(ErrorResponse{Error: ErrorBody{Code: code, Message: message}})
+func errorJSON(ctx *fiber.Ctx, status int, code, message string, details map[string]string) error {
+	return ctx.Status(status).JSON(response.Error{Error: response.ErrorBody{Code: code, Message: message, Details: details}})
 }
 
-// byHandle godoc
-//
-//	@Summary     Public channel page by handle
-//	@Description The handle is case-insensitive (3–25 characters of [A-Za-z0-9_]); anything else is 404.
-//	@Tags        channels
-//	@Produce     json
-//	@Param       handle path     string true "channel handle"
-//	@Success     200    {object} Data[Channel]
-//	@Failure     403    {object} ErrorResponse "CHANNEL_SUSPENDED"
-//	@Failure     404    {object} ErrorResponse "NOT_FOUND"
-//	@Router      /channels/{handle} [get]
-func (r *routes) byHandle(ctx *fiber.Ctx) error {
-	ch, err := r.dir.ByHandle(ctx.UserContext(), ctx.Params("handle"))
+func invalid(ctx *fiber.Ctx, details map[string]string) error {
+	return errorJSON(ctx, http.StatusBadRequest, entity.CodeValidationFailed, "invalid request", details)
+}
 
-	switch {
-	case errors.Is(err, entity.ErrNotFound):
-		return errorJSON(ctx, http.StatusNotFound, CodeNotFound, "channel not found")
-	case errors.Is(err, entity.ErrSuspended):
-		return errorJSON(ctx, http.StatusForbidden, CodeChannelSuspended, "channel is suspended")
-	case err != nil:
-		r.l.Error("restapi - v1 - byHandle: %v", err)
+func notFound(ctx *fiber.Ctx) error {
+	return errorJSON(ctx, http.StatusNotFound, entity.CodeNotFound, "not found", nil)
+}
 
-		return errorJSON(ctx, http.StatusInternalServerError, CodeInternal, "internal server error")
+// statusOf is the HTTP status of each code a route can return (NXL-00 §5).
+func statusOf(code string) int {
+	switch code {
+	case entity.CodeValidationFailed:
+		return http.StatusBadRequest
+	case entity.CodeUnauthorized:
+		return http.StatusUnauthorized
+	case entity.CodeNotFound:
+		return http.StatusNotFound
+	case entity.CodeChannelSuspended, entity.CodeNotCreator:
+		return http.StatusForbidden
+	case entity.CodeCannotFollowSelf:
+		return http.StatusUnprocessableEntity
+	case entity.CodeHandleTaken, entity.CodeConflict, entity.CodeInvalidState:
+		return http.StatusConflict
+	case entity.CodePayloadTooLarge:
+		return http.StatusRequestEntityTooLarge
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
+// fail maps a use-case error; unexpected errors are logged and answered with a generic message.
+func (r *routes) fail(ctx *fiber.Ctx, op string, err error) error {
+	code := entity.CodeOf(err)
+	if code == entity.CodeInternal {
+		r.l.Error("restapi - v1 - %s: %v", op, err)
+
+		return errorJSON(ctx, http.StatusInternalServerError, code, "internal server error", nil)
 	}
 
-	ctx.Set(fiber.HeaderCacheControl, "no-cache")
+	return errorJSON(ctx, statusOf(code), code, rootMessage(err), entity.DetailsOf(err))
+}
 
-	return ctx.JSON(Data[Channel]{Data: Channel{
-		ID:              ch.ID,
-		Handle:          ch.Handle,
-		DisplayName:     ch.DisplayName,
-		Bio:             ch.Bio,
-		AvatarURL:       ch.AvatarURL,
-		IsLive:          ch.IsLive,
-		CurrentStreamID: ch.CurrentStreamID,
-		CreatedAt:       ch.CreatedAt.UTC(),
-	}})
+func rootMessage(err error) string {
+	for {
+		next := errors.Unwrap(err)
+		if next == nil {
+			return err.Error()
+		}
+
+		err = next
+	}
+}
+
+// caller returns the authenticated user ("" for a guest on an optional route).
+func caller(ctx *fiber.Ctx) string {
+	id, _ := middleware.UserID(ctx)
+
+	return id
+}
+
+func requireCaller(ctx *fiber.Ctx) (string, error) {
+	id, ok := middleware.UserID(ctx)
+	if !ok {
+		return "", errorJSON(ctx, http.StatusUnauthorized, entity.CodeUnauthorized, "unauthorized", nil)
+	}
+
+	return id, nil
+}
+
+// idParam returns the lower-cased uuid of the path parameter {id}; ok is false when it is malformed.
+func idParam(ctx *fiber.Ctx) (string, bool) {
+	u, err := uuid.Parse(ctx.Params("id"))
+	if err != nil {
+		return "", false
+	}
+
+	return u.String(), true
 }
