@@ -2,7 +2,7 @@
 
 | Track | Trạng thái | Ngày |
 | --- | --- | --- |
-| Full (channel-svc mở rộng + auth mới, migration, sự kiện mới, thư viện mới, Nginx, cross-repo web) | Draft — chờ duyệt §10 | 2026-10-14 |
+| Full (channel-svc mở rộng + auth mới, migration, sự kiện mới, thư viện mới, Nginx, cross-repo web) | Approved 14/10 (G4-Q1…Q8, Q10 theo đề xuất; G4-Q9: SePay thay VNPay) | 2026-10-14 |
 
 Lịch lộ trình GĐ4: 28/12 → 08/01 (2 tuần), không có mốc demo riêng; "hoàn thành khi" hành trình **Discovery** và
 **Creator** (PRD §15) chạy trọn. GĐ3 xong sớm ~9 tuần nên bắt đầu ngay được. Bảng dữ liệu phần lớn đã có trong
@@ -120,7 +120,7 @@ danh mục (NXL-C Q7), Clips/Highlights, doanh thu trên Dashboard (GĐ6), kênh
 
 - NXL-C v1.2 (đóng câu hỏi theo §10), NXL-D / NXL-G2 / NXL-A errata (ST-Q2, ST-Q4, NXL-A Q10), NXL-00 v1.4 (sự kiện,
   hằng số, mã lỗi), API catalog (E-18), kiến trúc §4 (E-19), ERD channel/stream.
-- **NXL-H v1.0** (Subscription & thanh toán) — lộ trình yêu cầu chốt PSP trong GĐ4 (G4-Q9).
+- **NXL-H v1.0** (Subscription & thanh toán) với PSP **SePay** (G4-Q9).
 - Brief design GĐ4 cho các frame còn thiếu (G4-Q10). TSD + Completed Plan.
 
 ### WP10 — Kiểm thử và hành trình
@@ -217,7 +217,7 @@ trước khi code (TSD liệt kê).
 | G4-Q6 | Làm đổi handle trong GĐ4 (cần `channel.updated.v1` ở stream + chat)? | Có, 30 ngày / lần, handle cũ không chuyển hướng (BR-D14) |
 | G4-Q7 | Sidebar realtime do chat-svc đẩy từ bản sao follow (thay vì channel-svc giữ kết nối) | Đồng ý — chat-svc đã là gateway và có bản sao follow |
 | G4-Q8 | Lịch sử tìm kiếm (NXL-C Q8) | Tài khoản: lưu server (bảng `search_history`, tối đa 10); Guest: localStorage |
-| G4-Q9 | PSP cho NXL-H (GĐ6): VNPay sandbox, MoMo test hay Stripe test mode? | **VNPay sandbox** — phổ biến ở VN, có ReturnURL chạy được trên máy cục bộ; IPN giả lập bằng API truy vấn giao dịch khi demo |
+| G4-Q9 | PSP cho NXL-H (GĐ6) | **Chốt (14/10): SePay** — Cổng thanh toán SePay, môi trường sandbox (`pay-sandbox.sepay.vn` form checkout ký HMAC-SHA256, IPN `ORDER_PAID` có header `X-Secret-Key`, API `pgapi-sandbox.sepay.vn` Basic Auth); chi tiết trong NXL-H |
 | G4-Q10 | Design còn thiếu: Đang theo dõi, Ctrl+K, kết quả tìm kiếm, Studio (Tổng quan / Nội dung / Lịch / Kênh), mobile + tablet cho Browse / Hồ sơ / Sắp diễn ra | Em viết brief GĐ4 cho agent design; trong lúc chờ dựng theo frame 02/04/05/06/07 + token |
 
 ## 11. Tiêu chí hoàn thành
