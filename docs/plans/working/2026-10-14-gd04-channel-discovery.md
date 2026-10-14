@@ -2,7 +2,7 @@
 
 | Track | Trạng thái | Ngày |
 | --- | --- | --- |
-| Full (channel-svc mở rộng + auth mới, migration, sự kiện mới, thư viện mới, Nginx, cross-repo web) | Approved 14/10 (G4-Q1…Q8, Q10 theo đề xuất; G4-Q9: SePay thay VNPay) | 2026-10-14 |
+| Full (channel-svc mở rộng + auth mới, migration, sự kiện mới, thư viện mới, Nginx, cross-repo web) | Approved 14/10 (G4-Q1…Q8, Q10 theo đề xuất; G4-Q9: SePay thay VNPay) — WP1–WP10 xong 15/10 | 2026-10-14 |
 
 Lịch lộ trình GĐ4: 28/12 → 08/01 (2 tuần), không có mốc demo riêng; "hoàn thành khi" hành trình **Discovery** và
 **Creator** (PRD §15) chạy trọn. GĐ3 xong sớm ~9 tuần nên bắt đầu ngay được. Bảng dữ liệu phần lớn đã có trong
@@ -61,7 +61,7 @@ danh mục (NXL-C Q7), Clips/Highlights, doanh thu trên Dashboard (GĐ6), kênh
 
 ### WP2 — Follow, chuông, Đang theo dõi, sidebar
 
-- `POST/PUT/DELETE /v1/channels/{id}/follow` (`notifyLevel` ALL / LIVE_ONLY / NONE), `CANNOT_FOLLOW_SELF`; outbox
+- `POST/PUT/DELETE /v1/channels/{id}/follow` (`notifyLevel` ALL / LIVE_ONLY / OFF), `CANNOT_FOLLOW_SELF`; outbox
   `follow.*`; `GET /v1/channels/{handle}` thêm `viewer {following, notifyLevel}`, `followerCount`.
 - `GET /v1/me/following?status=live|all`, `GET /v1/me/following/sidebar` (≤ 10, live trước, theo số người xem).
 - chat-svc: chủ đề `sidebar:{userId}` (`channel_live`, `channel_offline`, `viewer_count_batch` mỗi 5 s) từ bản sao

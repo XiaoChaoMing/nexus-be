@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày | Working Plan |
 | --- | --- | --- | --- |
-| 1.0 | Approved 14/10 — đang triển khai | 2026-10-14 | `docs/plans/working/2026-10-14-gd04-channel-discovery.md` (Approved 14/10) |
+| 1.1 | Đã triển khai (đồng bộ theo hiện thực, §16) | 2026-10-14 | `docs/plans/working/2026-10-14-gd04-channel-discovery.md` (Approved 14/10) |
 
 Quyết định đã chốt (14/10): **G4-Q1** thêm `golang.org/x/image` (đọc WebP, resize), xuất JPEG, resize ngay trong request,
 bucket `nxl-public` đọc công khai qua Nginx `/media/` · **G4-Q2** chỉ PostgreSQL FTS + `unaccent` + tiền tố, không
@@ -1225,8 +1225,24 @@ v1.1 (§7A, AF04, §9C); NXL-00 v1.3 (§3, §5, §6, §10, §11, §12); NXL-E (N
 `deploy/nginx/nginx.conf`; migration `services/channel/migrations/20261010000001_init_channel.up.sql`,
 `services/stream/migrations/*`.
 
+## 16. Hiện thực khác bản 1.0
+
+| Mục | Đã làm |
+| --- | --- |
+| Index lần phát theo lịch | Unique `(schedule_id, scheduled_start_at)` bỏ qua dòng `CANCELLED` (cho tạo lại sau khi hủy) |
+| `categoryId` ở Stream Manager | stream-svc chỉ kiểm định dạng UUID (không có bản sao danh mục); channel-svc kiểm đầy đủ ở lịch phát |
+| Repo | `Create` nhận giới hạn lịch đang hoạt động; `Update` nhận cờ đổi giờ; follow dùng `GetFollow`, `ListFollowed` |
+| Ảnh | > 40 MP → `413 PAYLOAD_TOO_LARGE`; upload multipart trường `file`, trả `{url}` dưới `/media/...`; giới hạn thân request 6 MB ở Nginx |
+| Lịch lặp | `UNTIL` quá chân trời 90 ngày → `rrule = FORMAT`; `startAt` của lịch hằng tuần phải rơi vào một ngày trong `BYDAY`; lần phát một-lần đã dời không tính vào giới hạn 20 |
+| Tìm kiếm | `GET /v1/search` bắt buộc `type`; cursor sắp giảm dần trên mọi khóa |
+| Sidebar | `GET /v1/me/following/sidebar` → `{live[], offline[], totalFollowing}`; chủ đề `sidebar:` chỉ nhận userId của chính mình; `channel_live {channelId, stream{id, title, categoryId, viewerCount}}`; `viewer_count_batch` không có `seq`; chỉ người theo dõi đang online nhận |
+| Stream | `peakViewers` không bao giờ null; `stream:` phát `status_changed` với `SCHEDULED`/`CANCELLED` kèm `scheduledStartAt`; `thumbnailUrl` trong `vod_ready`/`vod.updated` là URL `/hls/...` |
+| Web | Handle trùng route của ứng dụng (vd. seed `creator`) mở qua `/c/{handle}` |
+| Sửa ngoài phạm vi | `httpserver` có tùy chọn `BodyLimit`; quy tắc misspell cho `CANCELLED` dùng chung |
+
 ## 15. Document control
 
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
-| 1.0 | 2026-10-14 | Bản đầu sau khi duyệt Working Plan (G4-Q1…Q8, Q10) — chờ duyệt |
+| 1.0 | 2026-10-14 | Bản đầu sau khi duyệt Working Plan (G4-Q1…Q8, Q10) |
+| 1.1 | 2026-10-15 | Đồng bộ theo hiện thực (§16) |
