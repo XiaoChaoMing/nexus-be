@@ -3,6 +3,7 @@ package playback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -55,7 +56,7 @@ type media struct {
 // Open resolves the stream or VOD, applies the age gate and records a playback session.
 // A closed gate is not an error: the grant says so and carries no media.
 func (uc *UseCase) Open(ctx context.Context, in usecase.PlaybackInput) (entity.PlaybackGrant, error) {
-	m, err := uc.media(ctx, in.Target)
+	m, err := uc.media(ctx, in.Target, in.UserID)
 	if err != nil {
 		return entity.PlaybackGrant{}, err
 	}
@@ -129,7 +130,7 @@ func (uc *UseCase) gate(ctx context.Context, in usecase.PlaybackInput, m media) 
 	return g, nil
 }
 
-func (uc *UseCase) media(ctx context.Context, t entity.PlaybackTarget) (media, error) {
+func (uc *UseCase) media(ctx context.Context, t entity.PlaybackTarget, userID string) (media, error) {
 	if t.VODID == "" {
 		s, err := uc.streams.Get(ctx, t.StreamID)
 		if err != nil {
@@ -144,6 +145,12 @@ func (uc *UseCase) media(ctx context.Context, t entity.PlaybackTarget) (media, e
 		return media{}, err
 	}
 
+	if v.Hidden() {
+		if err := uc.ownerOnly(ctx, userID, v.ChannelID); err != nil {
+			return media{}, err
+		}
+	}
+
 	// A VOD inherits the mature flag of the broadcast it records.
 	s, err := uc.streams.Get(ctx, v.StreamID)
 	if err != nil {
@@ -151,6 +158,24 @@ func (uc *UseCase) media(ctx context.Context, t entity.PlaybackTarget) (media, e
 	}
 
 	return media{channelID: v.ChannelID, objectKey: v.PlaylistPath, mature: s.IsMature}, nil
+}
+
+// ownerOnly returns entity.ErrNotFound unless userID owns channelID (hidden VODs, BR-G2-07).
+func (uc *UseCase) ownerOnly(ctx context.Context, userID, channelID string) error {
+	if userID == "" {
+		return entity.ErrNotFound
+	}
+
+	ch, err := uc.channels.ChannelOfOwner(ctx, userID)
+	if errors.Is(err, entity.ErrNotFound) || (err == nil && ch.ID != channelID) {
+		return entity.ErrNotFound
+	}
+
+	if err != nil {
+		return fmt.Errorf("PlaybackUseCase - owner: %w", err)
+	}
+
+	return nil
 }
 
 // SaveProgress -.

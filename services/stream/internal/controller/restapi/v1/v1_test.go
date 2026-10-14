@@ -42,7 +42,7 @@ func (*fakeStudio) Overview(_ context.Context, channelID string) (usecase.Studio
 
 type fakeCatalog struct{ usecase.Catalog }
 
-func (fakeCatalog) Get(_ context.Context, id string) (entity.Stream, error) {
+func (fakeCatalog) GetFor(_ context.Context, id, _ string) (entity.Stream, error) {
 	s := entity.Stream{ID: id, ChannelID: "ch1", Status: entity.StatusLive}
 	if id == "0199d4a2-0000-7000-8000-000000000001" {
 		s.Channel = &entity.Channel{ID: "ch1", Handle: "minhnn", DisplayName: "Minh"}

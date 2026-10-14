@@ -14,6 +14,9 @@ const (
 	StatusLive        Status = "LIVE"
 	StatusInterrupted Status = "INTERRUPTED"
 	StatusEnded       Status = "ENDED"
+	// StatusScheduled is an announced occurrence of a schedule (NXL-G2): Go Live inside its window attaches to it.
+	StatusScheduled Status = "SCHEDULED"
+	StatusCancelled Status = "CANCELLED"
 )
 
 // EndReason -.
@@ -40,6 +43,11 @@ type Stream struct {
 	EndReason     *EndReason
 	CreatedAt     time.Time
 	VODID         *string
+	// VODVisibility is the visibility of the READY VOD (nil without one).
+	VODVisibility    *string
+	CategoryID       *string
+	ScheduleID       *string
+	ScheduledStartAt *time.Time
 	// ViewerCount is nil when chat-svc has no count for the stream (or counts are not configured).
 	ViewerCount *int
 	// Channel is nil when channel.created never arrived for ChannelID (streams before channels existed).
@@ -67,7 +75,9 @@ type Settings struct {
 	Tags      []string
 	Language  string
 	IsMature  bool
-	UpdatedAt time.Time
+	// CategoryID is a channel-svc category; stream-svc does not know the list and stores any uuid.
+	CategoryID *string
+	UpdatedAt  time.Time
 }
 
 // DefaultTitle is used when the creator never set one (streams.title is NOT NULL).
@@ -79,6 +89,14 @@ type StreamKeyInfo struct {
 	CreatedAt *time.Time
 }
 
+// VOD visibilities and statuses.
+const (
+	VisibilityPublic = "PUBLIC"
+	VisibilityHidden = "HIDDEN"
+	VODReady         = "READY"
+	VODExpired       = "EXPIRED"
+)
+
 // VOD -.
 type VOD struct {
 	ID           string
@@ -89,9 +107,21 @@ type VOD struct {
 	PlaylistPath string
 	ThumbnailURL string
 	Status       string
+	Visibility   string
+	CategoryID   *string
+	IsMature     bool
 	CreatedAt    time.Time
 	ExpiresAt    time.Time
 	Channel      *Channel
+}
+
+// Hidden reports whether only the owner may see the VOD (BR-G2-07).
+func (v VOD) Hidden() bool { return v.Visibility == VisibilityHidden }
+
+// VODPatch is the creator's change to a VOD; nil fields stay unchanged.
+type VODPatch struct {
+	Title      *string
+	Visibility *string
 }
 
 // Grant is the answer to media-svc's authorize call.
@@ -125,4 +155,6 @@ var (
 	ErrRecentlyEnded = errors.New("channel ended a stream moments ago")
 	// ErrNotCreator: the caller owns no channel, so the Studio is closed to them.
 	ErrNotCreator = errors.New("caller has no channel")
+	// ErrInvalidState: the transition is not allowed in the current state (an EXPIRED VOD cannot be edited).
+	ErrInvalidState = errors.New("invalid state")
 )

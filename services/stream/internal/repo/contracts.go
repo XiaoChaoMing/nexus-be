@@ -5,6 +5,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/entity"
 )
 
@@ -31,8 +32,9 @@ type (
 	// StreamRepo owns the NXL-A §7A state machine. Every transition is a conditional UPDATE in one
 	// transaction with its outbox event, so concurrent callers cannot both win.
 	StreamRepo interface {
-		// Authorize resumes an INTERRUPTED stream still inside grace, ends an expired one, or creates a LIVE stream.
-		Authorize(ctx context.Context, channelID string, grace time.Duration) (entity.Grant, error)
+		// Authorize resumes an INTERRUPTED stream still inside grace, ends an expired one, attaches to the nearest
+		// SCHEDULED stream inside [start - EarlyStart, start + LateGrace], or creates a LIVE stream.
+		Authorize(ctx context.Context, channelID string, p AuthorizeParams) (entity.Grant, error)
 		// End moves the channel's on-air stream to ENDED.
 		End(ctx context.Context, channelID string, reason entity.EndReason) (entity.Stream, error)
 		// ExpireInterrupted ends every INTERRUPTED stream older than grace.
@@ -46,7 +48,22 @@ type (
 		Get(ctx context.Context, streamID string) (entity.Stream, error)
 		Current(ctx context.Context, channelID string) (*entity.Stream, error)
 		ListOnAir(ctx context.Context, after *Cursor, limit int) ([]entity.Stream, error)
+		// ListOnAirFiltered is ListOnAir (newest first, keyset) with filters.
+		ListOnAirFiltered(ctx context.Context, f StreamFilter, after *Cursor, limit int) ([]entity.Stream, error)
+		// ListOnAirAll returns at most max streams on air matching f, unordered (sorted by viewers in memory).
+		ListOnAirAll(ctx context.Context, f StreamFilter, maxRows int) ([]entity.Stream, error)
+		// GetVOD returns a READY, unexpired VOD whatever its visibility.
 		GetVOD(ctx context.Context, vodID string) (entity.VOD, error)
+
+		// Scheduled streams (schedule.* events of channel-svc); eventID de-duplicates.
+		CreateScheduled(ctx context.Context, eventID string, e events.ScheduleOccurrenceUpcoming) error
+		ChangeScheduled(ctx context.Context, eventID string, e events.ScheduleOccurrenceChanged) error
+		RetitleScheduled(ctx context.Context, eventID string, e events.ScheduleUpdated) error
+		// CancelLateScheduled cancels SCHEDULED streams whose start is more than late ago; returns how many.
+		CancelLateScheduled(ctx context.Context, late time.Duration, batch int) (int, error)
+
+		DashboardStats(ctx context.Context, channelID string, since time.Time) (entity.DashboardStats, error)
+		RecentEnded(ctx context.Context, channelID string, n int) ([]entity.RecentStream, error)
 
 		// EndedByCreatorSince reports whether the channel's latest stream was ended by the creator after since.
 		EndedByCreatorSince(ctx context.Context, channelID string, since time.Time) (bool, error)
@@ -56,6 +73,18 @@ type (
 		CountOnAir(ctx context.Context) (int, error)
 		// SetPeakViewers keeps the highest peak reported by chat-svc; eventID de-duplicates.
 		SetPeakViewers(ctx context.Context, eventID, streamID string, peak int) error
+	}
+
+	// VODRepo lists and edits VODs; edits queue vod.updated / vod.deleted in the same transaction.
+	VODRepo interface {
+		// ListPublic lists READY, PUBLIC, unexpired VODs, newest first; safeOnly leaves mature ones out.
+		ListPublic(ctx context.Context, f VODFilter, safeOnly bool, after *VODCursor, limit int) ([]entity.VOD, error)
+		// ListByChannel lists the channel's VODs: the public ones, or (public false) every READY / EXPIRED one.
+		ListByChannel(ctx context.Context, channelID string, public bool, f StudioVODFilter, after *VODCursor, limit int) ([]entity.VOD, error)
+		// UpdateVOD returns entity.ErrNotFound (other channel, deleted) or entity.ErrInvalidState (EXPIRED).
+		UpdateVOD(ctx context.Context, channelID, vodID string, p entity.VODPatch) (entity.VOD, error)
+		// DeleteVOD soft-deletes a READY or EXPIRED VOD; entity.ErrNotFound otherwise.
+		DeleteVOD(ctx context.Context, channelID, vodID string) error
 	}
 
 	// ViewerCountRepo reads the live viewer counts chat-svc maintains (read only).
@@ -103,5 +132,37 @@ type (
 	Cursor struct {
 		StartedAt time.Time
 		ID        string
+	}
+
+	// VODCursor is the keyset position of VOD lists (created_at DESC, id DESC).
+	VODCursor struct {
+		CreatedAt time.Time
+		ID        string
+	}
+
+	// AuthorizeParams are the time windows of Authorize.
+	AuthorizeParams struct {
+		Grace      time.Duration
+		EarlyStart time.Duration
+		LateGrace  time.Duration
+	}
+
+	// StreamFilter selects streams on air; empty fields do not filter.
+	StreamFilter struct {
+		CategoryIDs []string
+		Language    string
+		// Tags must all be present.
+		Tags []string
+	}
+
+	// VODFilter selects public VODs.
+	VODFilter struct {
+		CategoryIDs []string
+	}
+
+	// StudioVODFilter selects the creator's VODs; nil does not filter.
+	StudioVODFilter struct {
+		Visibility *string
+		Status     *string
 	}
 )

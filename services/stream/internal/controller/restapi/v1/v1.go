@@ -70,13 +70,22 @@ func NewRoutes(group fiber.Router, studio usecase.Studio, catalog usecase.Catalo
 		st.Get("/stream", r.overview)
 		st.Put("/stream", r.updateSettings)
 		st.Post("/stream/end", r.end)
+		st.Get("/dashboard", r.dashboard)
+		st.Get("/vods", r.studioVODs)
+		st.Patch("/vods/:id", r.updateVOD)
+		st.Delete("/vods/:id", r.deleteVOD)
 	}
 
+	// Static routes before the :id ones of the same prefix.
+	group.Get("/streams/recommended", r.recommended)
 	group.Get("/streams", r.listLive)
-	group.Get("/streams/:id", r.getStream)
+	group.Get("/streams/:id", auth.Optional, r.getStream)
 	group.Post("/streams/:id/playback", auth.Optional, r.openStream)
+	group.Get("/vods/recommended", r.recommendedVODs)
+	group.Get("/vods", r.listVODs)
 	group.Get("/vods/:id", auth.Optional, r.getVOD)
 	group.Post("/vods/:id/playback", auth.Optional, r.openVOD)
+	group.Get("/channels/:id/vods", r.channelVODs)
 
 	group.Put("/me/watch-progress/:vodId", auth.Required, r.saveProgress)
 	group.Get("/me/continue-watching", auth.Required, r.continueWatching)
@@ -209,6 +218,8 @@ type SettingsRequest struct {
 	Tags     []string `json:"tags"`
 	Language string   `json:"language"`
 	IsMature bool     `json:"isMature"`
+	// CategoryID: absent or null removes the category (PUT replaces the settings).
+	CategoryID *string `json:"categoryId"`
 }
 
 func (b SettingsRequest) validate() map[string]string {
@@ -230,6 +241,12 @@ func (b SettingsRequest) validate() map[string]string {
 
 	if len(b.Language) > _maxLang {
 		errs["language"] = "LENGTH"
+	}
+
+	if b.CategoryID != nil {
+		if _, err := uuid.Parse(*b.CategoryID); err != nil {
+			errs["categoryId"] = _detailInvalid
+		}
 	}
 
 	return errs
@@ -265,11 +282,12 @@ func (r *routes) updateSettings(ctx *fiber.Ctx) error {
 	}
 
 	set, err := r.studio.UpdateSettings(ctx.UserContext(), entity.Settings{
-		ChannelID: ch.ID,
-		Title:     body.Title,
-		Tags:      body.Tags,
-		Language:  body.Language,
-		IsMature:  body.IsMature,
+		ChannelID:  ch.ID,
+		Title:      body.Title,
+		Tags:       body.Tags,
+		Language:   body.Language,
+		IsMature:   body.IsMature,
+		CategoryID: lowerID(body.CategoryID),
 	})
 	if err != nil {
 		return r.internal(ctx, "updateSettings", err)
@@ -311,24 +329,33 @@ func (r *routes) end(ctx *fiber.Ctx) error {
 
 // listLive godoc
 //
-//	@Summary     Streams on air (LIVE and INTERRUPTED), newest first
-//	@Description channel is null for streams whose channel is unknown to stream-svc.
+//	@Summary     Streams on air (LIVE and INTERRUPTED), mature ones included (isMature)
+//	@Description sort=viewers (default; trending is the same) orders by live viewers, then the most recent start; sort=newest by start. category is 1–30 category ids (comma-separated, from GET /v1/categories); tags must all match. channel is null for streams whose channel is unknown to stream-svc.
 //	@Tags        streams
 //	@Produce     json
-//	@Param       status query    string false "only live"              Enums(live) default(live)
-//	@Param       cursor query    string false "nextCursor of the previous page"
-//	@Param       limit  query    int    false "page size (1–50)"        default(24)
-//	@Success     200    {object} Data[StreamList]
-//	@Failure     400    {object} ErrorResponse "VALIDATION_FAILED"
+//	@Param       status   query    string false "only live"              Enums(live) default(live)
+//	@Param       category query    string false "category ids, comma-separated"
+//	@Param       language query    string false "two-letter language code"
+//	@Param       tags     query    string false "up to 5 tags, comma-separated"
+//	@Param       sort     query    string false "order" Enums(viewers,newest,trending) default(viewers)
+//	@Param       cursor   query    string false "nextCursor of the previous page"
+//	@Param       limit    query    int    false "page size (1–50)"        default(24)
+//	@Success     200      {object} Data[StreamList]
+//	@Failure     400      {object} ErrorResponse "VALIDATION_FAILED (category = INVALID, language = FORMAT, tags = TAG_COUNT, sort = ENUM, cursor = INVALID)"
 //	@Router      /streams [get]
 func (r *routes) listLive(ctx *fiber.Ctx) error {
 	if s := ctx.Query("status", "live"); s != "live" {
 		return errorJSON(ctx, http.StatusBadRequest, CodeValidationFailed, "only status=live is supported", map[string]string{"status": "ONEOF"})
 	}
 
-	page, err := r.catalog.ListLive(ctx.UserContext(), ctx.Query("cursor"), ctx.QueryInt("limit", _defaultLim))
+	f, errs := streamFilter(ctx)
+	if len(errs) > 0 {
+		return errorJSON(ctx, http.StatusBadRequest, CodeValidationFailed, "invalid query", errs)
+	}
+
+	page, err := r.catalog.List(ctx.UserContext(), f, ctx.Query("cursor"), ctx.QueryInt("limit", _defaultLim))
 	if errors.Is(err, streams.ErrBadCursor) {
-		return errorJSON(ctx, http.StatusBadRequest, CodeValidationFailed, "invalid cursor", map[string]string{"cursor": "INVALID"})
+		return errorJSON(ctx, http.StatusBadRequest, CodeValidationFailed, "invalid cursor", map[string]string{"cursor": _detailInvalid})
 	}
 
 	if err != nil {
@@ -351,20 +378,25 @@ func (r *routes) listLive(ctx *fiber.Ctx) error {
 
 // getStream godoc
 //
-//	@Summary Stream detail (status, manifestUrl, vodId once the VOD is ready)
-//	@Tags    streams
-//	@Produce json
-//	@Param   id  path     string true "stream id (uuid)"
-//	@Success 200 {object} Data[Stream]
-//	@Failure 404 {object} ErrorResponse "NOT_FOUND"
-//	@Router  /streams/{id} [get]
+//	@Summary     Stream detail (status, manifestUrl, vodId once the VOD is ready)
+//	@Description status may be SCHEDULED (an announced occurrence: scheduleId, scheduledStartAt) or CANCELLED. vodId is null while the VOD is hidden, except for the channel owner.
+//	@Tags        streams
+//	@Produce     json
+//	@Security    BearerAuth
+//	@Param       id  path     string true "stream id (uuid)"
+//	@Success     200 {object} Data[Stream]
+//	@Failure     401 {object} ErrorResponse "UNAUTHORIZED (token sent but invalid)"
+//	@Failure     404 {object} ErrorResponse "NOT_FOUND"
+//	@Router      /streams/{id} [get]
 func (r *routes) getStream(ctx *fiber.Ctx) error {
 	id := ctx.Params("id")
 	if _, err := uuid.Parse(id); err != nil {
 		return errorJSON(ctx, http.StatusNotFound, CodeNotFound, "stream not found", nil)
 	}
 
-	s, err := r.catalog.Get(ctx.UserContext(), id)
+	userID, _ := middleware.UserID(ctx)
+
+	s, err := r.catalog.GetFor(ctx.UserContext(), id, userID)
 	if errors.Is(err, entity.ErrNotFound) {
 		return errorJSON(ctx, http.StatusNotFound, CodeNotFound, "stream not found", nil)
 	}
@@ -381,7 +413,7 @@ func (r *routes) getStream(ctx *fiber.Ctx) error {
 // getVOD godoc
 //
 //	@Summary     VOD (READY and not expired)
-//	@Description With a token, viewer.positionSec is the caller's saved position (null when never watched).
+//	@Description With a token, viewer.positionSec is the caller's saved position (null when never watched). A HIDDEN VOD is 404 except for its channel owner.
 //	@Tags        vods
 //	@Produce     json
 //	@Security    BearerAuth
@@ -396,7 +428,9 @@ func (r *routes) getVOD(ctx *fiber.Ctx) error {
 		return errorJSON(ctx, http.StatusNotFound, CodeNotFound, "vod not found", nil)
 	}
 
-	v, err := r.catalog.GetVOD(ctx.UserContext(), id)
+	userID, _ := middleware.UserID(ctx)
+
+	v, err := r.catalog.GetVODFor(ctx.UserContext(), id, userID)
 	if errors.Is(err, entity.ErrNotFound) {
 		return errorJSON(ctx, http.StatusNotFound, CodeNotFound, "vod not found", nil)
 	}
@@ -407,7 +441,7 @@ func (r *routes) getVOD(ctx *fiber.Ctx) error {
 
 	body := r.vodBody(v)
 
-	if userID, ok := middleware.UserID(ctx); ok {
+	if userID != "" {
 		pos, perr := r.viewer.Progress(ctx.UserContext(), userID, v.ID)
 		if perr != nil {
 			return r.internal(ctx, "getVOD - progress", perr)
@@ -431,6 +465,9 @@ func (r *routes) vodBody(v entity.VOD) VOD {
 		ManifestURL:  r.objectURL(v.PlaylistPath),
 		ThumbnailURL: r.objectURL(v.ThumbnailURL),
 		Status:       v.Status,
+		Visibility:   v.Visibility,
+		IsMature:     v.IsMature,
+		Category:     categoryRef(v.CategoryID),
 		CreatedAt:    v.CreatedAt.UTC(),
 		ExpiresAt:    v.ExpiresAt.UTC(),
 		Channel:      channelRef(v.Channel),
@@ -457,22 +494,49 @@ func (r *routes) streamBody(s entity.Stream) Stream {
 	}
 
 	return Stream{
-		ID:           s.ID,
-		ChannelID:    s.ChannelID,
-		Title:        s.Title,
-		Tags:         s.Tags,
-		Language:     s.Language,
-		IsMature:     s.IsMature,
-		Status:       string(s.Status),
-		StartedAt:    utcPtr(s.StartedAt),
-		EndedAt:      utcPtr(s.EndedAt),
-		EndReason:    reason,
-		ManifestURL:  r.objectURL("streams/" + s.ID + "/master.m3u8"),
-		ThumbnailURL: r.objectURL("streams/" + s.ID + "/thumb.jpg"),
-		VODID:        s.VODID,
-		ViewerCount:  s.ViewerCount,
-		Channel:      channelRef(s.Channel),
+		ID:               s.ID,
+		ChannelID:        s.ChannelID,
+		Title:            s.Title,
+		Tags:             s.Tags,
+		Language:         s.Language,
+		IsMature:         s.IsMature,
+		Status:           string(s.Status),
+		StartedAt:        utcPtr(s.StartedAt),
+		EndedAt:          utcPtr(s.EndedAt),
+		EndReason:        reason,
+		ManifestURL:      r.objectURL("streams/" + s.ID + "/master.m3u8"),
+		ThumbnailURL:     r.objectURL("streams/" + s.ID + "/thumb.jpg"),
+		VODID:            s.VODID,
+		ViewerCount:      s.ViewerCount,
+		Channel:          channelRef(s.Channel),
+		Category:         categoryRef(s.CategoryID),
+		ScheduleID:       s.ScheduleID,
+		ScheduledStartAt: utcPtr(s.ScheduledStartAt),
 	}
+}
+
+func categoryRef(id *string) *CategoryRef {
+	if id == nil {
+		return nil
+	}
+
+	return &CategoryRef{ID: *id}
+}
+
+// lowerID returns the canonical (lower-case) form of a validated uuid.
+func lowerID(id *string) *string {
+	if id == nil {
+		return nil
+	}
+
+	u, err := uuid.Parse(*id)
+	if err != nil {
+		return nil
+	}
+
+	s := u.String()
+
+	return &s
 }
 
 func channelRef(c *entity.Channel) *Channel {
@@ -507,7 +571,7 @@ func (r *routes) studioBody(ch entity.Channel, ov usecase.StudioOverview) Studio
 }
 
 func settingsOf(s entity.Settings) Settings {
-	out := Settings{Title: s.Title, Tags: s.Tags, Language: s.Language, IsMature: s.IsMature}
+	out := Settings{Title: s.Title, Tags: s.Tags, Language: s.Language, IsMature: s.IsMature, CategoryID: s.CategoryID}
 	if !s.UpdatedAt.IsZero() {
 		t := s.UpdatedAt.UTC()
 		out.UpdatedAt = &t

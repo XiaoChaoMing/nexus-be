@@ -26,16 +26,18 @@ const Durable = "stream-svc"
 const (
 	_maxHandle      = 25
 	_maxDisplayName = 50
+	_maxTitle       = 140
 )
 
 // Types consumed by stream-svc.
 var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeIngestStarted, events.TypeIngestStopped, events.TypeIngestHealth, events.TypeVODProcessed,
-	events.TypeChannelCreated, events.TypeStreamPeakViewers,
+	events.TypeChannelCreated, events.TypeChannelUpdated, events.TypeStreamPeakViewers,
+	events.TypeScheduleUpdated, events.TypeScheduleOccurrenceUpcoming, events.TypeScheduleOccurrenceChanged,
 }
 
-// Handler routes one event to the ingest or channel use case.
-func Handler(ingest usecase.Ingest, channels usecase.ChannelSync) eventbus.Handler {
+// Handler routes one event to the ingest, channel or schedule use case.
+func Handler(ingest usecase.Ingest, channels usecase.ChannelSync, schedules usecase.Schedules) eventbus.Handler {
 	return func(ctx context.Context, e eventbus.Event) error {
 		switch e.Type {
 		case events.TypeIngestStarted:
@@ -57,13 +59,87 @@ func Handler(ingest usecase.Ingest, channels usecase.ChannelSync) eventbus.Handl
 		case events.TypeVODProcessed:
 			return onVODProcessed(ctx, ingest, e)
 		case events.TypeChannelCreated:
-			return onChannelCreated(ctx, channels, e)
+			return onChannel(ctx, e, channels.ChannelCreated)
+		case events.TypeChannelUpdated:
+			return onChannel(ctx, e, channels.ChannelUpdated)
 		case events.TypeStreamPeakViewers:
 			return onPeakViewers(ctx, ingest, e)
 		}
 
+		return onSchedule(ctx, schedules, e)
+	}
+}
+
+func onSchedule(ctx context.Context, schedules usecase.Schedules, e eventbus.Event) error {
+	switch e.Type {
+	case events.TypeScheduleOccurrenceUpcoming:
+		var p events.ScheduleOccurrenceUpcoming
+		if err := decodeSchedule(e, &p, &p.ScheduleID, &p.ChannelID); err != nil {
+			return err
+		}
+
+		if p.OccurrenceAt.IsZero() || utf8.RuneCountInString(p.Title) > _maxTitle {
+			return fmt.Errorf("%w: %s: bad occurrence", eventbus.ErrSkip, e.Type)
+		}
+
+		p.CategoryID = validID(p.CategoryID)
+
+		return schedules.OccurrenceUpcoming(ctx, e.ID, p)
+	case events.TypeScheduleOccurrenceChanged:
+		var p events.ScheduleOccurrenceChanged
+		if err := decodeSchedule(e, &p, &p.ScheduleID); err != nil {
+			return err
+		}
+
+		return schedules.OccurrenceChanged(ctx, e.ID, p)
+	case events.TypeScheduleUpdated:
+		var p events.ScheduleUpdated
+		if err := decodeSchedule(e, &p, &p.ScheduleID); err != nil {
+			return err
+		}
+
+		if utf8.RuneCountInString(p.Title) > _maxTitle {
+			return fmt.Errorf("%w: %s: bad title", eventbus.ErrSkip, e.Type)
+		}
+
+		p.CategoryID = validID(p.CategoryID)
+
+		return schedules.ScheduleUpdated(ctx, e.ID, p)
+	}
+
+	return nil
+}
+
+// decodeSchedule decodes a schedule event and checks its uuids.
+func decodeSchedule(e eventbus.Event, into any, ids ...*string) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("%w: %s: no id", eventbus.ErrSkip, e.Type)
+	}
+
+	if err := decode(e, ids[0], into); err != nil {
+		return err
+	}
+
+	for _, id := range ids[1:] {
+		if _, err := uuid.Parse(*id); err != nil {
+			return fmt.Errorf("%w: %s: bad id", eventbus.ErrSkip, e.Type)
+		}
+	}
+
+	return nil
+}
+
+// validID drops an id that is not a uuid.
+func validID(id *string) *string {
+	if id == nil {
 		return nil
 	}
+
+	if _, err := uuid.Parse(*id); err != nil {
+		return nil
+	}
+
+	return id
 }
 
 func onHealth(ingest usecase.Ingest, e eventbus.Event) error {
@@ -111,8 +187,9 @@ func onPeakViewers(ctx context.Context, ingest usecase.Ingest, e eventbus.Event)
 	return ingest.PeakViewers(ctx, e.ID, p.StreamID, p.PeakViewers)
 }
 
-func onChannelCreated(ctx context.Context, channels usecase.ChannelSync, e eventbus.Event) error {
-	var p events.ChannelCreated
+// onChannel applies channel.created and channel.updated (same fields; updated adds the avatar).
+func onChannel(ctx context.Context, e eventbus.Event, apply func(context.Context, string, entity.Channel) error) error {
+	var p events.ChannelUpdated
 	if err := decode(e, &p.ChannelID, &p); err != nil {
 		return err
 	}
@@ -129,8 +206,8 @@ func onChannelCreated(ctx context.Context, channels usecase.ChannelSync, e event
 		return fmt.Errorf("%w: %s: bad displayName", eventbus.ErrSkip, e.Type)
 	}
 
-	return channels.ChannelCreated(ctx, e.ID, entity.Channel{
-		ID: p.ChannelID, OwnerID: p.OwnerID, Handle: p.Handle, DisplayName: p.DisplayName,
+	return apply(ctx, e.ID, entity.Channel{
+		ID: p.ChannelID, OwnerID: p.OwnerID, Handle: p.Handle, DisplayName: p.DisplayName, AvatarURL: p.AvatarURL,
 	})
 }
 

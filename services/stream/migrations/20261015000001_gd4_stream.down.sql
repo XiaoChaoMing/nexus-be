@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS vods_studio_idx;
+DROP INDEX IF EXISTS vods_public_category_idx;
+DROP INDEX IF EXISTS vods_public_idx;
+ALTER TABLE vods DROP CONSTRAINT IF EXISTS vods_deleted_at;
+ALTER TABLE vods DROP COLUMN deleted_at, DROP COLUMN updated_at, DROP COLUMN is_mature, DROP COLUMN category_id;
+DROP INDEX IF EXISTS streams_channel_started_idx;
+DROP INDEX IF EXISTS streams_on_air_category_idx;
+DROP INDEX IF EXISTS streams_scheduled_due_idx;
+DROP INDEX IF EXISTS streams_scheduled_idx;
+DROP INDEX IF EXISTS streams_schedule_occurrence_idx;
+ALTER TABLE streams DROP CONSTRAINT IF EXISTS streams_scheduled_fields;
+ALTER TABLE stream_settings DROP COLUMN category_id;

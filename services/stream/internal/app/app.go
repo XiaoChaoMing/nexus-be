@@ -58,9 +58,12 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 
 	defer bus.Close()
 
-	store := persistent.New(pg)
+	store := persistent.New(pg, persistent.ObjectBase(cfg.Stream.HLSBase))
 	m := metrics.New()
-	opts := []streams.Option{streams.EndCooldown(cfg.Stream.EndCooldown), streams.WithObserver(m)}
+	opts := []streams.Option{
+		streams.EndCooldown(cfg.Stream.EndCooldown), streams.WithObserver(m), streams.WithVODs(store),
+		streams.ScheduleWindow(cfg.Stream.ScheduleEarlyStart, cfg.Stream.ScheduleLateGrace),
+	}
 
 	if cfg.Redis.Addr != "" {
 		redisCtx, redisCancel := context.WithTimeout(ctx, _redisConnectTimeout)
@@ -84,7 +87,7 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	// Outgoing events (stream.started / stream.ended) leave through the outbox.
 	go outbox.New(pg.Pool, bus, l).Run(ctx)
 
-	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc, uc), func(e eventbus.Event, herr error) {
+	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc, uc, uc), func(e eventbus.Event, herr error) {
 		l.Warn("stream - event %s %s: %v", e.Type, e.ID, herr)
 	})
 	if err != nil {
@@ -106,6 +109,8 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 			l.Warn("stream - playback session purge: %v", err)
 		}
 	})
+
+	startScheduleJob(ctx, cfg.Stream.ScheduleTick, uc, l)
 
 	public := httpserver.New(l, httpserver.Port(cfg.HTTP.Port))
 	// Before the routes, so every request is counted (GET /metrics included).
@@ -145,6 +150,19 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	if err = internal.Shutdown(); err != nil {
 		l.Error("stream - Run - internal shutdown: %v", err)
 	}
+}
+
+// startScheduleJob cancels SCHEDULED streams that never started (tick 0 = off).
+func startScheduleJob(ctx context.Context, tick time.Duration, uc *streams.UseCase, l logger.Interface) {
+	if tick <= 0 {
+		return
+	}
+
+	go every(ctx, tick, func() {
+		if _, err := uc.CancelLate(ctx); err != nil {
+			l.Warn("stream - cancel late scheduled: %v", err)
+		}
+	})
 }
 
 // every runs fn on each tick until ctx is canceled (background expiry jobs).

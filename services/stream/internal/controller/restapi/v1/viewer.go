@@ -118,7 +118,7 @@ func (r *routes) open(ctx *fiber.Ctx, kind string) error {
 	if anonID != "" {
 		if _, err := uuid.Parse(anonID); err != nil {
 			return errorJSON(ctx, http.StatusBadRequest, CodeValidationFailed, "invalid anonymous id",
-				map[string]string{"anonId": "INVALID"})
+				map[string]string{"anonId": _detailInvalid})
 		}
 	}
 

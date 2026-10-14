@@ -37,12 +37,29 @@ func (fakeStreams) GetVOD(_ context.Context, id string) (entity.VOD, error) {
 		return entity.VOD{ID: id, StreamID: "s-plain", ChannelID: "ch1", PlaylistPath: "streams/s-plain/vod.m3u8", DurationSec: 600}, nil
 	case "v-mature":
 		return entity.VOD{ID: id, StreamID: "s-mature", ChannelID: "ch1", PlaylistPath: "streams/s-mature/vod.m3u8"}, nil
+	case "v-hidden":
+		return entity.VOD{
+			ID: id, StreamID: "s-plain", ChannelID: "ch1", PlaylistPath: "streams/s-plain/vod.m3u8",
+			Visibility: entity.VisibilityHidden,
+		}, nil
 	}
 
 	return entity.VOD{}, entity.ErrNotFound
 }
 
 type fakeChannels struct{ repo.ChannelRepo }
+
+// ChannelOfOwner: user "owner" owns ch1, "other" owns ch2.
+func (fakeChannels) ChannelOfOwner(_ context.Context, ownerID string) (entity.Channel, error) {
+	switch ownerID {
+	case "owner":
+		return entity.Channel{ID: "ch1"}, nil
+	case "other":
+		return entity.Channel{ID: "ch2"}, nil
+	}
+
+	return entity.Channel{}, entity.ErrNotFound
+}
 
 func (fakeChannels) ChannelsByID(_ context.Context, _ []string) (map[string]entity.Channel, error) {
 	return map[string]entity.Channel{"ch1": {ID: "ch1", Handle: "minhnn"}}, nil
@@ -294,4 +311,22 @@ func TestContinueWatchingAndPurge(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), n)
 	assert.Equal(t, _now.Add(-24*time.Hour), v.purged)
+}
+
+func TestOpenHiddenVOD(t *testing.T) {
+	t.Parallel()
+
+	uc := playback.New(fakeStreams{}, fakeChannels{}, newViewers(), logger.New("error"))
+
+	for _, user := range []string{"", "other", "stranger"} {
+		_, err := uc.Open(context.Background(), usecase.PlaybackInput{
+			Target: entity.PlaybackTarget{VODID: "v-hidden"}, UserID: user,
+			AnonID: "0199d4a2-0000-7000-8000-000000000001",
+		})
+		require.ErrorIs(t, err, entity.ErrNotFound, "user %q", user)
+	}
+
+	g, err := uc.Open(context.Background(), usecase.PlaybackInput{Target: entity.PlaybackTarget{VODID: "v-hidden"}, UserID: "owner"})
+	require.NoError(t, err)
+	require.Equal(t, "streams/s-plain/vod.m3u8", g.ObjectKey)
 }

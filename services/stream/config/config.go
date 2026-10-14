@@ -85,6 +85,11 @@ type (
 		// does not start a new broadcast. 0 disables it.
 		EndCooldown   time.Duration `env:"STREAM_END_COOLDOWN" envDefault:"30s"`
 		VODExpiryTick time.Duration `env:"STREAM_VOD_EXPIRY_TICK" envDefault:"10m"`
+		// Go Live attaches to a SCHEDULED stream from ScheduleEarlyStart before its start until ScheduleLateGrace
+		// after it; a SCHEDULED stream not started by then is CANCELLED (checked every ScheduleTick, 0 = off).
+		ScheduleEarlyStart time.Duration `env:"STREAM_SCHEDULE_EARLY_START" envDefault:"30m"`
+		ScheduleLateGrace  time.Duration `env:"STREAM_SCHEDULE_LATE_GRACE" envDefault:"60m"`
+		ScheduleTick       time.Duration `env:"STREAM_SCHEDULE_TICK" envDefault:"1m"`
 	}
 )
 

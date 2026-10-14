@@ -4,6 +4,7 @@ package usecase
 import (
 	"context"
 
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/repo"
 )
@@ -18,6 +19,11 @@ type (
 		Overview(ctx context.Context, channelID string) (StudioOverview, error)
 		UpdateSettings(ctx context.Context, s entity.Settings) (entity.Settings, error)
 		End(ctx context.Context, channelID string) error
+		// Dashboard returns entity.ErrInvalidState for an unknown range.
+		Dashboard(ctx context.Context, channelID string, r entity.Range) (entity.Dashboard, error)
+		StudioVODs(ctx context.Context, channelID string, f repo.StudioVODFilter, cursor string, limit int) (VODPage, error)
+		UpdateVOD(ctx context.Context, channelID, vodID string, p entity.VODPatch) (entity.VOD, error)
+		DeleteVOD(ctx context.Context, channelID, vodID string) error
 	}
 
 	// Ingest handles media-svc: the authorize call and ingest events.
@@ -38,6 +44,16 @@ type (
 	// ChannelSync keeps the local copy of channel-svc's channels.
 	ChannelSync interface {
 		ChannelCreated(ctx context.Context, eventID string, c entity.Channel) error
+		ChannelUpdated(ctx context.Context, eventID string, c entity.Channel) error
+	}
+
+	// Schedules turns channel-svc's schedule events into SCHEDULED streams and cancels the late ones.
+	Schedules interface {
+		OccurrenceUpcoming(ctx context.Context, eventID string, e events.ScheduleOccurrenceUpcoming) error
+		OccurrenceChanged(ctx context.Context, eventID string, e events.ScheduleOccurrenceChanged) error
+		ScheduleUpdated(ctx context.Context, eventID string, e events.ScheduleUpdated) error
+		// CancelLate cancels SCHEDULED streams not started within the late grace; returns how many.
+		CancelLate(ctx context.Context) (int, error)
 	}
 
 	// Observer receives counters for /metrics; the use case never depends on a metrics library.
@@ -47,11 +63,33 @@ type (
 		OnAir(n int)
 	}
 
-	// Catalog is the public read side; streams and VODs carry their channel when it is known.
+	// Catalog is the public read side; streams and VODs carry their channel when it is known. viewerID ""
+	// is a guest; a hidden VOD is visible to its channel's owner only.
 	Catalog interface {
-		ListLive(ctx context.Context, cursor string, limit int) (Page, error)
-		Get(ctx context.Context, streamID string) (entity.Stream, error)
-		GetVOD(ctx context.Context, vodID string) (entity.VOD, error)
+		List(ctx context.Context, f StreamFilter, cursor string, limit int) (Page, error)
+		// Recommended is the Hero / live recommendations: LIVE, not mature, by viewers.
+		Recommended(ctx context.Context, limit int) ([]entity.Stream, error)
+		GetFor(ctx context.Context, streamID, viewerID string) (entity.Stream, error)
+		GetVODFor(ctx context.Context, vodID, viewerID string) (entity.VOD, error)
+		VODs(ctx context.Context, f repo.VODFilter, cursor string, limit int) (VODPage, error)
+		RecommendedVODs(ctx context.Context, limit int) ([]entity.VOD, error)
+		// ChannelVODs returns entity.ErrNotFound for a channel stream-svc does not know.
+		ChannelVODs(ctx context.Context, channelID, cursor string, limit int) (VODPage, error)
+	}
+
+	// StreamSort -.
+	StreamSort string
+
+	// StreamFilter selects streams on air and their order.
+	StreamFilter struct {
+		repo.StreamFilter
+		Sort StreamSort
+	}
+
+	// VODPage -.
+	VODPage struct {
+		Items      []entity.VOD
+		NextCursor string
 	}
 
 	// PlaybackInput identifies the viewer opening a stream or VOD.
@@ -87,3 +125,15 @@ type (
 		NextCursor string
 	}
 )
+
+// Stream orders: viewers (default; trending is the same, G4-Q4) or newest.
+const (
+	SortViewers  StreamSort = "viewers"
+	SortTrending StreamSort = "trending"
+	SortNewest   StreamSort = "newest"
+)
+
+// Valid -.
+func (s StreamSort) Valid() bool {
+	return s == SortViewers || s == SortTrending || s == SortNewest
+}

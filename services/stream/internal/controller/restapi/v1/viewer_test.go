@@ -89,7 +89,7 @@ func (*fakeViewer) ContinueWatching(_ context.Context, _ string, _ int) ([]entit
 
 func (*fakeViewer) PurgeSessions(context.Context) (int64, error) { return 0, nil }
 
-func (fakeCatalog) GetVOD(_ context.Context, id string) (entity.VOD, error) {
+func (fakeCatalog) GetVODFor(_ context.Context, id, _ string) (entity.VOD, error) {
 	if id == _missing {
 		return entity.VOD{}, entity.ErrNotFound
 	}

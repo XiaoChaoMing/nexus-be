@@ -73,7 +73,7 @@ func (o *recObserver) Authorize(r string)     { o.results = append(o.results, r)
 func (*recObserver) Transition(entity.Status) {}
 func (*recObserver) OnAir(int)                {}
 
-func (f *fakeStreams) Authorize(_ context.Context, ch string, _ time.Duration) (entity.Grant, error) {
+func (f *fakeStreams) Authorize(_ context.Context, ch string, _ repo.AuthorizeParams) (entity.Grant, error) {
 	f.authorized = append(f.authorized, ch)
 
 	return entity.Grant{StreamID: "s1", ChannelID: ch}, nil

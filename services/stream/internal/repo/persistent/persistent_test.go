@@ -89,7 +89,7 @@ func TestLifecycle(t *testing.T) { //nolint:paralleltest,funlen // shared databa
 	require.NoError(t, r.SaveSettings(ctx, entity.Settings{ChannelID: ch, Title: "Rank game", Tags: []string{"lol"}, Language: "vi"}))
 
 	// First publish creates a LIVE stream with the saved settings.
-	g, err := r.Authorize(ctx, ch, grace)
+	g, err := r.Authorize(ctx, ch, repo.AuthorizeParams{Grace: grace})
 	require.NoError(t, err)
 	require.False(t, g.Resumed)
 
@@ -100,7 +100,7 @@ func TestLifecycle(t *testing.T) { //nolint:paralleltest,funlen // shared databa
 	require.Equal(t, []string{"lol"}, s.Tags)
 
 	// A second publish while LIVE is refused.
-	_, err = r.Authorize(ctx, ch, grace)
+	_, err = r.Authorize(ctx, ch, repo.AuthorizeParams{Grace: grace})
 	require.ErrorIs(t, err, entity.ErrAlreadyLive)
 
 	// OBS drops → INTERRUPTED; a duplicate delivery of the same event is ignored.
@@ -114,7 +114,7 @@ func TestLifecycle(t *testing.T) { //nolint:paralleltest,funlen // shared databa
 	require.NotNil(t, s.InterruptedAt)
 
 	// Reconnect inside grace resumes the same stream; ingest.started puts it back to LIVE.
-	g2, err := r.Authorize(ctx, ch, grace)
+	g2, err := r.Authorize(ctx, ch, repo.AuthorizeParams{Grace: grace})
 	require.NoError(t, err)
 	require.True(t, g2.Resumed)
 	require.Equal(t, g.StreamID, g2.StreamID)
@@ -169,7 +169,7 @@ func TestLifecycle(t *testing.T) { //nolint:paralleltest,funlen // shared databa
 	require.Equal(t, "Rank game 2", v.Title)
 
 	// Next publish starts a new stream.
-	g3, err := r.Authorize(ctx, ch, grace)
+	g3, err := r.Authorize(ctx, ch, repo.AuthorizeParams{Grace: grace})
 	require.NoError(t, err)
 	require.NotEqual(t, g.StreamID, g3.StreamID)
 
@@ -232,14 +232,14 @@ func TestAuthorizeExpiredInterruptedStartsNew(t *testing.T) { //nolint:parallelt
 	ctx := context.Background()
 	ch := uuid.NewString()
 
-	g, err := r.Authorize(ctx, ch, time.Second)
+	g, err := r.Authorize(ctx, ch, repo.AuthorizeParams{Grace: time.Second})
 	require.NoError(t, err)
 	require.NoError(t, r.OnIngestStopped(ctx, "", g.StreamID))
 
 	_, err = pg.Pool.Exec(ctx, `UPDATE streams SET interrupted_at = now() - interval '1 minute' WHERE id = $1`, g.StreamID)
 	require.NoError(t, err)
 
-	g2, err := r.Authorize(ctx, ch, time.Second)
+	g2, err := r.Authorize(ctx, ch, repo.AuthorizeParams{Grace: time.Second})
 	require.NoError(t, err)
 	require.False(t, g2.Resumed)
 	require.NotEqual(t, g.StreamID, g2.StreamID)
@@ -253,7 +253,7 @@ func TestVODBeforeEndEndsStream(t *testing.T) { //nolint:paralleltest // shared 
 	r, _ := setup(t)
 	ctx := context.Background()
 
-	g, err := r.Authorize(ctx, uuid.NewString(), time.Minute)
+	g, err := r.Authorize(ctx, uuid.NewString(), repo.AuthorizeParams{Grace: time.Minute})
 	require.NoError(t, err)
 
 	// media-svc shut down and finalized first.
@@ -270,7 +270,7 @@ func TestListOnAirCursor(t *testing.T) { //nolint:paralleltest // shared databas
 	ctx := context.Background()
 
 	for range 5 {
-		_, err := r.Authorize(ctx, uuid.NewString(), time.Minute)
+		_, err := r.Authorize(ctx, uuid.NewString(), repo.AuthorizeParams{Grace: time.Minute})
 		require.NoError(t, err)
 	}
 
@@ -300,7 +300,7 @@ func TestEndedByCreatorSince(t *testing.T) { //nolint:paralleltest // shared dat
 	require.False(t, recent, "a channel that never streamed")
 
 	for _, ch := range []string{creator, timeout} {
-		_, err = r.Authorize(ctx, ch, time.Minute)
+		_, err = r.Authorize(ctx, ch, repo.AuthorizeParams{Grace: time.Minute})
 		require.NoError(t, err)
 	}
 
@@ -327,7 +327,7 @@ func TestExpireVODs(t *testing.T) { //nolint:paralleltest // shared database
 	ctx := context.Background()
 	ch := uuid.NewString()
 
-	g, err := r.Authorize(ctx, ch, time.Minute)
+	g, err := r.Authorize(ctx, ch, repo.AuthorizeParams{Grace: time.Minute})
 	require.NoError(t, err)
 	require.NoError(t, r.OnVODProcessed(ctx, "", repo.VODInput{StreamID: g.StreamID, DurationSec: 60, Retention: time.Hour}))
 

@@ -45,12 +45,16 @@ type UseCase struct {
 	streams   repo.StreamRepo
 	channels  repo.ChannelRepo
 	viewers   repo.ViewerCountRepo
+	vods      repo.VODRepo
 	grace     time.Duration
 	retention time.Duration
 	cooldown  time.Duration
-	obs       usecase.Observer
-	now       func() time.Time
-	l         logger.Interface
+	// early / late bound the window in which Go Live attaches to a SCHEDULED stream.
+	early time.Duration
+	late  time.Duration
+	obs   usecase.Observer
+	now   func() time.Time
+	l     logger.Interface
 
 	healthMu sync.Mutex
 	health   map[string]entity.Health
@@ -61,6 +65,7 @@ var (
 	_ usecase.Ingest      = (*UseCase)(nil)
 	_ usecase.Catalog     = (*UseCase)(nil)
 	_ usecase.ChannelSync = (*UseCase)(nil)
+	_ usecase.Schedules   = (*UseCase)(nil)
 )
 
 // Option -.
@@ -79,6 +84,16 @@ func WithObserver(o usecase.Observer) Option {
 // WithViewerCounts adds viewerCount to the catalog from chat-svc's counts.
 func WithViewerCounts(v repo.ViewerCountRepo) Option {
 	return func(uc *UseCase) { uc.viewers = v }
+}
+
+// WithVODs adds the VOD lists and the Studio's VOD management.
+func WithVODs(v repo.VODRepo) Option {
+	return func(uc *UseCase) { uc.vods = v }
+}
+
+// ScheduleWindow: Go Live attaches to a SCHEDULED stream starting at most early from now or late ago (NXL-G2 ST-Q2).
+func ScheduleWindow(early, late time.Duration) Option {
+	return func(uc *UseCase) { uc.early, uc.late = early, late }
 }
 
 // WithClock -.
@@ -262,7 +277,7 @@ func (uc *UseCase) authorize(ctx context.Context, streamKey, clientIP string) (e
 		}
 	}
 
-	g, err := uc.streams.Authorize(ctx, channelID, uc.grace)
+	g, err := uc.streams.Authorize(ctx, channelID, repo.AuthorizeParams{Grace: uc.grace, EarlyStart: uc.early, LateGrace: uc.late})
 	if err != nil {
 		return entity.Grant{}, err
 	}
@@ -476,27 +491,8 @@ func (uc *UseCase) GetVOD(ctx context.Context, vodID string) (entity.VOD, error)
 
 // attachChannels fills Stream.Channel with one batched lookup for the whole page.
 func (uc *UseCase) attachChannels(ctx context.Context, items []entity.Stream) error {
-	if len(items) == 0 {
-		return nil
-	}
-
-	ids := make([]string, 0, len(items))
-	for _, s := range items {
-		ids = append(ids, s.ChannelID)
-	}
-
-	byID, err := uc.channels.ChannelsByID(ctx, ids)
-	if err != nil {
-		return fmt.Errorf("channels: %w", err)
-	}
-
-	for i := range items {
-		if ch, ok := byID[items[i].ChannelID]; ok {
-			items[i].Channel = &ch
-		}
-	}
-
-	return nil
+	return attach(ctx, uc.channels, items, func(s *entity.Stream) *string { return &s.ChannelID },
+		func(s *entity.Stream, ch entity.Channel) { s.Channel = &ch })
 }
 
 // attachViewerCounts fills Stream.ViewerCount for streams on air. Counts are decoration: when Redis is
@@ -541,6 +537,15 @@ func (uc *UseCase) ChannelCreated(ctx context.Context, eventID string, c entity.
 	}
 
 	uc.l.Info("channel %s (%s) mapped to creator %s", c.ID, c.Handle, c.OwnerID)
+
+	return nil
+}
+
+// ChannelUpdated refreshes the copy (name, handle, avatar shown next to streams and VODs).
+func (uc *UseCase) ChannelUpdated(ctx context.Context, eventID string, c entity.Channel) error {
+	if err := uc.channels.UpsertChannel(ctx, eventID, c); err != nil {
+		return fmt.Errorf("StreamUseCase - ChannelUpdated: %w", err)
+	}
 
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,18 +25,43 @@ const (
 
 // _streamCols is shared by every query that returns entity.Stream (alias s, LEFT JOIN vods v).
 const _streamCols = `s.id::text, s.channel_id::text, s.title, s.tags, s.language, s.is_mature, s.status,
-	s.started_at, s.interrupted_at, s.ended_at, s.end_reason, s.created_at, v.id::text`
+	s.started_at, s.interrupted_at, s.ended_at, s.end_reason, s.created_at, v.id::text, v.visibility,
+	s.category_id::text, s.schedule_id::text, s.scheduled_start_at`
 
 const _streamFrom = ` FROM streams s LEFT JOIN vods v ON v.stream_id = s.id AND v.status = 'READY' `
 
-// Repo implements repo.KeyRepo, repo.SettingsRepo, repo.StreamRepo and repo.ChannelRepo.
+// Repo implements repo.KeyRepo, repo.SettingsRepo, repo.StreamRepo, repo.VODRepo and repo.ChannelRepo.
 type Repo struct {
 	*postgres.Postgres
+	// objectBase turns object keys into the URLs viewers use (thumbnails in event payloads).
+	objectBase string
+}
+
+// Option -.
+type Option func(*Repo)
+
+// ObjectBase sets the URL prefix of media objects at the edge ("/hls").
+func ObjectBase(base string) Option {
+	return func(r *Repo) { r.objectBase = strings.TrimSuffix(base, "/") }
 }
 
 // New -.
-func New(pg *postgres.Postgres) *Repo {
-	return &Repo{pg}
+func New(pg *postgres.Postgres, opts ...Option) *Repo {
+	r := &Repo{Postgres: pg}
+	for _, o := range opts {
+		o(r)
+	}
+
+	return r
+}
+
+// objectURL is the public URL of an object key ("" stays "").
+func (r *Repo) objectURL(key string) string {
+	if key == "" {
+		return ""
+	}
+
+	return r.objectBase + "/" + strings.TrimPrefix(key, "/")
 }
 
 var (
@@ -57,7 +83,8 @@ func scanStream(row scanner) (entity.Stream, error) {
 	)
 
 	err := row.Scan(&s.ID, &s.ChannelID, &s.Title, &s.Tags, &s.Language, &s.IsMature, &status,
-		&s.StartedAt, &s.InterruptedAt, &s.EndedAt, &reason, &s.CreatedAt, &s.VODID)
+		&s.StartedAt, &s.InterruptedAt, &s.EndedAt, &reason, &s.CreatedAt, &s.VODID, &s.VODVisibility,
+		&s.CategoryID, &s.ScheduleID, &s.ScheduledStartAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entity.Stream{}, entity.ErrNotFound
 	}
@@ -217,8 +244,8 @@ func getSettings(ctx context.Context, q querier, channelID string) (entity.Setti
 	s := entity.Settings{ChannelID: channelID, Tags: []string{}, Language: "vi"}
 
 	err := q.QueryRow(ctx,
-		`SELECT title, tags, language, is_mature, updated_at FROM stream_settings WHERE channel_id = $1`,
-		channelID).Scan(&s.Title, &s.Tags, &s.Language, &s.IsMature, &s.UpdatedAt)
+		`SELECT title, tags, language, is_mature, category_id::text, updated_at FROM stream_settings WHERE channel_id = $1`,
+		channelID).Scan(&s.Title, &s.Tags, &s.Language, &s.IsMature, &s.CategoryID, &s.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, nil
 	}
@@ -234,12 +261,12 @@ func getSettings(ctx context.Context, q querier, channelID string) (entity.Setti
 func (r *Repo) SaveSettings(ctx context.Context, s entity.Settings) error {
 	return r.inTx(ctx, "Repo - SaveSettings", func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO stream_settings (channel_id, title, tags, language, is_mature, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, now())
+			`INSERT INTO stream_settings (channel_id, title, tags, language, is_mature, category_id, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, now())
 			 ON CONFLICT (channel_id) DO UPDATE
 			 SET title = EXCLUDED.title, tags = EXCLUDED.tags, language = EXCLUDED.language,
-			     is_mature = EXCLUDED.is_mature, updated_at = now()`,
-			s.ChannelID, s.Title, s.Tags, s.Language, s.IsMature); err != nil {
+			     is_mature = EXCLUDED.is_mature, category_id = EXCLUDED.category_id, updated_at = now()`,
+			s.ChannelID, s.Title, s.Tags, s.Language, s.IsMature, s.CategoryID); err != nil {
 			return fmt.Errorf("Repo - Save - upsert: %w", err)
 		}
 
@@ -254,10 +281,10 @@ func (r *Repo) SaveSettings(ctx context.Context, s entity.Settings) error {
 		)
 
 		err := tx.QueryRow(ctx,
-			`UPDATE streams SET title = $2, tags = $3, language = $4, is_mature = $5
+			`UPDATE streams SET title = $2, tags = $3, language = $4, is_mature = $5, category_id = $6
 			 WHERE channel_id = $1 AND status IN ('LIVE', 'INTERRUPTED')
 			 RETURNING id::text, tags`,
-			s.ChannelID, title, s.Tags, s.Language, s.IsMature).Scan(&streamID, &tags)
+			s.ChannelID, title, s.Tags, s.Language, s.IsMature, s.CategoryID).Scan(&streamID, &tags)
 
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -270,19 +297,21 @@ func (r *Repo) SaveSettings(ctx context.Context, s entity.Settings) error {
 			tags = []string{}
 		}
 
-		return addOutbox(ctx, tx, streamID, events.TypeStreamUpdated,
-			events.StreamUpdated{StreamID: streamID, ChannelID: s.ChannelID, Title: title, Tags: tags})
+		return addOutbox(ctx, tx, streamID, events.TypeStreamUpdated, events.StreamUpdated{
+			StreamID: streamID, ChannelID: s.ChannelID, Title: title, Tags: tags, CategoryID: s.CategoryID,
+			Language: s.Language, IsMature: s.IsMature,
+		})
 	})
 }
 
 // ---- state machine -------------------------------------------------------------------------------
 
 // Authorize -.
-func (r *Repo) Authorize(ctx context.Context, channelID string, grace time.Duration) (entity.Grant, error) {
+func (r *Repo) Authorize(ctx context.Context, channelID string, p repo.AuthorizeParams) (entity.Grant, error) {
 	var g entity.Grant
 
 	err := r.inTx(ctx, "Repo - Authorize", func(tx pgx.Tx) error {
-		resumed, ok, err := onAirGrant(ctx, tx, channelID, grace)
+		resumed, ok, err := onAirGrant(ctx, tx, channelID, p.Grace)
 		if err != nil {
 			return err
 		}
@@ -298,33 +327,100 @@ func (r *Repo) Authorize(ctx context.Context, channelID string, grace time.Durat
 			return err
 		}
 
-		title := set.Title
-		if title == "" {
-			title = entity.DefaultTitle
-		}
-
-		var id string
-
-		err = tx.QueryRow(ctx,
-			`INSERT INTO streams (channel_id, title, tags, language, is_mature, status, started_at)
-			 VALUES ($1, $2, $3, $4, $5, 'LIVE', now()) RETURNING id::text`,
-			channelID, title, set.Tags, set.Language, set.IsMature).Scan(&id)
+		s, err := goLive(ctx, tx, channelID, set, p)
 		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == _uniqueViolation && pgErr.ConstraintName == _onAirIndex {
-				return entity.ErrAlreadyLive
-			}
-
-			return fmt.Errorf("Repo - Authorize - insert: %w", err)
+			return err
 		}
 
-		g = entity.Grant{StreamID: id, ChannelID: channelID}
+		g = entity.Grant{StreamID: s.ID, ChannelID: channelID}
 
-		return addOutbox(ctx, tx, id, events.TypeStreamStarted,
-			events.StreamStarted{StreamID: id, ChannelID: channelID, Title: title})
+		return addOutbox(ctx, tx, s.ID, events.TypeStreamStarted, events.StreamStarted{
+			StreamID: s.ID, ChannelID: channelID, Title: s.Title, CategoryID: s.CategoryID, Tags: s.Tags,
+			Language: s.Language, IsMature: s.IsMature, StartedAt: s.StartedAt.UTC(), ScheduleID: s.ScheduleID,
+		})
 	})
 
 	return g, err
+}
+
+// _liveCols is what goLive returns of the stream that went live.
+const _liveCols = `id::text, title, tags, language, is_mature, category_id::text, schedule_id::text, started_at`
+
+type liveRow struct {
+	ID, Title, Language string
+	Tags                []string
+	IsMature            bool
+	CategoryID          *string
+	ScheduleID          *string
+	StartedAt           time.Time
+}
+
+func scanLive(row pgx.Row) (liveRow, error) {
+	var s liveRow
+
+	err := row.Scan(&s.ID, &s.Title, &s.Tags, &s.Language, &s.IsMature, &s.CategoryID, &s.ScheduleID, &s.StartedAt)
+	if s.Tags == nil {
+		s.Tags = []string{}
+	}
+
+	return s, err
+}
+
+// goLive turns the nearest SCHEDULED stream inside its window into the live one (same id, so viewers waiting on
+// the Upcoming page see it start), or inserts a new LIVE stream. The settings win; the schedule's title and
+// category fill in what the settings leave empty.
+func goLive(ctx context.Context, tx pgx.Tx, channelID string, set entity.Settings, p repo.AuthorizeParams) (liveRow, error) {
+	var scheduled string
+
+	err := tx.QueryRow(ctx,
+		`SELECT id::text FROM streams
+		 WHERE channel_id = $1 AND status = 'SCHEDULED'
+		   AND scheduled_start_at BETWEEN now() - make_interval(secs => $2) AND now() + make_interval(secs => $3)
+		 ORDER BY abs(extract(epoch FROM scheduled_start_at - now())), id
+		 LIMIT 1 FOR UPDATE SKIP LOCKED`,
+		channelID, p.LateGrace.Seconds(), p.EarlyStart.Seconds()).Scan(&scheduled)
+
+	switch {
+	case err == nil:
+		s, uerr := scanLive(tx.QueryRow(ctx,
+			`UPDATE streams SET status = 'LIVE', started_at = now(),
+			        title = CASE WHEN $2 = '' THEN title ELSE $2 END, tags = $3, language = $4, is_mature = $5,
+			        category_id = COALESCE($6, category_id)
+			 WHERE id = $1 AND status = 'SCHEDULED'
+			 RETURNING `+_liveCols,
+			scheduled, set.Title, set.Tags, set.Language, set.IsMature, set.CategoryID))
+		if uerr != nil {
+			return liveRow{}, onAirError("attach", uerr)
+		}
+
+		return s, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return liveRow{}, fmt.Errorf("Repo - Authorize - scheduled: %w", err)
+	}
+
+	title := set.Title
+	if title == "" {
+		title = entity.DefaultTitle
+	}
+
+	s, err := scanLive(tx.QueryRow(ctx,
+		`INSERT INTO streams (channel_id, title, tags, language, is_mature, category_id, status, started_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'LIVE', now()) RETURNING `+_liveCols,
+		channelID, title, set.Tags, set.Language, set.IsMature, set.CategoryID))
+	if err != nil {
+		return liveRow{}, onAirError("insert", err)
+	}
+
+	return s, nil
+}
+
+func onAirError(op string, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == _uniqueViolation && pgErr.ConstraintName == _onAirIndex {
+		return entity.ErrAlreadyLive
+	}
+
+	return fmt.Errorf("Repo - Authorize - %s: %w", op, err)
 }
 
 // onAirGrant looks at the channel's on-air stream inside the Authorize transaction: it is resumed
@@ -488,25 +584,27 @@ func (r *Repo) OnVODProcessed(ctx context.Context, eventID string, v repo.VODInp
 			return err
 		}
 
-		var vodID, channelID string
-
-		err := tx.QueryRow(ctx,
-			`INSERT INTO vods (stream_id, channel_id, title, duration_sec, playlist_path, thumbnail_url, status, expires_at)
-			 SELECT id, channel_id, title, $2, $3, $4, 'READY', now() + make_interval(secs => $5)
+		vod, err := scanVOD(tx.QueryRow(ctx,
+			`INSERT INTO vods (stream_id, channel_id, title, duration_sec, playlist_path, thumbnail_url, status, expires_at,
+			                  category_id, is_mature)
+			 SELECT id, channel_id, title, $2, $3, $4, 'READY', now() + make_interval(secs => $5), category_id, is_mature
 			 FROM streams WHERE id = $1
 			 ON CONFLICT (stream_id) DO NOTHING
-			 RETURNING id::text, channel_id::text`,
-			v.StreamID, v.DurationSec, v.PlaylistPath, v.ThumbnailURL, v.Retention.Seconds()).Scan(&vodID, &channelID)
+			 RETURNING `+_vodCols,
+			v.StreamID, v.DurationSec, v.PlaylistPath, v.ThumbnailURL, v.Retention.Seconds()))
 
 		switch {
-		case errors.Is(err, pgx.ErrNoRows):
+		case errors.Is(err, entity.ErrNotFound):
 			return nil // unknown stream or VOD already recorded
 		case err != nil:
 			return fmt.Errorf("Repo - OnVODProcessed - insert vod: %w", err)
 		}
 
-		return addOutbox(ctx, tx, v.StreamID, events.TypeStreamVODReady,
-			events.StreamVODReady{StreamID: v.StreamID, ChannelID: channelID, VODID: vodID})
+		return addOutbox(ctx, tx, v.StreamID, events.TypeStreamVODReady, events.StreamVODReady{
+			StreamID: v.StreamID, ChannelID: vod.ChannelID, VODID: vod.ID, Title: vod.Title,
+			ThumbnailURL: r.objectURL(vod.ThumbnailURL), DurationSec: vod.DurationSec, CategoryID: vod.CategoryID,
+			IsMature: vod.IsMature, ExpiresAt: vod.ExpiresAt.UTC(),
+		})
 	})
 }
 
@@ -616,41 +714,15 @@ func (r *Repo) ListOnAir(ctx context.Context, after *repo.Cursor, limit int) ([]
 	return out, rows.Err()
 }
 
-// GetVOD returns READY, unexpired VODs only.
+// GetVOD returns READY, unexpired VODs only (hidden ones included: the use case decides who sees them).
 func (r *Repo) GetVOD(ctx context.Context, vodID string) (entity.VOD, error) {
-	var (
-		v        entity.VOD
-		duration *int
-		path     *string
-		thumb    *string
-	)
-
-	err := r.Pool.QueryRow(ctx,
-		`SELECT id::text, stream_id::text, channel_id::text, title, duration_sec, playlist_path, thumbnail_url,
-		        status, created_at, expires_at
-		 FROM vods WHERE id = $1 AND status = 'READY' AND expires_at > now()`, vodID).
-		Scan(&v.ID, &v.StreamID, &v.ChannelID, &v.Title, &duration, &path, &thumb, &v.Status, &v.CreatedAt, &v.ExpiresAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return entity.VOD{}, entity.ErrNotFound
-	}
-
-	if err != nil {
+	v, err := scanVOD(r.Pool.QueryRow(ctx,
+		`SELECT `+_vodCols+` FROM vods WHERE id = $1 AND status = 'READY' AND expires_at > now()`, vodID))
+	if err != nil && !errors.Is(err, entity.ErrNotFound) {
 		return entity.VOD{}, fmt.Errorf("Repo - GetVOD: %w", err)
 	}
 
-	if duration != nil {
-		v.DurationSec = *duration
-	}
-
-	if path != nil {
-		v.PlaylistPath = *path
-	}
-
-	if thumb != nil {
-		v.ThumbnailURL = *thumb
-	}
-
-	return v, nil
+	return v, err
 }
 
 // ---- creator channels ----------------------------------------------------------------------------

@@ -48,7 +48,7 @@ func TestCatalogViewerCounts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			st := &fakeStreams{page: page}
+			st := &fakeStreams{page: append([]entity.Stream(nil), page...)}
 			uc := streams.New(&fakeKeys{hashes: map[string]string{}}, &fakeSettings{}, st, newFakeChannels(), time.Minute, time.Hour,
 				logger.New("error"), streams.WithViewerCounts(tc.vc))
 
