@@ -58,6 +58,12 @@ Script đóng vai N OBS bằng ffmpeg (test pattern, x264 `ultrafast`, GOP 2 s),
 CPU/RAM của media-svc + các tiến trình ffmpeg con, tốc độ ffmpeg, frame rơi, và **độ trễ HLS phía server**
 (từ lúc frame cuối của một segment rời publisher tới lúc segment xuất hiện trong playlist qua cổng vào).
 
+Từ GĐ1 chỉ Creator có kênh mới phát được, nên mỗi publisher là một Creator mới: script đăng ký, lấy link xác minh
+email từ Mailpit (`MAILPIT`, mặc định `http://localhost:8025`), nộp đơn Creator và để Admin seed duyệt
+(`ADMIN_LOGIN` / `ADMIN_PASSWORD`, mặc định `admin@nexuslive.dev` / `IDENTITY_DEV_SEED_PASSWORD`). Cần
+`IDENTITY_DEV_SEED=true` và identity gửi mail tới Mailpit (mặc định của `make nxl-up-all`). Gặp giới hạn `/v1/auth`
+của cổng vào (10 lần/phút) script tự chờ rồi thử lại, nên vòng 3 publisher mất thêm khoảng 1 phút để chuẩn bị.
+
 ```bash
 # Stack đầy đủ, cho phép đủ số luồng cần đo
 MEDIA_MAX_CONCURRENT_STREAMS=3 make nxl-up-all

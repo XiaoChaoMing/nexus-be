@@ -10,6 +10,9 @@ trap 'echo "bench: interrupted" >&2; exit 130' INT
 API=${API:-http://localhost:8080}             # Nginx edge (make nxl-up-all)
 RTMP=${RTMP:-rtmp://localhost:1935/live}
 METRICS=${METRICS:-http://localhost:8091/metrics}
+MAILPIT=${MAILPIT:-http://localhost:8025}      # verification mails of the bench creators
+ADMIN_LOGIN=${ADMIN_LOGIN:-admin@nexuslive.dev} # dev seed admin approves the bench creators
+ADMIN_PASSWORD=${ADMIN_PASSWORD:-${IDENTITY_DEV_SEED_PASSWORD:-nexuslive123}}
 COUNTS=${COUNTS:-"1 2 3"}
 DURATION=${DURATION:-120}                     # seconds sampled per round
 WARMUP=${WARMUP:-20}                          # seconds after every publisher is live
@@ -30,7 +33,7 @@ Usage: scripts/bench-transcode.sh [options]
   -b RATE       source video bitrate                     (BITRATE=$BITRATE)
   -m MODE       CPU source: docker | proc                (CPU_MODE=$CPU_MODE)
   -o DIR        output directory                         (OUT=$OUT)
-Environment: API, RTMP, METRICS, WARMUP, INTERVAL, FPS, CONTAINER.
+Environment: API, RTMP, METRICS, MAILPIT, ADMIN_LOGIN, ADMIN_PASSWORD, WARMUP, INTERVAL, FPS, CONTAINER.\nEvery publisher is a fresh Creator: register, verify the email (Mailpit), apply, approved by the dev seed admin.
 MEDIA_MAX_CONCURRENT_STREAMS must be >= the largest count, or the extra publishers are refused.
 EOF
 }
@@ -95,11 +98,71 @@ preflight() {
 }
 
 json_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" | head -n1; }
+json_first() { { grep -o "\"$1\":\"[^\"]*\"" || true; } | head -n1 | cut -d'"' -f4; } # first occurrence (json_field takes the last)
 
-register() { # name -> access token
-	curl -s -X POST "$API/v1/auth/register" -H 'Content-Type: application/json' \
-		-d "{\"username\":\"$1\",\"displayName\":\"$1\",\"email\":\"$1@bench.local\",\"password\":\"Bench12345\"}" |
-		json_field accessToken
+# POST/GET with JSON through the edge; waits out the auth rate limit (429) instead of failing.
+# Prints the body, then the status code on the last line.
+api() { # method path [json] [token]
+	local method=$1 path=$2 body=${3:-} token=${4:-} out tries=0
+	local args=(-s -w '\n%{http_code}' -X "$method" "$API$path" -H 'X-NXL-Client: web')
+	[ -n "$body" ] && args+=(-H 'Content-Type: application/json' -d "$body")
+	[ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
+	while :; do
+		out=$(curl "${args[@]}")
+		[ "${out##*$'\n'}" = 429 ] && [ $tries -lt 12 ] || { printf '%s\n' "$out"; return 0; }
+		tries=$((tries + 1))
+		sleep 7
+	done
+}
+status_of() { printf '%s\n' "$1" | tail -n1; }
+body_of() { printf '%s\n' "$1" | sed '$d'; }
+
+ADMIN_TOKEN=""
+admin_token() {
+	if [ -z "$ADMIN_TOKEN" ]; then
+		local res
+		res=$(api POST /v1/auth/login "{\"login\":\"$ADMIN_LOGIN\",\"password\":\"$ADMIN_PASSWORD\"}")
+		[ "$(status_of "$res")" = 200 ] || die "admin login ($ADMIN_LOGIN) failed: $(body_of "$res"). Is IDENTITY_DEV_SEED on? Set ADMIN_PASSWORD if the seed password differs."
+		ADMIN_TOKEN=$(body_of "$res" | json_field accessToken)
+	fi
+	printf '%s' "$ADMIN_TOKEN"
+}
+
+verify_token_of() { # email -> verification token from the newest mail in Mailpit
+	local id i
+	for i in $(seq 1 20); do
+		id=$(curl -s "$MAILPIT/api/v1/search?query=to:$1" | json_first ID)
+		if [ -n "$id" ]; then
+			curl -s "$MAILPIT/api/v1/message/$id" | grep -o 'verify-email?token=[A-Za-z0-9_-]*' | head -n1 | cut -d= -f2
+			return 0
+		fi
+		sleep 1
+	done
+}
+
+creator() { # name -> access token of a new Creator with a channel
+	local name=$1 email="$1@bench.local" res tok vtok app i
+	res=$(api POST /v1/auth/register "{\"username\":\"$name\",\"displayName\":\"$name\",\"email\":\"$email\",\"password\":\"Bench12345\",\"acceptTerms\":true}")
+	[ "$(status_of "$res")" = 201 ] || die "register $name failed: $(body_of "$res")"
+	tok=$(body_of "$res" | json_field accessToken)
+
+	vtok=$(verify_token_of "$email")
+	[ -n "$vtok" ] || die "no verification mail for $email in $MAILPIT (identity SMTP → Mailpit? 'docker compose logs identity')."
+	res=$(api POST /v1/auth/verify-email "{\"token\":\"$vtok\"}")
+	[ "$(status_of "$res")" = 200 ] || die "verify-email for $email failed: $(body_of "$res")"
+
+	res=$(api POST /v1/creator-applications '{"legalName":"Bench Creator","birthDate":"1995-01-01","acceptCreatorTerms":true}' "$tok")
+	[ "$(status_of "$res")" = 201 ] || die "creator application of $name failed: $(body_of "$res")"
+	app=$(body_of "$res" | json_first id)
+	res=$(api POST "/v1/admin/creator-applications/$app/approve" "" "$(admin_token)")
+	[ "$(status_of "$res")" = 200 ] || die "approving $name failed: $(body_of "$res")"
+
+	# The channel reaches stream-svc through events; the Studio opens a moment later.
+	for i in $(seq 1 30); do
+		[ "$(status_of "$(api GET /v1/studio/stream "" "$tok")")" = 200 ] && { printf '%s' "$tok"; return 0; }
+		sleep 1
+	done
+	die "the Studio of $name did not open after approval (channel-svc/stream-svc events? 'docker compose logs channel stream')."
 }
 
 stream_key() { curl -sf -X POST "$API/v1/studio/stream-key" -H "Authorization: Bearer $1" | json_field streamKey; }
@@ -194,10 +257,9 @@ watch_lag() { # count, manifest path, t0 (epoch seconds when the first publisher
 round() {
 	local n=$1 i tok key t0 active=0 waited=0
 	echo "== $n publisher(s)"
+	ADMIN_TOKEN=$(admin_token) # once per round: creator() runs in a subshell and cannot cache it
 	for i in $(seq 1 "$n"); do
-		tok=$(register "b${RUN: -8}_${n}_$i" || true)
-		[ -n "$tok" ] || die "register through $API failed. Response: $(curl -s -X POST "$API/v1/auth/register" \
-			-H 'Content-Type: application/json' -d '{}')"
+		tok=$(creator "b${RUN: -8}_${n}_$i")
 		key=$(stream_key "$tok" || true)
 		[ -n "$key" ] || die "POST /v1/studio/stream-key failed for a new user (stream-svc up? 'docker compose logs stream')."
 		TOKENS+=("$tok")
