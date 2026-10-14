@@ -35,6 +35,7 @@ type Server struct {
 	readTimeout     time.Duration
 	writeTimeout    time.Duration
 	shutdownTimeout time.Duration
+	bodyLimit       int
 
 	logger logger.Interface
 }
@@ -66,6 +67,7 @@ func New(l logger.Interface, opts ...Option) *Server {
 		ReadTimeout:    s.readTimeout,
 		WriteTimeout:   s.writeTimeout,
 		ReadBufferSize: _defaultReadBufferSize,
+		BodyLimit:      s.bodyLimit,
 		JSONDecoder:    json.Unmarshal,
 		JSONEncoder:    json.Marshal,
 	})

@@ -91,6 +91,9 @@ linters:
       min-complexity: 10
     misspell:
       locale: US
+      # CANCELLED is a status of the API contract (streams, schedules); comments follow it.
+      ignore-rules:
+        - cancelled
     nestif:
       min-complexity: 4
     nolintlint:

@@ -42,3 +42,10 @@ func ShutdownTimeout(timeout time.Duration) Option {
 		s.shutdownTimeout = timeout
 	}
 }
+
+// BodyLimit sets the largest request body accepted (Fiber's default is 4 MiB).
+func BodyLimit(n int) Option {
+	return func(s *Server) {
+		s.bodyLimit = n
+	}
+}
