@@ -25,6 +25,7 @@ type Metrics struct {
 	uploadSecs   prometheus.Histogram
 	uploadErrors prometheus.Counter
 	rejected     *prometheus.CounterVec
+	vodDeleted   prometheus.Counter
 }
 
 // New -.
@@ -44,9 +45,13 @@ func New() *Metrics {
 			Name: "media_publish_rejected_total",
 			Help: "Refused RTMP publishes by reason.",
 		}, []string{"reason"}),
+		vodDeleted: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "media_vod_objects_deleted_total",
+			Help: "Objects removed for VODs deleted by their creator (vod.deleted.v1).",
+		}),
 	}
 
-	m.reg.MustRegister(m.uploadSecs, m.uploadErrors, m.rejected,
+	m.reg.MustRegister(m.uploadSecs, m.uploadErrors, m.rejected, m.vodDeleted,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 
 	return m
@@ -67,6 +72,9 @@ func (m *Metrics) WatchSessions(sessions Sessions) {
 				"Frames dropped by ffmpeg for the stream's current publish (restarts at 0 on reconnect).", []string{"stream"}, nil),
 		})
 }
+
+// VODObjectsDeleted -.
+func (m *Metrics) VODObjectsDeleted(n int) { m.vodDeleted.Add(float64(n)) }
 
 // PublishRejected -.
 func (m *Metrics) PublishRejected(reason string) { m.rejected.WithLabelValues(reason).Inc() }

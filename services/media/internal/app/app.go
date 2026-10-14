@@ -24,6 +24,7 @@ import (
 	"github.com/minhnn/nexuslive-be/services/media/internal/rtmpserver"
 	"github.com/minhnn/nexuslive-be/services/media/internal/session"
 	"github.com/minhnn/nexuslive-be/services/media/internal/storage"
+	"github.com/minhnn/nexuslive-be/services/media/internal/vods"
 )
 
 const (
@@ -84,7 +85,18 @@ func Run(cfg *config.Config) { //nolint:funlen,gocognit,gocyclo,cyclop // linear
 	recoverStreams(ctx, mgr, l)
 
 	if bus != nil {
-		stop, cerr := bus.Consume(ctx, _durable, []string{ev.TypeStreamEnded}, streamEndedHandler(mgr), func(e eventbus.Event, herr error) {
+		handlers := map[string]eventbus.Handler{
+			ev.TypeStreamEnded: streamEndedHandler(mgr),
+			ev.TypeVODDeleted:  vods.DeletedHandler(store, m, l),
+		}
+
+		stop, cerr := bus.Consume(ctx, _durable, []string{ev.TypeStreamEnded, ev.TypeVODDeleted}, func(hctx context.Context, e eventbus.Event) error {
+			if h, ok := handlers[e.Type]; ok {
+				return h(hctx, e)
+			}
+
+			return nil
+		}, func(e eventbus.Event, herr error) {
 			l.Warn("media - event %s %s: %v", e.Type, e.ID, herr)
 		})
 		if cerr != nil {

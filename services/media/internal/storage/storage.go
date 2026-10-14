@@ -51,6 +51,38 @@ func (m *MinIO) Put(ctx context.Context, key string, body []byte, contentType, c
 	return nil
 }
 
+// RemovePrefix deletes every object under prefix and returns how many were removed (0 when none: idempotent).
+func (m *MinIO) RemovePrefix(ctx context.Context, prefix string) (int, error) {
+	var found []minio.ObjectInfo
+
+	for obj := range m.client.ListObjects(ctx, m.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if obj.Err != nil {
+			return 0, fmt.Errorf("storage - RemovePrefix %s - list: %w", prefix, obj.Err)
+		}
+
+		found = append(found, obj)
+	}
+
+	if len(found) == 0 {
+		return 0, nil
+	}
+
+	objects := make(chan minio.ObjectInfo, len(found))
+	for _, obj := range found {
+		objects <- obj
+	}
+
+	close(objects)
+
+	for rerr := range m.client.RemoveObjects(ctx, m.bucket, objects, minio.RemoveObjectsOptions{}) {
+		if rerr.Err != nil {
+			return 0, fmt.Errorf("storage - RemovePrefix %s - %s: %w", prefix, rerr.ObjectName, rerr.Err)
+		}
+	}
+
+	return len(found), nil
+}
+
 // EnsureBucket creates the bucket, opens streams/ for anonymous reads and expires it after retentionDays.
 func (m *MinIO) EnsureBucket(ctx context.Context, retentionDays int) error {
 	exists, err := m.client.BucketExists(ctx, m.bucket)
