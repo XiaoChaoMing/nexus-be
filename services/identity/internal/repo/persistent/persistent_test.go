@@ -417,6 +417,7 @@ func TestSeedAndPromote(t *testing.T) { //nolint:paralleltest // shared database
 	require.NoError(t, err)
 	assert.False(t, created)
 	assert.Equal(t, stored.ID, stored2.ID)
+	assert.Equal(t, []string{"user.registered.v1", "user.email_verified.v1"}, outboxTypes(t, r), "announced once")
 
 	creator, _ := createUser(t, r, "creator", now)
 	app := entity.Application{ID: uuid.NewString(), UserID: creator.ID, LegalName: "Creator", BirthDate: now, CreatedAt: now}

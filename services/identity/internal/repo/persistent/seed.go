@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/pkg/postgres"
 	"github.com/minhnn/nexuslive-be/services/identity/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/identity/internal/repo"
@@ -45,7 +46,7 @@ func (r *SeedRepo) EnsureUser(ctx context.Context, u entity.User, passwordHash s
 
 		created = true
 
-		return nil
+		return announceSeeded(ctx, tx, u)
 	})
 	if err != nil {
 		return entity.User{}, false, err
@@ -61,6 +62,27 @@ func (r *SeedRepo) EnsureUser(ctx context.Context, u entity.User, passwordHash s
 	}
 
 	return stored, created, nil
+}
+
+// announceSeeded publishes a seeded account like a registered one, so the copies other services keep
+// (chat-svc's users) know it.
+func announceSeeded(ctx context.Context, tx pgx.Tx, u entity.User) error {
+	err := addOutbox(ctx, tx, _aggregateUser, u.ID, events.TypeUserRegistered, events.UserRegistered{
+		UserID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Email: u.Email,
+	})
+	if err != nil {
+		return fmt.Errorf("SeedRepo - EnsureUser - %w", err)
+	}
+
+	if u.EmailVerifiedAt == nil {
+		return nil
+	}
+
+	if err = addOutbox(ctx, tx, _aggregateUser, u.ID, events.TypeUserEmailVerified, events.UserEmailVerified{UserID: u.ID}); err != nil {
+		return fmt.Errorf("SeedRepo - EnsureUser - %w", err)
+	}
+
+	return nil
 }
 
 // EnsureApproved -.
