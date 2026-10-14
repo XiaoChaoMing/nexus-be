@@ -17,6 +17,7 @@ type (
 		PG      PG
 		NATS    NATS
 		Auth    Auth
+		Redis   Redis
 		Stream  Stream
 		Swagger Swagger
 	}
@@ -56,6 +57,12 @@ type (
 	// NATS -.
 	NATS struct {
 		URL string `env:"NATS_URL" envDefault:"nats://guest:guest@localhost:4222/"`
+	}
+
+	// Redis -.
+	Redis struct {
+		// Read only: viewer counts written by chat-svc. Empty = viewerCount is always null.
+		Addr string `env:"STREAM_REDIS_ADDR"`
 	}
 
 	// Auth -.

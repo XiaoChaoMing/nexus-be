@@ -16,6 +16,7 @@ import (
 	"github.com/minhnn/nexuslive-be/pkg/logger"
 	"github.com/minhnn/nexuslive-be/pkg/outbox"
 	"github.com/minhnn/nexuslive-be/pkg/postgres"
+	"github.com/minhnn/nexuslive-be/pkg/redis"
 	"github.com/minhnn/nexuslive-be/services/stream/config"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/controller/events"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/controller/internalapi"
@@ -23,11 +24,15 @@ import (
 	v1 "github.com/minhnn/nexuslive-be/services/stream/internal/controller/restapi/v1"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/metrics"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/repo/persistent"
+	"github.com/minhnn/nexuslive-be/services/stream/internal/repo/viewers"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/playback"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/streams"
 )
 
-const _natsConnectTimeout = 60 * time.Second
+const (
+	_natsConnectTimeout  = 60 * time.Second
+	_redisConnectTimeout = 30 * time.Second
+)
 
 // Run creates objects via constructors.
 func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: one branch per fatal start-up error
@@ -55,8 +60,24 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 
 	store := persistent.New(pg)
 	m := metrics.New()
-	uc := streams.New(store, store, store, store, cfg.Stream.GracePeriod, cfg.Stream.VODRetention, l,
-		streams.EndCooldown(cfg.Stream.EndCooldown), streams.WithObserver(m))
+	opts := []streams.Option{streams.EndCooldown(cfg.Stream.EndCooldown), streams.WithObserver(m)}
+
+	if cfg.Redis.Addr != "" {
+		redisCtx, redisCancel := context.WithTimeout(ctx, _redisConnectTimeout)
+		rdb, rerr := redis.New(redisCtx, cfg.Redis.Addr)
+
+		redisCancel()
+
+		if rerr != nil {
+			l.Fatal("stream - Run - redis.New: %v", rerr)
+		}
+
+		defer rdb.Close()
+
+		opts = append(opts, streams.WithViewerCounts(viewers.New(rdb)))
+	}
+
+	uc := streams.New(store, store, store, store, cfg.Stream.GracePeriod, cfg.Stream.VODRetention, l, opts...)
 
 	viewer := playback.New(store, store, store, l)
 

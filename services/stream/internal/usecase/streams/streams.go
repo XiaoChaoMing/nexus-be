@@ -44,6 +44,7 @@ type UseCase struct {
 	settings  repo.SettingsRepo
 	streams   repo.StreamRepo
 	channels  repo.ChannelRepo
+	viewers   repo.ViewerCountRepo
 	grace     time.Duration
 	retention time.Duration
 	cooldown  time.Duration
@@ -73,6 +74,11 @@ func EndCooldown(d time.Duration) Option {
 // WithObserver -.
 func WithObserver(o usecase.Observer) Option {
 	return func(uc *UseCase) { uc.obs = o }
+}
+
+// WithViewerCounts adds viewerCount to the catalog from chat-svc's counts.
+func WithViewerCounts(v repo.ViewerCountRepo) Option {
+	return func(uc *UseCase) { uc.viewers = v }
 }
 
 // WithClock -.
@@ -321,6 +327,15 @@ func (uc *UseCase) VODProcessed(ctx context.Context, eventID string, v repo.VODI
 	return uc.streams.OnVODProcessed(ctx, eventID, v)
 }
 
+// PeakViewers -.
+func (uc *UseCase) PeakViewers(ctx context.Context, eventID, streamID string, peak int) error {
+	if err := uc.streams.SetPeakViewers(ctx, eventID, streamID, peak); err != nil {
+		return fmt.Errorf("StreamUseCase - PeakViewers: %w", err)
+	}
+
+	return nil
+}
+
 // ExpireInterrupted -.
 func (uc *UseCase) ExpireInterrupted(ctx context.Context) (int, error) {
 	ended, err := uc.streams.ExpireInterrupted(ctx, uc.grace)
@@ -418,6 +433,8 @@ func (uc *UseCase) ListLive(ctx context.Context, cursor string, limit int) (usec
 		return usecase.Page{}, fmt.Errorf("StreamUseCase - ListLive: %w", err)
 	}
 
+	uc.attachViewerCounts(ctx, page.Items)
+
 	return page, nil
 }
 
@@ -432,6 +449,8 @@ func (uc *UseCase) Get(ctx context.Context, streamID string) (entity.Stream, err
 	if err = uc.attachChannels(ctx, items); err != nil {
 		return entity.Stream{}, fmt.Errorf("StreamUseCase - Get: %w", err)
 	}
+
+	uc.attachViewerCounts(ctx, items)
 
 	return items[0], nil
 }
@@ -478,6 +497,39 @@ func (uc *UseCase) attachChannels(ctx context.Context, items []entity.Stream) er
 	}
 
 	return nil
+}
+
+// attachViewerCounts fills Stream.ViewerCount for streams on air. Counts are decoration: when Redis is
+// unavailable the catalog still answers, with viewerCount null.
+func (uc *UseCase) attachViewerCounts(ctx context.Context, items []entity.Stream) {
+	if uc.viewers == nil {
+		return
+	}
+
+	ids := make([]string, 0, len(items))
+
+	for _, s := range items {
+		if s.OnAir() {
+			ids = append(ids, s.ID)
+		}
+	}
+
+	if len(ids) == 0 {
+		return
+	}
+
+	counts, err := uc.viewers.ViewerCounts(ctx, ids)
+	if err != nil {
+		uc.l.Warn("stream - viewer counts: %v", err)
+
+		return
+	}
+
+	for i := range items {
+		if n, ok := counts[items[i].ID]; ok {
+			items[i].ViewerCount = &n
+		}
+	}
 }
 
 // ---- Channels ------------------------------------------------------------------------------------

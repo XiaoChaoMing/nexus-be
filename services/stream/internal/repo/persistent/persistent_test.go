@@ -180,8 +180,44 @@ func TestLifecycle(t *testing.T) { //nolint:paralleltest,funlen // shared databa
 	require.ErrorIs(t, err, entity.ErrNotLive)
 
 	require.Equal(t, []string{
-		events.TypeStreamStarted, events.TypeStreamEnded, events.TypeStreamStarted, events.TypeStreamEnded,
+		events.TypeStreamStarted,
+		events.TypeStreamStatusChanged, // INTERRUPTED (the duplicate delivery adds nothing)
+		events.TypeStreamStatusChanged, // LIVE
+		events.TypeStreamUpdated,
+		events.TypeStreamStatusChanged, // INTERRUPTED
+		events.TypeStreamEnded,
+		events.TypeStreamVODReady, // once, although delivered twice
+		events.TypeStreamStarted, events.TypeStreamEnded,
 	}, outboxTypes(t, pg))
+
+	var status events.StreamStatusChanged
+
+	require.NoError(t, pg.Pool.QueryRow(ctx,
+		`SELECT payload FROM outbox WHERE event_type = $1 ORDER BY created_at DESC LIMIT 1`, events.TypeStreamStatusChanged).Scan(&status))
+	require.Equal(t, events.StreamStatusInterrupted, status.Status)
+	require.Equal(t, ch, status.ChannelID)
+
+	var updated events.StreamUpdated
+
+	require.NoError(t, pg.Pool.QueryRow(ctx,
+		`SELECT payload FROM outbox WHERE event_type = $1`, events.TypeStreamUpdated).Scan(&updated))
+	require.Equal(t, "Rank game 2", updated.Title)
+	require.Equal(t, []string{}, updated.Tags)
+
+	var ready events.StreamVODReady
+
+	require.NoError(t, pg.Pool.QueryRow(ctx,
+		`SELECT payload FROM outbox WHERE event_type = $1`, events.TypeStreamVODReady).Scan(&ready))
+	require.Equal(t, *s.VODID, ready.VODID)
+
+	// chat-svc reports the peak; a smaller late report does not lower it.
+	require.NoError(t, r.SetPeakViewers(ctx, uuid.NewString(), g.StreamID, 12))
+	require.NoError(t, r.SetPeakViewers(ctx, uuid.NewString(), g.StreamID, 5))
+
+	var peak int
+
+	require.NoError(t, pg.Pool.QueryRow(ctx, `SELECT peak_viewers FROM streams WHERE id = $1`, g.StreamID).Scan(&peak))
+	require.Equal(t, 12, peak)
 
 	var payload events.StreamEnded
 

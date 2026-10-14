@@ -27,6 +27,8 @@ type (
 		IngestStopped(ctx context.Context, eventID, streamID string) error
 		IngestHealth(streamID string, h entity.Health)
 		VODProcessed(ctx context.Context, eventID string, v repo.VODInput) error
+		// PeakViewers records the peak viewer count chat-svc measured for an ended stream.
+		PeakViewers(ctx context.Context, eventID, streamID string, peak int) error
 		// ExpireInterrupted ends streams whose grace period ran out; returns how many.
 		ExpireInterrupted(ctx context.Context) (int, error)
 		// ExpireVODs marks VODs past their retention as EXPIRED; returns how many.

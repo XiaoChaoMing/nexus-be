@@ -470,6 +470,7 @@ func (r *routes) streamBody(s entity.Stream) Stream {
 		ManifestURL:  r.objectURL("streams/" + s.ID + "/master.m3u8"),
 		ThumbnailURL: r.objectURL("streams/" + s.ID + "/thumb.jpg"),
 		VODID:        s.VODID,
+		ViewerCount:  s.ViewerCount,
 		Channel:      channelRef(s.Channel),
 	}
 }

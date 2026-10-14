@@ -54,6 +54,14 @@ type (
 		ExpireVODs(ctx context.Context) (int64, error)
 		// CountOnAir returns how many streams are LIVE or INTERRUPTED.
 		CountOnAir(ctx context.Context) (int, error)
+		// SetPeakViewers keeps the highest peak reported by chat-svc; eventID de-duplicates.
+		SetPeakViewers(ctx context.Context, eventID, streamID string, peak int) error
+	}
+
+	// ViewerCountRepo reads the live viewer counts chat-svc maintains (read only).
+	ViewerCountRepo interface {
+		// ViewerCounts returns the known counts among streamIDs; streams without one are absent.
+		ViewerCounts(ctx context.Context, streamIDs []string) (map[string]int, error)
 	}
 
 	// ChannelRepo is the local copy of channel-svc's channels (creator_channels).

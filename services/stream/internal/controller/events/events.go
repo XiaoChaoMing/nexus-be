@@ -1,4 +1,5 @@
-// Package events consumes media-svc ingest events and channel-svc channel events from JetStream.
+// Package events consumes media-svc ingest events, channel-svc channel events and chat-svc peak viewer
+// counts from JetStream.
 package events
 
 import (
@@ -30,7 +31,7 @@ const (
 // Types consumed by stream-svc.
 var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeIngestStarted, events.TypeIngestStopped, events.TypeIngestHealth, events.TypeVODProcessed,
-	events.TypeChannelCreated,
+	events.TypeChannelCreated, events.TypeStreamPeakViewers,
 }
 
 // Handler routes one event to the ingest or channel use case.
@@ -57,6 +58,8 @@ func Handler(ingest usecase.Ingest, channels usecase.ChannelSync) eventbus.Handl
 			return onVODProcessed(ctx, ingest, e)
 		case events.TypeChannelCreated:
 			return onChannelCreated(ctx, channels, e)
+		case events.TypeStreamPeakViewers:
+			return onPeakViewers(ctx, ingest, e)
 		}
 
 		return nil
@@ -93,6 +96,19 @@ func onVODProcessed(ctx context.Context, ingest usecase.Ingest, e eventbus.Event
 		PlaylistPath: p.PlaylistPath,
 		ThumbnailURL: p.ThumbnailPath,
 	})
+}
+
+func onPeakViewers(ctx context.Context, ingest usecase.Ingest, e eventbus.Event) error {
+	var p events.StreamPeakViewers
+	if err := decode(e, &p.StreamID, &p); err != nil {
+		return err
+	}
+
+	if p.PeakViewers < 0 {
+		return fmt.Errorf("%w: %s: negative peak", eventbus.ErrSkip, e.Type)
+	}
+
+	return ingest.PeakViewers(ctx, e.ID, p.StreamID, p.PeakViewers)
 }
 
 func onChannelCreated(ctx context.Context, channels usecase.ChannelSync, e eventbus.Event) error {

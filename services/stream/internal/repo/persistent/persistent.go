@@ -248,14 +248,30 @@ func (r *Repo) SaveSettings(ctx context.Context, s entity.Settings) error {
 			title = entity.DefaultTitle
 		}
 
-		if _, err := tx.Exec(ctx,
+		var (
+			streamID string
+			tags     []string
+		)
+
+		err := tx.QueryRow(ctx,
 			`UPDATE streams SET title = $2, tags = $3, language = $4, is_mature = $5
-			 WHERE channel_id = $1 AND status IN ('LIVE', 'INTERRUPTED')`,
-			s.ChannelID, title, s.Tags, s.Language, s.IsMature); err != nil {
+			 WHERE channel_id = $1 AND status IN ('LIVE', 'INTERRUPTED')
+			 RETURNING id::text, tags`,
+			s.ChannelID, title, s.Tags, s.Language, s.IsMature).Scan(&streamID, &tags)
+
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return nil // offline: the settings apply to the next broadcast
+		case err != nil:
 			return fmt.Errorf("Repo - Save - on-air stream: %w", err)
 		}
 
-		return nil
+		if tags == nil {
+			tags = []string{}
+		}
+
+		return addOutbox(ctx, tx, streamID, events.TypeStreamUpdated,
+			events.StreamUpdated{StreamID: streamID, ChannelID: s.ChannelID, Title: title, Tags: tags})
 	})
 }
 
@@ -428,26 +444,40 @@ func (r *Repo) ExpireInterrupted(ctx context.Context, grace time.Duration) ([]en
 // OnIngestStarted -.
 func (r *Repo) OnIngestStarted(ctx context.Context, eventID, streamID string) error {
 	return r.inEventTx(ctx, "Repo - OnIngestStarted", eventID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx,
-			`UPDATE streams SET status = 'LIVE', interrupted_at = NULL WHERE id = $1 AND status = 'INTERRUPTED'`, streamID)
-		if err != nil {
-			return fmt.Errorf("Repo - OnIngestStarted: %w", err)
-		}
-
-		return nil
+		return transitionTx(ctx, tx, streamID,
+			`UPDATE streams SET status = 'LIVE', interrupted_at = NULL WHERE id = $1 AND status = 'INTERRUPTED'
+			 RETURNING channel_id::text, now()`, events.StreamStatusLive)
 	})
 }
 
 // OnIngestStopped -.
 func (r *Repo) OnIngestStopped(ctx context.Context, eventID, streamID string) error {
 	return r.inEventTx(ctx, "Repo - OnIngestStopped", eventID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx,
-			`UPDATE streams SET status = 'INTERRUPTED', interrupted_at = now() WHERE id = $1 AND status = 'LIVE'`, streamID)
-		if err != nil {
-			return fmt.Errorf("Repo - OnIngestStopped: %w", err)
-		}
+		return transitionTx(ctx, tx, streamID,
+			`UPDATE streams SET status = 'INTERRUPTED', interrupted_at = now() WHERE id = $1 AND status = 'LIVE'
+			 RETURNING channel_id::text, now()`, events.StreamStatusInterrupted)
+	})
+}
 
-		return nil
+// transitionTx runs a conditional LIVE ↔ INTERRUPTED update ($1 = stream id, RETURNING channel_id, now())
+// and queues stream.status_changed when a row actually changed.
+func transitionTx(ctx context.Context, tx pgx.Tx, streamID, update, status string) error {
+	var (
+		channelID string
+		at        time.Time
+	)
+
+	err := tx.QueryRow(ctx, update, streamID).Scan(&channelID, &at)
+
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil // not in the expected state: nothing changed
+	case err != nil:
+		return fmt.Errorf("Repo - transition to %s: %w", status, err)
+	}
+
+	return addOutbox(ctx, tx, streamID, events.TypeStreamStatusChanged, events.StreamStatusChanged{
+		StreamID: streamID, ChannelID: channelID, Status: status, OccurredAt: at.UTC(),
 	})
 }
 
@@ -458,14 +488,35 @@ func (r *Repo) OnVODProcessed(ctx context.Context, eventID string, v repo.VODInp
 			return err
 		}
 
-		_, err := tx.Exec(ctx,
+		var vodID, channelID string
+
+		err := tx.QueryRow(ctx,
 			`INSERT INTO vods (stream_id, channel_id, title, duration_sec, playlist_path, thumbnail_url, status, expires_at)
 			 SELECT id, channel_id, title, $2, $3, $4, 'READY', now() + make_interval(secs => $5)
 			 FROM streams WHERE id = $1
-			 ON CONFLICT (stream_id) DO NOTHING`,
-			v.StreamID, v.DurationSec, v.PlaylistPath, v.ThumbnailURL, v.Retention.Seconds())
-		if err != nil {
+			 ON CONFLICT (stream_id) DO NOTHING
+			 RETURNING id::text, channel_id::text`,
+			v.StreamID, v.DurationSec, v.PlaylistPath, v.ThumbnailURL, v.Retention.Seconds()).Scan(&vodID, &channelID)
+
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return nil // unknown stream or VOD already recorded
+		case err != nil:
 			return fmt.Errorf("Repo - OnVODProcessed - insert vod: %w", err)
+		}
+
+		return addOutbox(ctx, tx, v.StreamID, events.TypeStreamVODReady,
+			events.StreamVODReady{StreamID: v.StreamID, ChannelID: channelID, VODID: vodID})
+	})
+}
+
+// SetPeakViewers keeps the highest peak reported for the stream.
+func (r *Repo) SetPeakViewers(ctx context.Context, eventID, streamID string, peak int) error {
+	return r.inEventTx(ctx, "Repo - SetPeakViewers", eventID, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE streams SET peak_viewers = GREATEST(peak_viewers, $2) WHERE id = $1`, streamID, peak)
+		if err != nil {
+			return fmt.Errorf("Repo - SetPeakViewers: %w", err)
 		}
 
 		return nil

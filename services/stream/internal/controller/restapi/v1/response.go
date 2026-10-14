@@ -85,7 +85,9 @@ type Stream struct {
 	ManifestURL  string     `json:"manifestUrl"`
 	ThumbnailURL string     `json:"thumbnailUrl"`
 	VODID        *string    `json:"vodId"`
-	Channel      *Channel   `json:"channel"`
+	// ViewerCount is the number of people watching right now; null when unknown or not on air.
+	ViewerCount *int     `json:"viewerCount"`
+	Channel     *Channel `json:"channel"`
 }
 
 // StreamList -.

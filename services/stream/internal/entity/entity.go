@@ -40,6 +40,8 @@ type Stream struct {
 	EndReason     *EndReason
 	CreatedAt     time.Time
 	VODID         *string
+	// ViewerCount is nil when chat-svc has no count for the stream (or counts are not configured).
+	ViewerCount *int
 	// Channel is nil when channel.created never arrived for ChannelID (streams before channels existed).
 	Channel *Channel
 }

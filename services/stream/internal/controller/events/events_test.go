@@ -77,3 +77,36 @@ func TestChannelCreatedSkipsBadPayloads(t *testing.T) {
 		})
 	}
 }
+
+type recPeak struct {
+	usecase.Ingest
+	streamID string
+	peak     int
+}
+
+func (r *recPeak) PeakViewers(_ context.Context, _, streamID string, peak int) error {
+	r.streamID, r.peak = streamID, peak
+
+	return nil
+}
+
+func TestPeakViewers(t *testing.T) {
+	t.Parallel()
+
+	id := uuid.NewString()
+	rec := &recPeak{}
+	h := events.Handler(rec, &recChannels{})
+
+	err := h(context.Background(), eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeStreamPeakViewers, Payload: []byte(`{"streamId":"` + id + `","peakViewers":7}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, id, rec.streamID)
+	require.Equal(t, 7, rec.peak)
+	require.Contains(t, events.Types, pkgevents.TypeStreamPeakViewers)
+
+	err = h(context.Background(), eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeStreamPeakViewers, Payload: []byte(`{"streamId":"` + id + `","peakViewers":-1}`),
+	})
+	require.ErrorIs(t, err, eventbus.ErrSkip)
+}

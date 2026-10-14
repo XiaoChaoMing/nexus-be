@@ -887,6 +887,10 @@ const docTemplate = `{
                 "title": {
                     "type": "string"
                 },
+                "viewerCount": {
+                    "description": "ViewerCount is the number of people watching right now; null when unknown or not on air.",
+                    "type": "integer"
+                },
                 "vodId": {
                     "type": "string"
                 }
