@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.4 |
-| **Cập nhật** | 2026-10-13 |
+| **Phiên bản** | 1.5 |
+| **Cập nhật** | 2026-10-14 |
 | **Phạm vi** | REST công khai, API nội bộ giữa service, RTMP/HLS, sự kiện NATS. Gồm API đã chạy và API dự kiến theo lộ trình |
 
 Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, trạng thái nào, quy ước chung là gì.
@@ -29,8 +29,8 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | stream-svc (nội bộ) | 8093 | `http://stream:8093/internal/v1` — chỉ trong mạng Docker | — | GĐ2 ✅ |
 | media-svc | 1935 (RTMP), 8091 (HTTP) | `rtmp://localhost:1935/live`, `http://localhost:8091` | — | GĐ2 ✅ |
 | channel-svc | 8094 | `http://localhost:8094/v1` | <http://localhost:8094/swagger/index.html> | GĐ1 🔧 (tối thiểu) |
-| chat-svc (realtime gateway) | 8095 📋 | `ws://localhost:8095/v1/ws` | 📋 | GĐ3 |
-| safety-svc | 8096 📋 | | 📋 | GĐ5 |
+| chat-svc (realtime gateway + chat), 2 instance | 8095 (`chat-1`), 8096 (`chat-2`) | `ws://localhost:8080/v1/ws` (qua cổng vào), `http://localhost:8095/v1` | <http://localhost:8095/swagger/index.html> | GĐ3 🔧 |
+| safety-svc | 8099 📋 | | 📋 | GĐ5 |
 | notification-svc | 8097 📋 | | 📋 | GĐ5 |
 | billing-svc | 8098 📋 | | 📋 | GĐ6 |
 | NATS JetStream | 4222 (client), 8222 (monitor) | `nats://guest:guest@localhost:4222` | — | ✅ |
@@ -38,7 +38,7 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | Web quản trị `nexuslive-admin` | 5174 | Vite proxy `/v1` → cổng vào | — | GĐ1 🔧 |
 
 - Chạy: `make nxl-up-all` (toàn bộ, qua cổng vào), `make nxl-media-up` (chuỗi livestream) hoặc `make nxl-up` (chỉ identity + stream).
-- Cổng của các service chưa có là đề xuất, giữ để không đụng nhau. v1.3: channel-svc nhận 8094 (đã chạy ở GĐ1), chat-svc dời sang 8095.
+- Cổng của các service chưa có là đề xuất, giữ để không đụng nhau. v1.3: channel-svc nhận 8094 (đã chạy ở GĐ1), chat-svc dời sang 8095. v1.5: instance thứ hai của chat-svc dùng 8096, safety-svc dời sang 8099.
 - Trình duyệt chỉ gọi **cổng vào Nginx** (`deploy/nginx/nginx.conf`). Cổng riêng từng service chỉ dùng khi dev (Swagger, curl).
 
 **Định tuyến tại cổng vào (GĐ1):**
@@ -46,9 +46,11 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | Đường dẫn | Tới | Ghi chú |
 | --- | --- | --- |
 | `/v1/auth/{login,register,password/forgot,password/reset,verify-email,verify-email/resend}` | identity-svc :8090 | Vùng rate limit chặt (§1.1) |
+| `/v1/ws` | chat-svc (upstream `nxl_chat`: `chat-1`, `chat-2`) | WebSocket (`Upgrade`), `proxy_read_timeout 75s`, không rate limit theo request (GĐ3) |
+| `/v1/chat/*`, `/v1/channels/{id}/chat-settings` | chat-svc | Đặt trước route channel-svc (GĐ3) |
+| `/emotes/*` | file tĩnh `deploy/emotes/*.svg` | `Cache-Control: public, max-age=604800` (GĐ3) |
 | `/v1/channels/*` | channel-svc :8094 | GĐ1 |
 | `/v1/studio/*`, `/v1/streams/*`, `/v1/vods/*` | stream-svc :8092 | |
-| `/v1/ws` | — | `503 SERVICE_UNAVAILABLE` cho tới khi có chat-svc (GĐ3) |
 | `/v1/*` còn lại | identity-svc :8090 | Gồm `/v1/auth/*`, `/v1/me*`, `/v1/creator-applications*`, `/v1/admin/*` |
 | `/hls/*` | MinIO, bucket `nxl-media` | Chỉ `GET`/`HEAD`; `.m3u8` có `Cache-Control: no-cache`; không rate limit |
 | `/internal/*`, `/metrics`, `/swagger`, còn lại | — | `404 NOT_FOUND` |
@@ -197,8 +199,8 @@ Mã lỗi: `VALIDATION_FAILED`, `USERNAME_TAKEN`, `EMAIL_TAKEN`, `INVALID_CREDEN
 | GET | `/v1/studio/stream` | Creator | Cài đặt buổi phát + buổi phát hiện tại + sức khỏe luồng (5s); GĐ1 thêm `channel` | ✅ · GĐ1 🔧 |
 | PUT | `/v1/studio/stream` | Creator | Sửa tiêu đề, tag, nhãn mature — áp cho buổi kế tiếp và buổi đang phát | ✅ |
 | POST | `/v1/studio/stream/end` | Creator | Kết thúc buổi phát → media-svc ngắt OBS, tạo VOD | ✅ |
-| GET | `/v1/streams?status=live&cursor=&limit=` | — | Danh sách đang phát (LIVE + INTERRUPTED), mới nhất trước; GĐ1 thêm `channel {id, handle, displayName, avatarUrl} \| null` | ✅ · GĐ1 🔧 |
-| GET | `/v1/streams/{id}` | — | Chi tiết, trạng thái, `manifestUrl`, `thumbnailUrl`, `vodId`; GĐ1 thêm `channel` (giữ `channelId`) | ✅ · GĐ1 🔧 |
+| GET | `/v1/streams?status=live&cursor=&limit=` | — | Danh sách đang phát (LIVE + INTERRUPTED), mới nhất trước; GĐ1 thêm `channel {id, handle, displayName, avatarUrl} \| null`; GĐ3 thêm `viewerCount: number \| null` (chat-svc đếm, đọc Redis `viewers:{streamId}`) | ✅ · GĐ3 🔧 |
+| GET | `/v1/streams/{id}` | — | Chi tiết, trạng thái, `manifestUrl`, `thumbnailUrl`, `vodId`; GĐ1 thêm `channel` (giữ `channelId`); GĐ3 thêm `viewerCount` | ✅ · GĐ3 🔧 |
 | GET | `/v1/vods/{id}` | — / Bearer | VOD đang READY và còn hạn (hết hạn → `404`; job chuyển EXPIRED mỗi 10 phút); GĐ1 thêm `channel`; GĐ2: có token → `viewer.positionSec` | ✅ · GĐ2 🔧 |
 | POST | `/v1/streams/{id}/playback` · `/v1/vods/{id}/playback` | — / Bearer | Mở phiên xem: `{acknowledgeMature?}`, header `X-NXL-Anon-Id` (Guest) → `{sessionId, manifestUrl, expiresAt, anonId?, mature{required, acknowledged}}`; 18+ chưa xác nhận → ba trường đầu `null`; tài khoản xác nhận một lần/kênh (TSD GĐ2 §4). Chữ ký URL ở GĐ5 | GĐ2 🔧 (chữ ký 📋 GĐ5) |
 | PUT | `/v1/me/watch-progress/{vodId}` | Bearer | `{positionSec, keepFurther?}` → `204`; `VALIDATION_FAILED` (`positionSec: REQUIRED/RANGE`), `NOT_FOUND` (A5, UC-A07) | GĐ2 🔧 |
@@ -259,22 +261,36 @@ Sự kiện:
 
 Phần còn lại (follow, lịch, hồ sơ đầy đủ, khám phá): §7.2, GĐ4.
 
+## 6B. chat-svc — realtime gateway và chat (GĐ3 🔧)
+
+Hợp đồng đầy đủ (khung WebSocket, snapshot, sự kiện, khóa Redis): TSD `docs/plans/technical/2026-10-14-gd03-chat-realtime.md` §5.
+
+| Method | Path | Auth | Mô tả | Trạng thái |
+| --- | --- | --- | --- | --- |
+| WS | `/v1/ws` | Tin đầu `{"op":"auth","token":<JWT>\|null,"anonId"?}` trong 5 s | Một kết nối cho mọi chủ đề: `chat:{streamId}`, `stream:{streamId}`, `user:{userId}` (chỉ khung). `subscribe` kèm `lastSeq` để resume; quá bộ đệm → `resync`. Mã đóng `1012` (instance tắt), `4001`, `4008`, `4029` (NXL-00 §10) | GĐ3 🔧 |
+| GET | `/v1/chat/rooms/{streamId}/messages?before=&limit=` | — | Lịch sử, mới nhất trước: `{items: Message[], nextCursor}`; `Message` cùng dạng `data` của event `message` | GĐ3 🔧 |
+| GET | `/v1/chat/emotes?channelId=` | — | Emote toàn cầu `{items: [{id, code, imageUrl, animated, scope}]}` (`channelId` bỏ qua tới GĐ6) | GĐ3 🔧 |
+| GET | `/v1/channels/{channelId}/chat-settings` | — | `{slowSec, followersMin, subsOnly, updatedAt}`; kênh chưa biết → `404` | GĐ3 🔧 |
+| PUT | `/v1/channels/{channelId}/chat-settings` | Bearer (chủ kênh, Mod, Admin) | Đổi chế độ; mọi phòng đang mở của kênh nhận `mode_change` + `system`. `VALIDATION_FAILED` (`ENUM`), `FORBIDDEN`, `UNAUTHORIZED` | GĐ3 🔧 |
+| GET | `/metrics` (không qua cổng vào) | — | `chat_ws_connections`, `chat_ws_subscriptions`, `chat_messages_sent_total`, `chat_events_delivered_total`, `chat_fanout_latency_seconds`, `chat_send_rejects_total{code}`, `chat_ws_resyncs_total`, `http_*` | GĐ3 🔧 |
+
+Mã lỗi (REST và frame `error`): `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `RATE_LIMITED`, `EMAIL_NOT_VERIFIED`, `CHAT_CLOSED`, `CHAT_READ_ONLY`, `CHAT_DISABLED`, `CHAT_DUPLICATE`, `CHAT_SLOW_MODE`, `CHAT_FOLLOWERS_ONLY`, `CHAT_SUBS_ONLY`, `CHAT_TIMED_OUT`, `CHAT_BANNED`, `INTERNAL_ERROR`. `details` là chuỗi (`retryAfterSec: "5"`).
+
+**Ngoài REST:** `chat dev-grant follow|sub|mod|vip|owner --channel <id> --user <id> [--minutes N] [--tier N] [--revoke]` (`make nxl-chat-dev-grant`, chỉ `NXL_ENV=dev`) ghi dữ liệu demo cho Followers-only / Subs-only / Mod / VIP.
+
 ## 7. Dịch vụ dự kiến
 
 Đường dẫn dưới đây là **bản nháp** để giữ chỗ và kiểm tra trùng lặp. Spec tương ứng chốt chi tiết trước khi làm (roadmap §4).
 
-### 7.1 chat-svc — realtime gateway + chat (GĐ3, NXL-B, NXL-00)
+### 7.1 chat-svc — phần còn dự kiến (GĐ5)
+
+Phần đã chạy ở GĐ3: §6B. Còn lại:
 
 | Method | Path | Mô tả |
 | --- | --- | --- |
-| WS | `/v1/ws` | Một kết nối cho mọi chủ đề. Subscribe `chat:{streamId}`, `stream:{streamId}`, `user:{userId}`, `sidebar:{userId}`; reconnect + resume (kiến trúc §5.3) |
-| GET | `/v1/streams/{id}/chat/messages?before=` | Lịch sử chat khi mở trang/resume |
-| POST | `/v1/streams/{id}/chat/messages` | Gửi tin (có `clientMsgId` chống trùng); có thể đi qua WS |
-| GET / PUT | `/v1/channels/{id}/chat-settings` | Slow / Followers-only / Subs-only, từ khóa chặn (B3, F2) |
 | POST | `/v1/streams/{id}/chat/messages/{msgId}/delete` · `/pin` | Hành động mod (F1) |
 | POST / DELETE | `/v1/channels/{id}/bans/{userId}` · `/timeouts/{userId}` | Ban, timeout (F1) |
 | GET / PUT / DELETE | `/v1/channels/{id}/roles/{userId}` | Gán Mod/VIP (G2 Community) |
-| GET | `/v1/emotes?channelId=` | Emote toàn cầu + của kênh (B2) |
 
 ### 7.2 channel-svc — kênh, follow, lịch, khám phá (GĐ1 tối thiểu, GĐ4 đầy đủ; NXL-C, NXL-D)
 
@@ -340,23 +356,27 @@ route khi đó).
 
 | Subject (`nxl.` +) | Bên phát | Bên nhận | Payload chính | Trạng thái |
 | --- | --- | --- | --- | --- |
-| `user.registered.v1` | identity (outbox) | (notification — GĐ5) | `userId, username, displayName, email` | ✅ phát |
+| `user.registered.v1` | identity (outbox) | chat (bản sao `users`, GĐ3); (notification — GĐ5) | `userId, username, displayName, email` | ✅ phát |
 | `auth.email_requested.v1` | identity (outbox) | identity (`identity-mailer`, gửi SMTP); GĐ5: notification | `userId, email, purpose (VERIFY\|RESET), token, locale, username` — token gốc, không log | 🔧 GĐ1 |
-| `user.email_verified.v1` | identity (outbox) | — | `userId` | 🔧 GĐ1 |
-| `user.profile_updated.v1` | identity (outbox) | — (GĐ4: channel) | `userId, displayName` | 🔧 GĐ1 |
+| `user.email_verified.v1` | identity (outbox) | chat (GĐ3) | `userId` | 🔧 GĐ1 |
+| `user.profile_updated.v1` | identity (outbox) | chat (GĐ3); GĐ4: channel | `userId, displayName` | 🔧 GĐ1 |
 | `creator.application_submitted.v1` | identity (outbox) | — (GĐ5: notification) | `applicationId, userId` | 🔧 GĐ1 |
 | `creator.approved.v1` | identity (outbox) | channel (tạo kênh) | `applicationId, userId, username, displayName` | 🔧 GĐ1 |
 | `creator.rejected.v1` | identity (outbox) | — (GĐ5: notification) | `applicationId, userId, reason` | 🔧 GĐ1 |
-| `channel.created.v1` | channel (outbox) | stream (`creator_channels`), identity (`user_channels`) | `channelId, ownerId, handle, displayName` | 🔧 GĐ1 |
+| `channel.created.v1` | channel (outbox) | stream (`creator_channels`), identity (`user_channels`), chat (`channels`: badge Streamer, quyền đổi chế độ, GĐ3) | `channelId, ownerId, handle, displayName` | 🔧 GĐ1 |
 | `ingest.started.v1` | media | stream | `streamId, channelId, renditions[], sourceWidth, sourceHeight, resumed` | ✅ |
 | `ingest.stopped.v1` | media | stream | `streamId, reason` (`publisher_disconnected` / `transcoder_failed` / `kicked` / `shutdown` / `recovered`) | ✅ |
 | `ingest.health.v1` | media (mỗi 5s) | stream (chỉ giữ trong bộ nhớ) | `streamId, fps, bitrateKbps, droppedFrames, speed, uploadErrors` | ✅ |
 | `vod.processed.v1` | media | stream | `streamId, durationSec, playlistPath, thumbnailPath` | ✅ |
-| `stream.started.v1` | stream (outbox) | channel (`is_live`, GĐ1); (notification, chat — sau) | `streamId, channelId, title` | ✅ |
-| `stream.ended.v1` | stream (outbox) | media (kick + chốt VOD), channel (GĐ1); (chat — sau) | `streamId, channelId, endReason` | ✅ |
-| `stream.interrupted.v1` · `stream.resumed.v1` · `vod.ready.v1` · `stream.viewers.v1` | stream | chat (đẩy `stream:{id}`), channel | | 📋 GĐ3–4 |
+| `stream.started.v1` | stream (outbox) | channel (`is_live`, GĐ1); chat (mở phòng, GĐ3) | `streamId, channelId, title` | ✅ |
+| `stream.ended.v1` | stream (outbox) | media (kick + chốt VOD), channel (GĐ1); chat (phòng chỉ đọc, GĐ3) | `streamId, channelId, endReason` | ✅ |
+| `stream.status_changed.v1` | stream (outbox, cùng transaction `LIVE`↔`INTERRUPTED`) | chat (đẩy `stream:{id}` `status_changed`) | `streamId, channelId, status (LIVE\|INTERRUPTED), occurredAt` | 🔧 GĐ3 |
+| `stream.updated.v1` | stream (outbox, sửa cài đặt khi đang phát) | chat (`title_changed`) | `streamId, channelId, title, tags[]` | 🔧 GĐ3 |
+| `stream.vod_ready.v1` | stream (outbox, VOD `READY`) | chat (`vod_ready`) | `streamId, channelId, vodId` | 🔧 GĐ3 |
+| `stream.peak_viewers.v1` | chat (outbox, khi phòng chuyển `READ_ONLY`) | stream (`streams.peak_viewers`) | `streamId, peakViewers` | 🔧 GĐ3 |
 | `user.locked.v1` · `user.unlocked.v1` · `channel.updated.v1` | identity, channel | chat, stream, search | | 📋 |
-| `follow.created.v1` · `follow.deleted.v1` · `schedule.*` · `reminder.due.v1` | channel | chat, notification | | 📋 GĐ4 |
+| `follow.created.v1` · `follow.deleted.v1` | channel | chat (bản sao Redis `follow:{channelId}`, consumer sẵn từ GĐ3), notification | `userId, channelId, createdAt` | 📋 GĐ4 (chat nghe 🔧) |
+| `schedule.*` · `reminder.due.v1` | channel | notification | | 📋 GĐ4 |
 | `chat.message_sent.v1` · `chat.mention.v1` · `chat.mod_action.v1` | chat | notification, safety | | 📋 GĐ3 |
 | `safety.stream_takedown.v1` · `safety.user_actioned.v1` · `safety.report_resolved.v1` | safety | stream, identity, notification | | 📋 GĐ5 |
 | `notification.created.v1` | notification | chat (đẩy `user:{id}`) | | 📋 GĐ5 |
