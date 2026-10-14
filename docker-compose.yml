@@ -1,5 +1,5 @@
 # NexusLive dev stack (docs/plans/technical/2026-10-13-gd00-infra.md §4.4, GĐ1: 2026-10-13-gd01-identity-web-shell.md).
-# Profiles: (none) = infrastructure · nxl = services (identity, channel, stream, media) + Nginx edge ·
+# Profiles: (none) = infrastructure · nxl = services (identity, channel, stream, media, chat-1/chat-2) + Nginx edge ·
 # obs = Prometheus, Grafana, Jaeger.
 #   make nxl-infra-up · make nxl-up-all (everything) · make nxl-down
 # Dev accounts (NXL_ENV=dev): admin@nexuslive.dev and creator@nexuslive.dev, password IDENTITY_DEV_SEED_PASSWORD.
@@ -14,6 +14,42 @@ x-db-environment: &x-db-environment
   POSTGRES_DB: "db"
   POSTGRES_PASSWORD: "myAwEsOm3pa55@w0rd"
   POSTGRES_USER: "user"
+
+# chat-svc runs as two instances (chat-1, chat-2) behind the edge: stopping one makes its clients reconnect
+# to the other and resume by seq (GĐ3). Shared state lives in Redis and PostgreSQL.
+x-chat: &x-chat
+  profiles: ["nxl"]
+  build:
+    context: .
+    dockerfile: services/chat/Dockerfile
+  environment:
+    NXL_ENV: "dev"
+    CHAT_LOG_LEVEL: "debug"
+    CHAT_HTTP_PORT: "8095"
+    NXL_PG_URL_CHAT: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432/nxl_chat?sslmode=disable"
+    CHAT_NATS_URL: "nats://guest:guest@nats:4222/"
+    CHAT_REDIS_ADDR: "redis:6379"
+    CHAT_JWKS_URL: "http://identity:8090/v1/auth/.well-known/jwks.json"
+    CHAT_ALLOWED_ORIGINS: "${NXL_WEB_ORIGIN:-http://localhost:5173}"
+    CHAT_RATE_LIMIT: "${CHAT_RATE_LIMIT:-20}"
+    CHAT_RATE_WINDOW: "${CHAT_RATE_WINDOW:-30s}"
+    CHAT_RATE_LIMIT_IP: "${CHAT_RATE_LIMIT_IP:-60}"
+    CHAT_DUPLICATE_WINDOW: "${CHAT_DUPLICATE_WINDOW:-30s}"
+    CHAT_SAMPLING_THRESHOLD: "${CHAT_SAMPLING_THRESHOLD:-30}"
+    CHAT_SAMPLING_CAP: "${CHAT_SAMPLING_CAP:-15}"
+    CHAT_WS_MAX_CONN_PER_USER: "${CHAT_WS_MAX_CONN_PER_USER:-5}"
+    CHAT_VIEWER_INTERVAL: "${CHAT_VIEWER_INTERVAL:-10s}"
+    CHAT_DISABLED: "${CHAT_DISABLED:-false}"
+    CHAT_REQUIRE_VERIFIED_EMAIL: "${CHAT_REQUIRE_VERIFIED_EMAIL:-false}"
+  # Open sockets are closed with 1012 on SIGTERM before the process exits.
+  stop_grace_period: 15s
+  depends_on:
+    db-migrate:
+      condition: service_completed_successfully
+    nats:
+      condition: service_started
+    redis:
+      condition: service_healthy
 
 x-minio-environment: &x-minio-environment
   MINIO_ROOT_USER: "minioadmin"
@@ -158,6 +194,8 @@ services:
       STREAM_RTMP_PUBLIC_URL: "rtmp://localhost:1935/live"
       STREAM_HLS_BASE: "/hls"
       STREAM_INGEST_GRACE_PERIOD: "${STREAM_INGEST_GRACE_PERIOD:-60s}"
+      # viewerCount in the catalog, read from the counts chat-svc keeps in Redis.
+      STREAM_REDIS_ADDR: "redis:6379"
     ports:
       - "8092:8092"   # public API (8093 internal API stays inside the Docker network)
     depends_on:
@@ -165,10 +203,32 @@ services:
         condition: service_completed_successfully
       nats:
         condition: service_started
+      redis:
+        condition: service_healthy
     networks:
       app_network:
         aliases:
           - stream.lvh.me
+
+  chat-1:
+    <<: *x-chat
+    container_name: chat-1
+    ports:
+      - "8095:8095"   # WebSocket /v1/ws + REST, /metrics, Swagger
+    networks:
+      app_network:
+        aliases:
+          - chat-1.lvh.me
+
+  chat-2:
+    <<: *x-chat
+    container_name: chat-2
+    ports:
+      - "8096:8095"
+    networks:
+      app_network:
+        aliases:
+          - chat-2.lvh.me
 
   # RTMP ingest + ffmpeg ABR + HLS upload (docs/plans/technical/2026-10-11-core-livestream-rtmp-hls.md).
   # OBS -> rtmp://localhost:1935/live, key from POST /v1/studio/stream-key; test page http://localhost:8091/dev/player
@@ -271,7 +331,8 @@ services:
         aliases:
           - minio.lvh.me
 
-  # Rate limits, presence, viewer counts and chat caches from GĐ3 on; nothing uses it yet.
+  # chat-svc state (seq, resume buffers, rate limits, follow/sub copies, viewer counts); stream-svc reads
+  # the viewer counts.
   redis:
     container_name: redis
     image: redis:7.4.5-alpine
@@ -319,6 +380,7 @@ services:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./deploy/nginx/templates:/etc/nginx/templates:ro
       - ./deploy/nginx/snippets:/etc/nginx/snippets:ro
+      - ./deploy/emotes:/usr/share/nginx/emotes:ro
     ports:
       - "${NXL_EDGE_PORT:-8080}:80"
     healthcheck:
@@ -352,7 +414,7 @@ services:
         aliases:
           - prometheus.lvh.me
 
-  # http://localhost:3000 — anonymous Viewer; admin/admin to edit. Dashboard "NexusLive — Livestream".
+  # http://localhost:3000 — anonymous Viewer; admin/admin to edit. Dashboards "NexusLive — Livestream" and "— Chat".
   grafana:
     container_name: grafana
     profiles: ["obs"]
