@@ -15,9 +15,100 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/categories": {
+            "get": {
+                "description": "Not paged (nextCursor is always null). sort=viewers orders by live viewers, ties keep the seed order.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Categories (Browse)",
+                "parameters": [
+                    {
+                        "enum": [
+                            "GAMES",
+                            "ESPORTS",
+                            "MUSIC",
+                            "IRL",
+                            "CREATIVE"
+                        ],
+                        "type": "string",
+                        "description": "group",
+                        "name": "group",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "position",
+                            "viewers"
+                        ],
+                        "type": "string",
+                        "default": "position",
+                        "description": "order",
+                        "name": "sort",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_CategoryList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (group / sort = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/categories/{slug}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "categories"
+                ],
+                "summary": "Category by slug",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "category slug",
+                        "name": "slug",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-Category"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
         "/channels/{handle}": {
             "get": {
-                "description": "The handle is case-insensitive (3–25 characters of [A-Za-z0-9_]); anything else is 404.",
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The handle is case-insensitive (3–25 characters of [A-Za-z0-9_]); anything else is 404. currentStream is set while the channel is live; viewer is null for guests.",
                 "produces": [
                     "application/json"
                 ],
@@ -38,19 +129,1354 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Channel"
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ChannelProfile"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED (token sent but invalid)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
                         }
                     },
                     "403": {
                         "description": "CHANNEL_SUSPENDED",
                         "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
+                            "$ref": "#/definitions/Error"
                         }
                     },
                     "404": {
                         "description": "NOT_FOUND",
                         "schema": {
-                            "$ref": "#/definitions/ErrorResponse"
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{id}/follow": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "follows"
+                ],
+                "summary": "Change the bell of a followed channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "notification level",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/NotifyLevel"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowState"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (notifyLevel = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND (unknown channel or not following)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Idempotent: following again returns the existing follow (notifyLevel ALL for a new one).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "follows"
+                ],
+                "summary": "Follow a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowState"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "422": {
+                        "description": "CANNOT_FOLLOW_SELF",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "follows"
+                ],
+                "summary": "Unfollow a channel (always 204)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{id}/schedule": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Occurrences in [from, to), ascending; default [now, now + 14 days]; to − from ≤ 31 days and to ≤ now + 90 days. reminded is null for guests.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "A channel's upcoming broadcasts (Schedule tab)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 3339",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 3339",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_OccurrenceList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (from / to = FORMAT | MAX)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/following": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "status=live is sorted by viewers (no paging, at most 200); all / offline list live channels first, then by last broadcast, with a cursor.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "follows"
+                ],
+                "summary": "Channels the caller follows",
+                "parameters": [
+                    {
+                        "enum": [
+                            "all",
+                            "live",
+                            "offline"
+                        ],
+                        "type": "string",
+                        "default": "all",
+                        "description": "filter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 24,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowingList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (status = ENUM, cursor = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/following/sidebar": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every followed live channel (by viewers, up to limit), then offline ones to fill limit. Updates arrive on the WebSocket topic sidebar:{userId} (chat-svc).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "follows"
+                ],
+                "summary": "Followed channels for the shell's sidebar",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Sidebar"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/search-history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "The caller's recent searches (newest first, at most 10)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_SearchHistory"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The same query (case-insensitive) moves to the top with the same id; only the 10 newest are kept.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Remember a search",
+                "parameters": [
+                    {
+                        "description": "query",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SearchHistory"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-SearchQuery"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (query = LENGTH)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Clear the search history",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/search-history/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Remove one remembered search",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "entry id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/schedules/{id}/reminders": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "201 for a new reminder, 200 when it existed. The reminder itself is sent by notification-svc (schedule.reminder_due.v1, 10 minutes before).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Ask to be reminded of an occurrence",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "schedule id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "occurrence",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Reminder"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Reminder"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Reminder"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (occurrenceAt = REQUIRED | FORMAT)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND (schedule, or not one of its occurrences)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (past occurrence or cancelled schedule)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Cancel a reminder (always 204)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "schedule id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 3339",
+                        "name": "occurrenceAt",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (occurrenceAt = REQUIRED | FORMAT)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/search": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Search results of one kind (results page)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "2–100 characters after trimming",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "channel",
+                            "stream",
+                            "category",
+                            "vod"
+                        ],
+                        "type": "string",
+                        "description": "kind",
+                        "name": "type",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 24,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_SearchList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (q = LENGTH, type = REQUIRED | ENUM, cursor = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/search/suggest": {
+            "get": {
+                "description": "Accents and case are ignored (\"lien minh\" finds \"Liên Minh\"); words match by prefix. Groups are channel, stream, category, vod in that order and only when they have hits.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "search"
+                ],
+                "summary": "Search suggestions grouped by kind (Ctrl+K)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "2–100 characters after trimming",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "comma-separated subset of channel,stream,category,vod",
+                        "name": "types",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 5,
+                        "description": "per group, 1–10",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Suggestions"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (q = LENGTH, types = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/channel": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: the caller's channel (profile form)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_StudioChannel"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "At least one field. displayName 1–50, bio ≤ 300 (null clears it), ≤ 5 https links (type YOUTUBE, X, FACEBOOK, TIKTOK, DISCORD, WEBSITE; url ≤ 300). handle ^[a-z0-9_]{3,25}$, not a reserved route word, once per 30 days: the old handle stops resolving at once.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: edit the channel profile",
+                "parameters": [
+                    {
+                        "description": "fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ChannelPatch"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_StudioChannel"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (body = REQUIRED, displayName / bio = LENGTH, socialLinks = MAX | FORMAT | ENUM, handle = FORMAT | INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "HANDLE_TAKEN (details.handle = TAKEN) or CONFLICT (details.nextChangeAt)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/channel/avatar": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "multipart/form-data with part \"file\": JPEG, PNG or WebP (checked by content, not name), ≤ 2 MB, at least 128×128. Stored as a 256×256 JPEG (center crop) under /media/.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: upload the channel avatar",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "image",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ImageURL"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (file = REQUIRED | FORMAT | MIN)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "413": {
+                        "description": "PAYLOAD_TOO_LARGE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/channel/banner": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Same as the avatar; ≤ 5 MB, at least 800×250, stored as a 1600×500 JPEG (center crop to 16:5).",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: upload the channel banner",
+                "parameters": [
+                    {
+                        "type": "file",
+                        "description": "image",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ImageURL"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (file = REQUIRED | FORMAT | MIN)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "413": {
+                        "description": "PAYLOAD_TOO_LARGE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/channel/stats": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio dashboard: followers and the next broadcast",
+                "parameters": [
+                    {
+                        "enum": [
+                            "7d",
+                            "28d"
+                        ],
+                        "type": "string",
+                        "default": "7d",
+                        "description": "period",
+                        "name": "range",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ChannelStats"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (range = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/schedules": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "ACTIVE lists schedules with an occurrence still to come; nextOccurrences holds up to 5.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: the caller's schedules",
+                "parameters": [
+                    {
+                        "enum": [
+                            "ACTIVE",
+                            "CANCELLED"
+                        ],
+                        "type": "string",
+                        "default": "ACTIVE",
+                        "description": "status",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ScheduleList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (status = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "title 1–140; startAt in the future and ≤ 90 days ahead; durationMin 15–720; rrule null (one-off) or FREQ=WEEKLY;BYDAY=… (must include startAt's weekday in timezone) with optional COUNT=1–100 or UNTIL; at most 20 active schedules. Overlaps are allowed.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: create a schedule",
+                "parameters": [
+                    {
+                        "description": "schedule",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Schedule"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-Schedule"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (title = LENGTH, startAt = REQUIRED | FORMAT | MIN | MAX, durationMin = MIN | MAX, rrule / timezone = FORMAT, categoryId = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "CONFLICT (details.limit)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/schedules/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Same rules as create (startAt may stay in the past when unchanged). Changing the start, rule or time zone cancels the announced and reminded occurrences of the old series.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: edit a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "schedule id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "schedule",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Schedule"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-Schedule"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (cancelled)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: cancel a schedule and its future occurrences",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "schedule id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (already cancelled)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/schedules/{id}/occurrences/{occurrenceAt}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The occurrence becomes a one-off schedule (parentId = this schedule) at startAt; its reminders follow it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: move one occurrence",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "schedule id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 3339, URL-encoded",
+                        "name": "occurrenceAt",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new start",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/MoveOccurrence"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_MovedOccurrence"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (startAt = REQUIRED | FORMAT | MIN | MAX)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (past or on air)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: cancel one occurrence",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "schedule id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC 3339, URL-encoded",
+                        "name": "occurrenceAt",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (past or on air)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
                         }
                     }
                 }
@@ -58,19 +1484,78 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "Channel": {
+        "Category": {
+            "type": "object",
+            "properties": {
+                "group": {
+                    "type": "string",
+                    "enum": [
+                        "GAMES",
+                        "ESPORTS",
+                        "MUSIC",
+                        "IRL",
+                        "CREATIVE"
+                    ]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "position": {
+                    "type": "integer"
+                },
+                "posterUrl": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "viewerCount": {
+                    "description": "ViewerCount is the sum over the category's live streams; null when counts are unavailable.",
+                    "type": "integer"
+                }
+            }
+        },
+        "CategoryList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Category"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "CategoryRef": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                }
+            }
+        },
+        "ChannelCard": {
             "type": "object",
             "properties": {
                 "avatarUrl": {
-                    "type": "string"
-                },
-                "bio": {
-                    "type": "string"
-                },
-                "createdAt": {
-                    "type": "string"
-                },
-                "currentStreamId": {
                     "type": "string"
                 },
                 "displayName": {
@@ -82,16 +1567,268 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
-                "isLive": {
+                "verified": {
                     "type": "boolean"
                 }
             }
         },
-        "Data-internal_controller_restapi_v1_Channel": {
+        "ChannelPatch": {
+            "type": "object",
+            "properties": {
+                "bio": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "matureDefault": {
+                    "type": "boolean"
+                },
+                "socialLinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/SocialLink"
+                    }
+                }
+            }
+        },
+        "ChannelProfile": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "bannerUrl": {
+                    "type": "string"
+                },
+                "bio": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "currentStream": {
+                    "$ref": "#/definitions/LiveStreamRef"
+                },
+                "currentStreamId": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "followerCount": {
+                    "type": "integer"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "isLive": {
+                    "type": "boolean"
+                },
+                "lastLiveAt": {
+                    "type": "string"
+                },
+                "matureDefault": {
+                    "type": "boolean"
+                },
+                "socialLinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/SocialLink"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                },
+                "verified": {
+                    "type": "boolean"
+                },
+                "viewer": {
+                    "description": "Viewer is null for guests.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/ProfileViewer"
+                        }
+                    ]
+                }
+            }
+        },
+        "ChannelStats": {
+            "type": "object",
+            "properties": {
+                "followerCount": {
+                    "type": "integer"
+                },
+                "newFollowers": {
+                    "type": "integer"
+                },
+                "range": {
+                    "type": "string",
+                    "enum": [
+                        "7d",
+                        "28d"
+                    ]
+                },
+                "upcoming": {
+                    "$ref": "#/definitions/Upcoming"
+                }
+            }
+        },
+        "Data-Category": {
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/Channel"
+                    "$ref": "#/definitions/Category"
+                }
+            }
+        },
+        "Data-Schedule": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Schedule"
+                }
+            }
+        },
+        "Data-SearchQuery": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/SearchQuery"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_CategoryList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/CategoryList"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ChannelProfile": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ChannelProfile"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ChannelStats": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ChannelStats"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowState": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/FollowState"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowingList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/FollowingList"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ImageURL": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ImageURL"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_MovedOccurrence": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/MovedOccurrence"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_OccurrenceList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/OccurrenceList"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Reminder": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Reminder"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ScheduleList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ScheduleList"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_SearchHistory": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/SearchHistory"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_SearchList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/SearchList"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Sidebar": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Sidebar"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_StudioChannel": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/StudioChannel"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Suggestions": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Suggestions"
+                }
+            }
+        },
+        "Error": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/ErrorBody"
                 }
             }
         },
@@ -112,25 +1849,501 @@ const docTemplate = `{
                 }
             }
         },
-        "ErrorResponse": {
+        "FollowState": {
             "type": "object",
             "properties": {
-                "error": {
-                    "$ref": "#/definitions/ErrorBody"
+                "followedAt": {
+                    "type": "string"
+                },
+                "following": {
+                    "type": "boolean"
+                },
+                "notifyLevel": {
+                    "type": "string",
+                    "enum": [
+                        "ALL",
+                        "LIVE_ONLY",
+                        "OFF"
+                    ]
                 }
             }
+        },
+        "FollowedChannel": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "$ref": "#/definitions/ChannelCard"
+                },
+                "currentStream": {
+                    "$ref": "#/definitions/LiveStreamRef"
+                },
+                "followedAt": {
+                    "type": "string"
+                },
+                "isLive": {
+                    "type": "boolean"
+                },
+                "lastLiveAt": {
+                    "type": "string"
+                },
+                "notifyLevel": {
+                    "type": "string",
+                    "enum": [
+                        "ALL",
+                        "LIVE_ONLY",
+                        "OFF"
+                    ]
+                }
+            }
+        },
+        "FollowingList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/FollowedChannel"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "ImageURL": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "LiveStreamRef": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "$ref": "#/definitions/CategoryRef"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "isMature": {
+                    "type": "boolean"
+                },
+                "startedAt": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "viewerCount": {
+                    "type": "integer"
+                }
+            }
+        },
+        "MoveOccurrence": {
+            "type": "object",
+            "properties": {
+                "startAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "MovedOccurrence": {
+            "type": "object",
+            "properties": {
+                "schedule": {
+                    "$ref": "#/definitions/Schedule"
+                }
+            }
+        },
+        "NextOccurrence": {
+            "type": "object",
+            "properties": {
+                "occurrenceAt": {
+                    "type": "string"
+                },
+                "reminderCount": {
+                    "type": "integer"
+                },
+                "streamId": {
+                    "type": "string"
+                }
+            }
+        },
+        "NotifyLevel": {
+            "type": "object",
+            "properties": {
+                "notifyLevel": {
+                    "type": "string",
+                    "enum": [
+                        "ALL",
+                        "LIVE_ONLY",
+                        "OFF"
+                    ]
+                }
+            }
+        },
+        "Occurrence": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "$ref": "#/definitions/CategoryRef"
+                },
+                "durationMin": {
+                    "type": "integer"
+                },
+                "occurrenceAt": {
+                    "type": "string"
+                },
+                "reminded": {
+                    "description": "Reminded is null for guests.",
+                    "type": "boolean"
+                },
+                "scheduleId": {
+                    "type": "string"
+                },
+                "streamId": {
+                    "description": "StreamID is set once stream-svc created the SCHEDULED stream (≤ 24 h before): link to /live/{streamId}.",
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "OccurrenceList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Occurrence"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "ProfileViewer": {
+            "type": "object",
+            "properties": {
+                "following": {
+                    "type": "boolean"
+                },
+                "isOwner": {
+                    "type": "boolean"
+                },
+                "notifyLevel": {
+                    "type": "string",
+                    "enum": [
+                        "ALL",
+                        "LIVE_ONLY",
+                        "OFF"
+                    ]
+                }
+            }
+        },
+        "Reminder": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "occurrenceAt": {
+                    "type": "string"
+                },
+                "scheduleId": {
+                    "type": "string"
+                }
+            }
+        },
+        "Schedule": {
+            "type": "object",
+            "properties": {
+                "categoryId": {
+                    "type": "string"
+                },
+                "durationMin": {
+                    "type": "integer"
+                },
+                "rrule": {
+                    "description": "RRule: null / absent = one-off; FREQ=WEEKLY;BYDAY=MO,WE[;COUNT=n|;UNTIL=yyyymmddThhmmssZ].",
+                    "type": "string"
+                },
+                "startAt": {
+                    "description": "StartAt is RFC 3339 with an offset (stored in UTC).",
+                    "type": "string"
+                },
+                "timezone": {
+                    "description": "Timezone is an IANA name (default Asia/Ho_Chi_Minh); weekly occurrences keep its wall-clock time.",
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "ScheduleList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Schedule"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "SearchGroup": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/SearchItem"
+                    }
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "channel",
+                        "stream",
+                        "category",
+                        "vod"
+                    ]
+                }
+            }
+        },
+        "SearchHistory": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string"
+                }
+            }
+        },
+        "SearchItem": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "imageUrl": {
+                    "type": "string"
+                },
+                "isLive": {
+                    "type": "boolean"
+                },
+                "isMature": {
+                    "type": "boolean"
+                },
+                "subtitle": {
+                    "type": "string"
+                },
+                "target": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "channel",
+                        "stream",
+                        "category",
+                        "vod"
+                    ]
+                },
+                "viewerCount": {
+                    "description": "ViewerCount: live viewers of a live channel or stream, the category total; null otherwise.",
+                    "type": "integer"
+                }
+            }
+        },
+        "SearchList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/SearchItem"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "SearchQuery": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                }
+            }
+        },
+        "Sidebar": {
+            "type": "object",
+            "properties": {
+                "live": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/FollowedChannel"
+                    }
+                },
+                "offline": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/FollowedChannel"
+                    }
+                },
+                "totalFollowing": {
+                    "type": "integer"
+                }
+            }
+        },
+        "SocialLink": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "YOUTUBE",
+                        "X",
+                        "FACEBOOK",
+                        "TIKTOK",
+                        "DISCORD",
+                        "WEBSITE"
+                    ]
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "StudioChannel": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "bannerUrl": {
+                    "type": "string"
+                },
+                "bio": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "currentStream": {
+                    "$ref": "#/definitions/LiveStreamRef"
+                },
+                "currentStreamId": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "followerCount": {
+                    "type": "integer"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "handleChangedAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "isLive": {
+                    "type": "boolean"
+                },
+                "lastLiveAt": {
+                    "type": "string"
+                },
+                "matureDefault": {
+                    "type": "boolean"
+                },
+                "nextHandleChangeAt": {
+                    "type": "string"
+                },
+                "socialLinks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/SocialLink"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                },
+                "verified": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Suggestions": {
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/SearchGroup"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                }
+            }
+        },
+        "Upcoming": {
+            "type": "object",
+            "properties": {
+                "occurrenceAt": {
+                    "type": "string"
+                },
+                "reminderCount": {
+                    "type": "integer"
+                },
+                "scheduleId": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
         }
     }
 }`
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "1.0",
+	Version:          "1.1",
 	Host:             "",
 	BasePath:         "/v1",
 	Schemes:          []string{},
 	Title:            "NexusLive channel-svc API",
-	Description:      "Public channel pages. Channels are created by channel-svc when an admin approves a creator application.",
+	Description:      "Channels, follows, categories, search and broadcast schedules. Channels are created when an admin approves a creator application. Get a token from identity-svc and paste \"Bearer <accessToken>\" into Authorize.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

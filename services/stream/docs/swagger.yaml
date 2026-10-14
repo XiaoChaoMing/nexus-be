@@ -1,5 +1,10 @@
 basePath: /v1
 definitions:
+  CategoryRef:
+    properties:
+      id:
+        type: string
+    type: object
   Channel:
     properties:
       avatarUrl:
@@ -27,6 +32,46 @@ definitions:
           $ref: '#/definitions/ContinueItem'
         type: array
     type: object
+  Dashboard:
+    properties:
+      current:
+        $ref: '#/definitions/DashboardCurrent'
+      recentStreams:
+        items:
+          $ref: '#/definitions/RecentStream'
+        type: array
+      stats:
+        $ref: '#/definitions/DashboardStats'
+    type: object
+  DashboardCurrent:
+    properties:
+      startedAt:
+        type: string
+      status:
+        type: string
+      streamId:
+        type: string
+      title:
+        type: string
+      viewerCount:
+        type: integer
+    type: object
+  DashboardStats:
+    properties:
+      liveSeconds:
+        type: integer
+      range:
+        enum:
+        - 7d
+        - 28d
+        type: string
+      streamCount:
+        type: integer
+      vodReadyHidden:
+        type: integer
+      vodReadyPublic:
+        type: integer
+    type: object
   Data-Settings:
     properties:
       data:
@@ -37,10 +82,25 @@ definitions:
       data:
         $ref: '#/definitions/Stream'
     type: object
+  Data-StudioVOD:
+    properties:
+      data:
+        $ref: '#/definitions/StudioVOD'
+    type: object
+  Data-VOD:
+    properties:
+      data:
+        $ref: '#/definitions/VOD'
+    type: object
   Data-internal_controller_restapi_v1_ContinueList:
     properties:
       data:
         $ref: '#/definitions/ContinueList'
+    type: object
+  Data-internal_controller_restapi_v1_Dashboard:
+    properties:
+      data:
+        $ref: '#/definitions/Dashboard'
     type: object
   Data-internal_controller_restapi_v1_Playback:
     properties:
@@ -67,10 +127,15 @@ definitions:
       data:
         $ref: '#/definitions/Studio'
     type: object
-  Data-internal_controller_restapi_v1_VOD:
+  Data-internal_controller_restapi_v1_StudioVODList:
     properties:
       data:
-        $ref: '#/definitions/VOD'
+        $ref: '#/definitions/StudioVODList'
+    type: object
+  Data-internal_controller_restapi_v1_VODList:
+    properties:
+      data:
+        $ref: '#/definitions/VODList'
     type: object
   ErrorBody:
     properties:
@@ -141,8 +206,33 @@ definitions:
       positionSec:
         type: integer
     type: object
+  RecentStream:
+    properties:
+      durationSec:
+        type: integer
+      endReason:
+        type: string
+      endedAt:
+        type: string
+      peakViewers:
+        type: integer
+      startedAt:
+        type: string
+      streamId:
+        type: string
+      title:
+        type: string
+      vodId:
+        type: string
+      vodVisibility:
+        type: string
+    type: object
   Settings:
     properties:
+      categoryId:
+        description: CategoryID is a channel-svc category (GET /v1/categories); null
+          = none.
+        type: string
       isMature:
         type: boolean
       language:
@@ -158,6 +248,10 @@ definitions:
     type: object
   SettingsRequest:
     properties:
+      categoryId:
+        description: 'CategoryID: absent or null removes the category (PUT replaces
+          the settings).'
+        type: string
       isMature:
         type: boolean
       language:
@@ -171,6 +265,8 @@ definitions:
     type: object
   Stream:
     properties:
+      category:
+        $ref: '#/definitions/CategoryRef'
       channel:
         $ref: '#/definitions/Channel'
       channelId:
@@ -186,6 +282,13 @@ definitions:
       language:
         type: string
       manifestUrl:
+        type: string
+      scheduleId:
+        description: |-
+          ScheduleID and ScheduledStartAt are set for a stream that comes from a schedule (status SCHEDULED, CANCELLED,
+          or LIVE / ENDED once attached).
+        type: string
+      scheduledStartAt:
         type: string
       startedAt:
         type: string
@@ -255,8 +358,50 @@ definitions:
       streamId:
         type: string
     type: object
+  StudioVOD:
+    properties:
+      category:
+        $ref: '#/definitions/CategoryRef'
+      createdAt:
+        type: string
+      durationSec:
+        type: integer
+      expiresAt:
+        type: string
+      id:
+        type: string
+      manifestUrl:
+        type: string
+      status:
+        enum:
+        - READY
+        - EXPIRED
+        type: string
+      streamId:
+        type: string
+      thumbnailUrl:
+        type: string
+      title:
+        type: string
+      visibility:
+        enum:
+        - PUBLIC
+        - HIDDEN
+        type: string
+    type: object
+  StudioVODList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/StudioVOD'
+        type: array
+      nextCursor:
+        type: string
+    type: object
   VOD:
     properties:
+      category:
+        $ref: '#/definitions/CategoryRef'
       channel:
         $ref: '#/definitions/Channel'
       channelId:
@@ -269,6 +414,8 @@ definitions:
         type: string
       id:
         type: string
+      isMature:
+        type: boolean
       manifestUrl:
         type: string
       status:
@@ -283,6 +430,30 @@ definitions:
         allOf:
         - $ref: '#/definitions/VODViewer'
         description: Viewer is present only when the request carries a valid token.
+      visibility:
+        enum:
+        - PUBLIC
+        - HIDDEN
+        type: string
+    type: object
+  VODList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/VOD'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  VODPatchRequest:
+    properties:
+      title:
+        type: string
+      visibility:
+        enum:
+        - PUBLIC
+        - HIDDEN
+        type: string
     type: object
   VODViewer:
     properties:
@@ -297,6 +468,41 @@ info:
   title: NexusLive stream-svc API
   version: "1.0"
 paths:
+  /channels/{id}/vods:
+    get:
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 24
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_VODList'
+        "400":
+          description: VALIDATION_FAILED (cursor = INVALID)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: A channel's public VODs (Video tab), newest first
+      tags:
+      - vods
   /me/continue-watching:
     get:
       description: Positions below 5 s and VODs watched to within 10 s of the end
@@ -364,7 +570,10 @@ paths:
       - playback
   /streams:
     get:
-      description: channel is null for streams whose channel is unknown to stream-svc.
+      description: sort=viewers (default; trending is the same) orders by live viewers,
+        then the most recent start; sort=newest by start. category is 1–30 category
+        ids (comma-separated, from GET /v1/categories); tags must all match. channel
+        is null for streams whose channel is unknown to stream-svc.
       parameters:
       - default: live
         description: only live
@@ -372,6 +581,27 @@ paths:
         - live
         in: query
         name: status
+        type: string
+      - description: category ids, comma-separated
+        in: query
+        name: category
+        type: string
+      - description: two-letter language code
+        in: query
+        name: language
+        type: string
+      - description: up to 5 tags, comma-separated
+        in: query
+        name: tags
+        type: string
+      - default: viewers
+        description: order
+        enum:
+        - viewers
+        - newest
+        - trending
+        in: query
+        name: sort
         type: string
       - description: nextCursor of the previous page
         in: query
@@ -390,14 +620,18 @@ paths:
           schema:
             $ref: '#/definitions/Data-internal_controller_restapi_v1_StreamList'
         "400":
-          description: VALIDATION_FAILED
+          description: VALIDATION_FAILED (category = INVALID, language = FORMAT, tags
+            = TAG_COUNT, sort = ENUM, cursor = INVALID)
           schema:
             $ref: '#/definitions/ErrorResponse'
-      summary: Streams on air (LIVE and INTERRUPTED), newest first
+      summary: Streams on air (LIVE and INTERRUPTED), mature ones included (isMature)
       tags:
       - streams
   /streams/{id}:
     get:
+      description: 'status may be SCHEDULED (an announced occurrence: scheduleId,
+        scheduledStartAt) or CANCELLED. vodId is null while the VOD is hidden, except
+        for the channel owner.'
       parameters:
       - description: stream id (uuid)
         in: path
@@ -411,10 +645,16 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/Data-Stream'
+        "401":
+          description: UNAUTHORIZED (token sent but invalid)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
         "404":
           description: NOT_FOUND
           schema:
             $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
       summary: Stream detail (status, manifestUrl, vodId once the VOD is ready)
       tags:
       - streams
@@ -465,6 +705,64 @@ paths:
       summary: Open a live (or ended) stream for playback
       tags:
       - playback
+  /streams/recommended:
+    get:
+      description: LIVE only (not INTERRUPTED), never 18+, by viewers then the most
+        recent start. Not paged (nextCursor is null).
+      parameters:
+      - default: 12
+        description: 1–24
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_StreamList'
+      summary: Recommended live streams (Hero, "Live đề xuất", Guest sidebar)
+      tags:
+      - streams
+  /studio/dashboard:
+    get:
+      description: Counted on the tables directly. Followers and the next broadcast
+        come from GET /v1/studio/channel/stats (channel-svc).
+      parameters:
+      - default: 7d
+        description: period
+        enum:
+        - 7d
+        - 28d
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Dashboard'
+        "400":
+          description: VALIDATION_FAILED (range = ENUM)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio dashboard: the broadcast on air, the last 5 broadcasts and
+        counts over the range'
+      tags:
+      - studio
   /studio/stream:
     get:
       description: current is null when the channel is offline; health is the latest
@@ -594,10 +892,171 @@ paths:
       summary: End the broadcast
       tags:
       - studio
+  /studio/vods:
+    get:
+      parameters:
+      - description: filter
+        enum:
+        - PUBLIC
+        - HIDDEN
+        in: query
+        name: visibility
+        type: string
+      - description: filter
+        enum:
+        - READY
+        - EXPIRED
+        in: query
+        name: status
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 24
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_StudioVODList'
+        "400":
+          description: VALIDATION_FAILED (visibility / status = ENUM, cursor = INVALID)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: the channel''s VODs (READY and EXPIRED, hidden ones included),
+        newest first'
+      tags:
+      - studio
+  /studio/vods/{id}:
+    delete:
+      description: Soft delete; media-svc then removes its files (vod.deleted.v1).
+        A VOD already deleted is 404.
+      parameters:
+      - description: vod id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: delete a VOD'
+      tags:
+      - studio
+    patch:
+      consumes:
+      - application/json
+      description: A hidden VOD disappears from every public list, search and continue-watching;
+        its URL is 404 for everyone but the owner.
+      parameters:
+      - description: vod id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/VODPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-StudioVOD'
+        "400":
+          description: VALIDATION_FAILED (body = REQUIRED, title = LENGTH, visibility
+            = ENUM)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: INVALID_STATE (EXPIRED)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: rename, hide or show a VOD'
+      tags:
+      - studio
+  /vods:
+    get:
+      parameters:
+      - description: category ids, comma-separated
+        in: query
+        name: category
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 24
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_VODList'
+        "400":
+          description: VALIDATION_FAILED (category = INVALID, cursor = INVALID)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Public VODs (READY, PUBLIC, not expired), newest first
+      tags:
+      - vods
   /vods/{id}:
     get:
       description: With a token, viewer.positionSec is the caller's saved position
-        (null when never watched).
+        (null when never watched). A HIDDEN VOD is 404 except for its channel owner.
       parameters:
       - description: vod id (uuid)
         in: path
@@ -610,7 +1069,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/Data-internal_controller_restapi_v1_VOD'
+            $ref: '#/definitions/Data-VOD'
         "401":
           description: UNAUTHORIZED (token sent but invalid)
           schema:
@@ -669,6 +1128,24 @@ paths:
       summary: Open a VOD for playback
       tags:
       - playback
+  /vods/recommended:
+    get:
+      parameters:
+      - default: 12
+        description: 1–24
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_VODList'
+      summary: Recommended VODs (newest public ones, never 18+); not paged
+      tags:
+      - vods
 securityDefinitions:
   BearerAuth:
     in: header

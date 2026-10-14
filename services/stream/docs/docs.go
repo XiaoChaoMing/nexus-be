@@ -15,6 +15,59 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/channels/{id}/vods": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "vods"
+                ],
+                "summary": "A channel's public VODs (Video tab), newest first",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 24,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_VODList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (cursor = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/me/continue-watching": {
             "get": {
                 "security": [
@@ -115,14 +168,14 @@ const docTemplate = `{
         },
         "/streams": {
             "get": {
-                "description": "channel is null for streams whose channel is unknown to stream-svc.",
+                "description": "sort=viewers (default; trending is the same) orders by live viewers, then the most recent start; sort=newest by start. category is 1–30 category ids (comma-separated, from GET /v1/categories); tags must all match. channel is null for streams whose channel is unknown to stream-svc.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "streams"
                 ],
-                "summary": "Streams on air (LIVE and INTERRUPTED), newest first",
+                "summary": "Streams on air (LIVE and INTERRUPTED), mature ones included (isMature)",
                 "parameters": [
                     {
                         "enum": [
@@ -132,6 +185,36 @@ const docTemplate = `{
                         "default": "live",
                         "description": "only live",
                         "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "category ids, comma-separated",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "two-letter language code",
+                        "name": "language",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "up to 5 tags, comma-separated",
+                        "name": "tags",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "viewers",
+                            "newest",
+                            "trending"
+                        ],
+                        "type": "string",
+                        "default": "viewers",
+                        "description": "order",
+                        "name": "sort",
                         "in": "query"
                     },
                     {
@@ -156,7 +239,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "VALIDATION_FAILED",
+                        "description": "VALIDATION_FAILED (category = INVALID, language = FORMAT, tags = TAG_COUNT, sort = ENUM, cursor = INVALID)",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -164,8 +247,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/streams/recommended": {
+            "get": {
+                "description": "LIVE only (not INTERRUPTED), never 18+, by viewers then the most recent start. Not paged (nextCursor is null).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "streams"
+                ],
+                "summary": "Recommended live streams (Hero, \"Live đề xuất\", Guest sidebar)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 12,
+                        "description": "1–24",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_StreamList"
+                        }
+                    }
+                }
+            }
+        },
         "/streams/{id}": {
             "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "status may be SCHEDULED (an announced occurrence: scheduleId, scheduledStartAt) or CANCELLED. vodId is null while the VOD is hidden, except for the channel owner.",
                 "produces": [
                     "application/json"
                 ],
@@ -187,6 +305,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/Data-Stream"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED (token sent but invalid)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
                         }
                     },
                     "404": {
@@ -260,6 +384,62 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/dashboard": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Counted on the tables directly. Followers and the next broadcast come from GET /v1/studio/channel/stats (channel-svc).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio dashboard: the broadcast on air, the last 5 broadcasts and counts over the range",
+                "parameters": [
+                    {
+                        "enum": [
+                            "7d",
+                            "28d"
+                        ],
+                        "type": "string",
+                        "default": "7d",
+                        "description": "period",
+                        "name": "range",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Dashboard"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (range = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -467,6 +647,277 @@ const docTemplate = `{
                 }
             }
         },
+        "/studio/vods": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: the channel's VODs (READY and EXPIRED, hidden ones included), newest first",
+                "parameters": [
+                    {
+                        "enum": [
+                            "PUBLIC",
+                            "HIDDEN"
+                        ],
+                        "type": "string",
+                        "description": "filter",
+                        "name": "visibility",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "READY",
+                            "EXPIRED"
+                        ],
+                        "type": "string",
+                        "description": "filter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 24,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_StudioVODList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (visibility / status = ENUM, cursor = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/vods/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft delete; media-svc then removes its files (vod.deleted.v1). A VOD already deleted is 404.",
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: delete a VOD",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "vod id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "A hidden VOD disappears from every public list, search and continue-watching; its URL is 404 for everyone but the owner.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: rename, hide or show a VOD",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "vod id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/VODPatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-StudioVOD"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (body = REQUIRED, title = LENGTH, visibility = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (EXPIRED)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/vods": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "vods"
+                ],
+                "summary": "Public VODs (READY, PUBLIC, not expired), newest first",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "category ids, comma-separated",
+                        "name": "category",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 24,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_VODList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (category = INVALID, cursor = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/vods/recommended": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "vods"
+                ],
+                "summary": "Recommended VODs (newest public ones, never 18+); not paged",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 12,
+                        "description": "1–24",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_VODList"
+                        }
+                    }
+                }
+            }
+        },
         "/vods/{id}": {
             "get": {
                 "security": [
@@ -474,7 +925,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "With a token, viewer.positionSec is the caller's saved position (null when never watched).",
+                "description": "With a token, viewer.positionSec is the caller's saved position (null when never watched). A HIDDEN VOD is 404 except for its channel owner.",
                 "produces": [
                     "application/json"
                 ],
@@ -495,7 +946,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_VOD"
+                            "$ref": "#/definitions/Data-VOD"
                         }
                     },
                     "401": {
@@ -584,6 +1035,14 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "CategoryRef": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
         "Channel": {
             "type": "object",
             "properties": {
@@ -626,6 +1085,67 @@ const docTemplate = `{
                 }
             }
         },
+        "Dashboard": {
+            "type": "object",
+            "properties": {
+                "current": {
+                    "$ref": "#/definitions/DashboardCurrent"
+                },
+                "recentStreams": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/RecentStream"
+                    }
+                },
+                "stats": {
+                    "$ref": "#/definitions/DashboardStats"
+                }
+            }
+        },
+        "DashboardCurrent": {
+            "type": "object",
+            "properties": {
+                "startedAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "streamId": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "viewerCount": {
+                    "type": "integer"
+                }
+            }
+        },
+        "DashboardStats": {
+            "type": "object",
+            "properties": {
+                "liveSeconds": {
+                    "type": "integer"
+                },
+                "range": {
+                    "type": "string",
+                    "enum": [
+                        "7d",
+                        "28d"
+                    ]
+                },
+                "streamCount": {
+                    "type": "integer"
+                },
+                "vodReadyHidden": {
+                    "type": "integer"
+                },
+                "vodReadyPublic": {
+                    "type": "integer"
+                }
+            }
+        },
         "Data-Settings": {
             "type": "object",
             "properties": {
@@ -642,11 +1162,35 @@ const docTemplate = `{
                 }
             }
         },
+        "Data-StudioVOD": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/StudioVOD"
+                }
+            }
+        },
+        "Data-VOD": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/VOD"
+                }
+            }
+        },
         "Data-internal_controller_restapi_v1_ContinueList": {
             "type": "object",
             "properties": {
                 "data": {
                     "$ref": "#/definitions/ContinueList"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Dashboard": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Dashboard"
                 }
             }
         },
@@ -690,11 +1234,19 @@ const docTemplate = `{
                 }
             }
         },
-        "Data-internal_controller_restapi_v1_VOD": {
+        "Data-internal_controller_restapi_v1_StudioVODList": {
             "type": "object",
             "properties": {
                 "data": {
-                    "$ref": "#/definitions/VOD"
+                    "$ref": "#/definitions/StudioVODList"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_VODList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/VODList"
                 }
             }
         },
@@ -799,9 +1351,45 @@ const docTemplate = `{
                 }
             }
         },
+        "RecentStream": {
+            "type": "object",
+            "properties": {
+                "durationSec": {
+                    "type": "integer"
+                },
+                "endReason": {
+                    "type": "string"
+                },
+                "endedAt": {
+                    "type": "string"
+                },
+                "peakViewers": {
+                    "type": "integer"
+                },
+                "startedAt": {
+                    "type": "string"
+                },
+                "streamId": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "vodId": {
+                    "type": "string"
+                },
+                "vodVisibility": {
+                    "type": "string"
+                }
+            }
+        },
         "Settings": {
             "type": "object",
             "properties": {
+                "categoryId": {
+                    "description": "CategoryID is a channel-svc category (GET /v1/categories); null = none.",
+                    "type": "string"
+                },
                 "isMature": {
                     "type": "boolean"
                 },
@@ -825,6 +1413,10 @@ const docTemplate = `{
         "SettingsRequest": {
             "type": "object",
             "properties": {
+                "categoryId": {
+                    "description": "CategoryID: absent or null removes the category (PUT replaces the settings).",
+                    "type": "string"
+                },
                 "isMature": {
                     "type": "boolean"
                 },
@@ -845,6 +1437,9 @@ const docTemplate = `{
         "Stream": {
             "type": "object",
             "properties": {
+                "category": {
+                    "$ref": "#/definitions/CategoryRef"
+                },
                 "channel": {
                     "$ref": "#/definitions/Channel"
                 },
@@ -867,6 +1462,13 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "manifestUrl": {
+                    "type": "string"
+                },
+                "scheduleId": {
+                    "description": "ScheduleID and ScheduledStartAt are set for a stream that comes from a schedule (status SCHEDULED, CANCELLED,\nor LIVE / ENDED once attached).",
+                    "type": "string"
+                },
+                "scheduledStartAt": {
                     "type": "string"
                 },
                 "startedAt": {
@@ -972,9 +1574,72 @@ const docTemplate = `{
                 }
             }
         },
+        "StudioVOD": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "$ref": "#/definitions/CategoryRef"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "durationSec": {
+                    "type": "integer"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "manifestUrl": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "READY",
+                        "EXPIRED"
+                    ]
+                },
+                "streamId": {
+                    "type": "string"
+                },
+                "thumbnailUrl": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "visibility": {
+                    "type": "string",
+                    "enum": [
+                        "PUBLIC",
+                        "HIDDEN"
+                    ]
+                }
+            }
+        },
+        "StudioVODList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/StudioVOD"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
         "VOD": {
             "type": "object",
             "properties": {
+                "category": {
+                    "$ref": "#/definitions/CategoryRef"
+                },
                 "channel": {
                     "$ref": "#/definitions/Channel"
                 },
@@ -992,6 +1657,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "isMature": {
+                    "type": "boolean"
                 },
                 "manifestUrl": {
                     "type": "string"
@@ -1014,6 +1682,42 @@ const docTemplate = `{
                         {
                             "$ref": "#/definitions/VODViewer"
                         }
+                    ]
+                },
+                "visibility": {
+                    "type": "string",
+                    "enum": [
+                        "PUBLIC",
+                        "HIDDEN"
+                    ]
+                }
+            }
+        },
+        "VODList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/VOD"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "VODPatchRequest": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string"
+                },
+                "visibility": {
+                    "type": "string",
+                    "enum": [
+                        "PUBLIC",
+                        "HIDDEN"
                     ]
                 }
             }

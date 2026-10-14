@@ -1,14 +1,55 @@
 basePath: /v1
 definitions:
-  Channel:
+  Category:
+    properties:
+      group:
+        enum:
+        - GAMES
+        - ESPORTS
+        - MUSIC
+        - IRL
+        - CREATIVE
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      position:
+        type: integer
+      posterUrl:
+        type: string
+      slug:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      viewerCount:
+        description: ViewerCount is the sum over the category's live streams; null
+          when counts are unavailable.
+        type: integer
+    type: object
+  CategoryList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Category'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  CategoryRef:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      slug:
+        type: string
+    type: object
+  ChannelCard:
     properties:
       avatarUrl:
-        type: string
-      bio:
-        type: string
-      createdAt:
-        type: string
-      currentStreamId:
         type: string
       displayName:
         type: string
@@ -16,13 +57,173 @@ definitions:
         type: string
       id:
         type: string
-      isLive:
+      verified:
         type: boolean
     type: object
-  Data-internal_controller_restapi_v1_Channel:
+  ChannelPatch:
+    properties:
+      bio:
+        type: string
+      displayName:
+        type: string
+      handle:
+        type: string
+      matureDefault:
+        type: boolean
+      socialLinks:
+        items:
+          $ref: '#/definitions/SocialLink'
+        type: array
+    type: object
+  ChannelProfile:
+    properties:
+      avatarUrl:
+        type: string
+      bannerUrl:
+        type: string
+      bio:
+        type: string
+      createdAt:
+        type: string
+      currentStream:
+        $ref: '#/definitions/LiveStreamRef'
+      currentStreamId:
+        type: string
+      displayName:
+        type: string
+      followerCount:
+        type: integer
+      handle:
+        type: string
+      id:
+        type: string
+      isLive:
+        type: boolean
+      lastLiveAt:
+        type: string
+      matureDefault:
+        type: boolean
+      socialLinks:
+        items:
+          $ref: '#/definitions/SocialLink'
+        type: array
+      status:
+        type: string
+      verified:
+        type: boolean
+      viewer:
+        allOf:
+        - $ref: '#/definitions/ProfileViewer'
+        description: Viewer is null for guests.
+    type: object
+  ChannelStats:
+    properties:
+      followerCount:
+        type: integer
+      newFollowers:
+        type: integer
+      range:
+        enum:
+        - 7d
+        - 28d
+        type: string
+      upcoming:
+        $ref: '#/definitions/Upcoming'
+    type: object
+  Data-Category:
     properties:
       data:
-        $ref: '#/definitions/Channel'
+        $ref: '#/definitions/Category'
+    type: object
+  Data-Schedule:
+    properties:
+      data:
+        $ref: '#/definitions/Schedule'
+    type: object
+  Data-SearchQuery:
+    properties:
+      data:
+        $ref: '#/definitions/SearchQuery'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_CategoryList:
+    properties:
+      data:
+        $ref: '#/definitions/CategoryList'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ChannelProfile:
+    properties:
+      data:
+        $ref: '#/definitions/ChannelProfile'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ChannelStats:
+    properties:
+      data:
+        $ref: '#/definitions/ChannelStats'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowState:
+    properties:
+      data:
+        $ref: '#/definitions/FollowState'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowingList:
+    properties:
+      data:
+        $ref: '#/definitions/FollowingList'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ImageURL:
+    properties:
+      data:
+        $ref: '#/definitions/ImageURL'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_MovedOccurrence:
+    properties:
+      data:
+        $ref: '#/definitions/MovedOccurrence'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_OccurrenceList:
+    properties:
+      data:
+        $ref: '#/definitions/OccurrenceList'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Reminder:
+    properties:
+      data:
+        $ref: '#/definitions/Reminder'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ScheduleList:
+    properties:
+      data:
+        $ref: '#/definitions/ScheduleList'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_SearchHistory:
+    properties:
+      data:
+        $ref: '#/definitions/SearchHistory'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_SearchList:
+    properties:
+      data:
+        $ref: '#/definitions/SearchList'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Sidebar:
+    properties:
+      data:
+        $ref: '#/definitions/Sidebar'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_StudioChannel:
+    properties:
+      data:
+        $ref: '#/definitions/StudioChannel'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Suggestions:
+    properties:
+      data:
+        $ref: '#/definitions/Suggestions'
+    type: object
+  Error:
+    properties:
+      error:
+        $ref: '#/definitions/ErrorBody'
     type: object
   ErrorBody:
     properties:
@@ -35,22 +236,399 @@ definitions:
       message:
         type: string
     type: object
-  ErrorResponse:
+  FollowState:
     properties:
-      error:
-        $ref: '#/definitions/ErrorBody'
+      followedAt:
+        type: string
+      following:
+        type: boolean
+      notifyLevel:
+        enum:
+        - ALL
+        - LIVE_ONLY
+        - "OFF"
+        type: string
+    type: object
+  FollowedChannel:
+    properties:
+      channel:
+        $ref: '#/definitions/ChannelCard'
+      currentStream:
+        $ref: '#/definitions/LiveStreamRef'
+      followedAt:
+        type: string
+      isLive:
+        type: boolean
+      lastLiveAt:
+        type: string
+      notifyLevel:
+        enum:
+        - ALL
+        - LIVE_ONLY
+        - "OFF"
+        type: string
+    type: object
+  FollowingList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/FollowedChannel'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  ImageURL:
+    properties:
+      url:
+        type: string
+    type: object
+  LiveStreamRef:
+    properties:
+      category:
+        $ref: '#/definitions/CategoryRef'
+      id:
+        type: string
+      isMature:
+        type: boolean
+      startedAt:
+        type: string
+      title:
+        type: string
+      viewerCount:
+        type: integer
+    type: object
+  MoveOccurrence:
+    properties:
+      startAt:
+        type: string
+    type: object
+  MovedOccurrence:
+    properties:
+      schedule:
+        $ref: '#/definitions/Schedule'
+    type: object
+  NextOccurrence:
+    properties:
+      occurrenceAt:
+        type: string
+      reminderCount:
+        type: integer
+      streamId:
+        type: string
+    type: object
+  NotifyLevel:
+    properties:
+      notifyLevel:
+        enum:
+        - ALL
+        - LIVE_ONLY
+        - "OFF"
+        type: string
+    type: object
+  Occurrence:
+    properties:
+      category:
+        $ref: '#/definitions/CategoryRef'
+      durationMin:
+        type: integer
+      occurrenceAt:
+        type: string
+      reminded:
+        description: Reminded is null for guests.
+        type: boolean
+      scheduleId:
+        type: string
+      streamId:
+        description: 'StreamID is set once stream-svc created the SCHEDULED stream
+          (≤ 24 h before): link to /live/{streamId}.'
+        type: string
+      title:
+        type: string
+    type: object
+  OccurrenceList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Occurrence'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  ProfileViewer:
+    properties:
+      following:
+        type: boolean
+      isOwner:
+        type: boolean
+      notifyLevel:
+        enum:
+        - ALL
+        - LIVE_ONLY
+        - "OFF"
+        type: string
+    type: object
+  Reminder:
+    properties:
+      createdAt:
+        type: string
+      occurrenceAt:
+        type: string
+      scheduleId:
+        type: string
+    type: object
+  Schedule:
+    properties:
+      categoryId:
+        type: string
+      durationMin:
+        type: integer
+      rrule:
+        description: 'RRule: null / absent = one-off; FREQ=WEEKLY;BYDAY=MO,WE[;COUNT=n|;UNTIL=yyyymmddThhmmssZ].'
+        type: string
+      startAt:
+        description: StartAt is RFC 3339 with an offset (stored in UTC).
+        type: string
+      timezone:
+        description: Timezone is an IANA name (default Asia/Ho_Chi_Minh); weekly occurrences
+          keep its wall-clock time.
+        type: string
+      title:
+        type: string
+    type: object
+  ScheduleList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Schedule'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  SearchGroup:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/SearchItem'
+        type: array
+      type:
+        enum:
+        - channel
+        - stream
+        - category
+        - vod
+        type: string
+    type: object
+  SearchHistory:
+    properties:
+      query:
+        type: string
+    type: object
+  SearchItem:
+    properties:
+      id:
+        type: string
+      imageUrl:
+        type: string
+      isLive:
+        type: boolean
+      isMature:
+        type: boolean
+      subtitle:
+        type: string
+      target:
+        type: string
+      title:
+        type: string
+      type:
+        enum:
+        - channel
+        - stream
+        - category
+        - vod
+        type: string
+      viewerCount:
+        description: 'ViewerCount: live viewers of a live channel or stream, the category
+          total; null otherwise.'
+        type: integer
+    type: object
+  SearchList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/SearchItem'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  SearchQuery:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: string
+      query:
+        type: string
+    type: object
+  Sidebar:
+    properties:
+      live:
+        items:
+          $ref: '#/definitions/FollowedChannel'
+        type: array
+      offline:
+        items:
+          $ref: '#/definitions/FollowedChannel'
+        type: array
+      totalFollowing:
+        type: integer
+    type: object
+  SocialLink:
+    properties:
+      type:
+        enum:
+        - YOUTUBE
+        - X
+        - FACEBOOK
+        - TIKTOK
+        - DISCORD
+        - WEBSITE
+        type: string
+      url:
+        type: string
+    type: object
+  StudioChannel:
+    properties:
+      avatarUrl:
+        type: string
+      bannerUrl:
+        type: string
+      bio:
+        type: string
+      createdAt:
+        type: string
+      currentStream:
+        $ref: '#/definitions/LiveStreamRef'
+      currentStreamId:
+        type: string
+      displayName:
+        type: string
+      followerCount:
+        type: integer
+      handle:
+        type: string
+      handleChangedAt:
+        type: string
+      id:
+        type: string
+      isLive:
+        type: boolean
+      lastLiveAt:
+        type: string
+      matureDefault:
+        type: boolean
+      nextHandleChangeAt:
+        type: string
+      socialLinks:
+        items:
+          $ref: '#/definitions/SocialLink'
+        type: array
+      status:
+        type: string
+      verified:
+        type: boolean
+    type: object
+  Suggestions:
+    properties:
+      groups:
+        items:
+          $ref: '#/definitions/SearchGroup'
+        type: array
+      query:
+        type: string
+    type: object
+  Upcoming:
+    properties:
+      occurrenceAt:
+        type: string
+      reminderCount:
+        type: integer
+      scheduleId:
+        type: string
+      title:
+        type: string
     type: object
 info:
   contact: {}
-  description: Public channel pages. Channels are created by channel-svc when an admin
-    approves a creator application.
+  description: Channels, follows, categories, search and broadcast schedules. Channels
+    are created when an admin approves a creator application. Get a token from identity-svc
+    and paste "Bearer <accessToken>" into Authorize.
   title: NexusLive channel-svc API
-  version: "1.0"
+  version: "1.1"
 paths:
+  /categories:
+    get:
+      description: Not paged (nextCursor is always null). sort=viewers orders by live
+        viewers, ties keep the seed order.
+      parameters:
+      - description: group
+        enum:
+        - GAMES
+        - ESPORTS
+        - MUSIC
+        - IRL
+        - CREATIVE
+        in: query
+        name: group
+        type: string
+      - default: position
+        description: order
+        enum:
+        - position
+        - viewers
+        in: query
+        name: sort
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_CategoryList'
+        "400":
+          description: VALIDATION_FAILED (group / sort = ENUM)
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Categories (Browse)
+      tags:
+      - categories
+  /categories/{slug}:
+    get:
+      parameters:
+      - description: category slug
+        in: path
+        name: slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-Category'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Category by slug
+      tags:
+      - categories
   /channels/{handle}:
     get:
       description: The handle is case-insensitive (3–25 characters of [A-Za-z0-9_]);
-        anything else is 404.
+        anything else is 404. currentStream is set while the channel is live; viewer
+        is null for guests.
       parameters:
       - description: channel handle
         in: path
@@ -63,16 +641,903 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/Data-internal_controller_restapi_v1_Channel'
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ChannelProfile'
+        "401":
+          description: UNAUTHORIZED (token sent but invalid)
+          schema:
+            $ref: '#/definitions/Error'
         "403":
           description: CHANNEL_SUSPENDED
           schema:
-            $ref: '#/definitions/ErrorResponse'
+            $ref: '#/definitions/Error'
         "404":
           description: NOT_FOUND
           schema:
-            $ref: '#/definitions/ErrorResponse'
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
       summary: Public channel page by handle
       tags:
       - channels
+  /channels/{id}/follow:
+    delete:
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Unfollow a channel (always 204)
+      tags:
+      - follows
+    post:
+      description: 'Idempotent: following again returns the existing follow (notifyLevel
+        ALL for a new one).'
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowState'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "422":
+          description: CANNOT_FOLLOW_SELF
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Follow a channel
+      tags:
+      - follows
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: notification level
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/NotifyLevel'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowState'
+        "400":
+          description: VALIDATION_FAILED (notifyLevel = ENUM)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND (unknown channel or not following)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Change the bell of a followed channel
+      tags:
+      - follows
+  /channels/{id}/schedule:
+    get:
+      description: Occurrences in [from, to), ascending; default [now, now + 14 days];
+        to − from ≤ 31 days and to ≤ now + 90 days. reminded is null for guests.
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: RFC 3339
+        in: query
+        name: from
+        type: string
+      - description: RFC 3339
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_OccurrenceList'
+        "400":
+          description: VALIDATION_FAILED (from / to = FORMAT | MAX)
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: A channel's upcoming broadcasts (Schedule tab)
+      tags:
+      - schedules
+  /me/following:
+    get:
+      description: status=live is sorted by viewers (no paging, at most 200); all
+        / offline list live channels first, then by last broadcast, with a cursor.
+      parameters:
+      - default: all
+        description: filter
+        enum:
+        - all
+        - live
+        - offline
+        in: query
+        name: status
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 24
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_FollowingList'
+        "400":
+          description: VALIDATION_FAILED (status = ENUM, cursor = INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Channels the caller follows
+      tags:
+      - follows
+  /me/following/sidebar:
+    get:
+      description: Every followed live channel (by viewers, up to limit), then offline
+        ones to fill limit. Updates arrive on the WebSocket topic sidebar:{userId}
+        (chat-svc).
+      parameters:
+      - default: 10
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Sidebar'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Followed channels for the shell's sidebar
+      tags:
+      - follows
+  /me/search-history:
+    delete:
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Clear the search history
+      tags:
+      - search
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_SearchHistory'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The caller's recent searches (newest first, at most 10)
+      tags:
+      - search
+    post:
+      consumes:
+      - application/json
+      description: The same query (case-insensitive) moves to the top with the same
+        id; only the 10 newest are kept.
+      parameters:
+      - description: query
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/SearchHistory'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-SearchQuery'
+        "400":
+          description: VALIDATION_FAILED (query = LENGTH)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Remember a search
+      tags:
+      - search
+  /me/search-history/{id}:
+    delete:
+      parameters:
+      - description: entry id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Remove one remembered search
+      tags:
+      - search
+  /schedules/{id}/reminders:
+    delete:
+      parameters:
+      - description: schedule id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: RFC 3339
+        in: query
+        name: occurrenceAt
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: VALIDATION_FAILED (occurrenceAt = REQUIRED | FORMAT)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Cancel a reminder (always 204)
+      tags:
+      - schedules
+    post:
+      consumes:
+      - application/json
+      description: 201 for a new reminder, 200 when it existed. The reminder itself
+        is sent by notification-svc (schedule.reminder_due.v1, 10 minutes before).
+      parameters:
+      - description: schedule id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: occurrence
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/Reminder'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Reminder'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Reminder'
+        "400":
+          description: VALIDATION_FAILED (occurrenceAt = REQUIRED | FORMAT)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND (schedule, or not one of its occurrences)
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE (past occurrence or cancelled schedule)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Ask to be reminded of an occurrence
+      tags:
+      - schedules
+  /search:
+    get:
+      parameters:
+      - description: 2–100 characters after trimming
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: kind
+        enum:
+        - channel
+        - stream
+        - category
+        - vod
+        in: query
+        name: type
+        required: true
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 24
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_SearchList'
+        "400":
+          description: VALIDATION_FAILED (q = LENGTH, type = REQUIRED | ENUM, cursor
+            = INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Search results of one kind (results page)
+      tags:
+      - search
+  /search/suggest:
+    get:
+      description: Accents and case are ignored ("lien minh" finds "Liên Minh"); words
+        match by prefix. Groups are channel, stream, category, vod in that order and
+        only when they have hits.
+      parameters:
+      - description: 2–100 characters after trimming
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: comma-separated subset of channel,stream,category,vod
+        in: query
+        name: types
+        type: string
+      - default: 5
+        description: per group, 1–10
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_Suggestions'
+        "400":
+          description: VALIDATION_FAILED (q = LENGTH, types = ENUM)
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Search suggestions grouped by kind (Ctrl+K)
+      tags:
+      - search
+  /studio/channel:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_StudioChannel'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: the caller''s channel (profile form)'
+      tags:
+      - studio
+    patch:
+      consumes:
+      - application/json
+      description: 'At least one field. displayName 1–50, bio ≤ 300 (null clears it),
+        ≤ 5 https links (type YOUTUBE, X, FACEBOOK, TIKTOK, DISCORD, WEBSITE; url
+        ≤ 300). handle ^[a-z0-9_]{3,25}$, not a reserved route word, once per 30 days:
+        the old handle stops resolving at once.'
+      parameters:
+      - description: fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ChannelPatch'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_StudioChannel'
+        "400":
+          description: VALIDATION_FAILED (body = REQUIRED, displayName / bio = LENGTH,
+            socialLinks = MAX | FORMAT | ENUM, handle = FORMAT | INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: HANDLE_TAKEN (details.handle = TAKEN) or CONFLICT (details.nextChangeAt)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: edit the channel profile'
+      tags:
+      - studio
+  /studio/channel/avatar:
+    put:
+      consumes:
+      - multipart/form-data
+      description: 'multipart/form-data with part "file": JPEG, PNG or WebP (checked
+        by content, not name), ≤ 2 MB, at least 128×128. Stored as a 256×256 JPEG
+        (center crop) under /media/.'
+      parameters:
+      - description: image
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ImageURL'
+        "400":
+          description: VALIDATION_FAILED (file = REQUIRED | FORMAT | MIN)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "413":
+          description: PAYLOAD_TOO_LARGE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: upload the channel avatar'
+      tags:
+      - studio
+  /studio/channel/banner:
+    put:
+      consumes:
+      - multipart/form-data
+      description: Same as the avatar; ≤ 5 MB, at least 800×250, stored as a 1600×500
+        JPEG (center crop to 16:5).
+      parameters:
+      - description: image
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ImageURL'
+        "400":
+          description: VALIDATION_FAILED (file = REQUIRED | FORMAT | MIN)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "413":
+          description: PAYLOAD_TOO_LARGE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: upload the channel banner'
+      tags:
+      - studio
+  /studio/channel/stats:
+    get:
+      parameters:
+      - default: 7d
+        description: period
+        enum:
+        - 7d
+        - 28d
+        in: query
+        name: range
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ChannelStats'
+        "400":
+          description: VALIDATION_FAILED (range = ENUM)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio dashboard: followers and the next broadcast'
+      tags:
+      - studio
+  /studio/schedules:
+    get:
+      description: ACTIVE lists schedules with an occurrence still to come; nextOccurrences
+        holds up to 5.
+      parameters:
+      - default: ACTIVE
+        description: status
+        enum:
+        - ACTIVE
+        - CANCELLED
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_ScheduleList'
+        "400":
+          description: VALIDATION_FAILED (status = ENUM)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: the caller''s schedules'
+      tags:
+      - studio
+    post:
+      consumes:
+      - application/json
+      description: title 1–140; startAt in the future and ≤ 90 days ahead; durationMin
+        15–720; rrule null (one-off) or FREQ=WEEKLY;BYDAY=… (must include startAt's
+        weekday in timezone) with optional COUNT=1–100 or UNTIL; at most 20 active
+        schedules. Overlaps are allowed.
+      parameters:
+      - description: schedule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/Schedule'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-Schedule'
+        "400":
+          description: VALIDATION_FAILED (title = LENGTH, startAt = REQUIRED | FORMAT
+            | MIN | MAX, durationMin = MIN | MAX, rrule / timezone = FORMAT, categoryId
+            = INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: CONFLICT (details.limit)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: create a schedule'
+      tags:
+      - studio
+  /studio/schedules/{id}:
+    delete:
+      parameters:
+      - description: schedule id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE (already cancelled)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: cancel a schedule and its future occurrences'
+      tags:
+      - studio
+    put:
+      consumes:
+      - application/json
+      description: Same rules as create (startAt may stay in the past when unchanged).
+        Changing the start, rule or time zone cancels the announced and reminded occurrences
+        of the old series.
+      parameters:
+      - description: schedule id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: schedule
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/Schedule'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-Schedule'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE (cancelled)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: edit a schedule'
+      tags:
+      - studio
+  /studio/schedules/{id}/occurrences/{occurrenceAt}:
+    delete:
+      parameters:
+      - description: schedule id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: RFC 3339, URL-encoded
+        in: path
+        name: occurrenceAt
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE (past or on air)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: cancel one occurrence'
+      tags:
+      - studio
+    put:
+      consumes:
+      - application/json
+      description: The occurrence becomes a one-off schedule (parentId = this schedule)
+        at startAt; its reminders follow it.
+      parameters:
+      - description: schedule id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: RFC 3339, URL-encoded
+        in: path
+        name: occurrenceAt
+        required: true
+        type: string
+      - description: new start
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/MoveOccurrence'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_channel_internal_controller_restapi_v1_response_MovedOccurrence'
+        "400":
+          description: VALIDATION_FAILED (startAt = REQUIRED | FORMAT | MIN | MAX)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE (past or on air)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: move one occurrence'
+      tags:
+      - studio
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
 swagger: "2.0"
