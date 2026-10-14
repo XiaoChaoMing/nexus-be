@@ -2,7 +2,7 @@
 
 | Track | Trạng thái | Ngày |
 | --- | --- | --- |
-| Full (nhiều gói, stream-svc + web, cross-repo) | Approved 14/10 (G2-Q1…Q4 theo đề xuất) — WP1–WP5 xong 14/10; WP6 còn spec NXL-G2 | 2026-10-14 |
+| Full (nhiều gói, stream-svc + web, cross-repo) | Approved 14/10 (G2-Q1…Q4 theo đề xuất) — WP1–WP6 xong 14/10 (NXL-G2 v1.0) | 2026-10-14 |
 
 Lịch lộ trình GĐ2: 16/11 → 04/12, mốc **M2**. Lõi GĐ2 (stream key, state machine, media-svc, VOD, Studio, trang
 xem 8/9 trạng thái) đã làm ở L1–L4; GĐ1 đã nối Creator/kênh thật. Plan này gom **phần còn lại** để đóng GĐ2 sớm

@@ -27,7 +27,7 @@
 
 ## 2. Lệch so với plan
 
-- Spec NXL-G2 (WP6) chưa viết — chuyển sang việc tiếp theo.
+- Spec NXL-G2 v1.0 (Creator Studio) viết sau cùng ngày, xong WP6.
 - E2E M2: lần publish thứ hai thử lại một lần nếu rơi vào thời gian chờ 30 s sau khi kết thúc (hành vi cố ý của
   stream-svc).
 
@@ -57,6 +57,6 @@ Chưa chạy: `make nxl-up-all` (Docker) trên máy ông chủ; đo độ trễ 
 
 ## 5. Việc tiếp theo
 
-- Viết spec NXL-G2.
+- Đưa sự kiện/hằng số mới của NXL-G2 vào NXL-00 khi làm GĐ4; errata ST-Q2, ST-Q4.
 - GĐ4: Category, trạng thái "Sắp diễn ra"; GĐ5: chữ ký `secure_link` cho `manifestUrl`, kiểm tra kênh bị khóa.
 - GĐ3: thay cột Chat giữ chỗ bằng chat thật.
