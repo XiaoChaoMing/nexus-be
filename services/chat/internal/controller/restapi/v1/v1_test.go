@@ -66,7 +66,7 @@ func (f *fakeChat) UpdateSettings(_ context.Context, p entity.Principal, s entit
 }
 
 func (*fakeChat) Emotes(context.Context) ([]entity.Emote, error) {
-	return []entity.Emote{{ID: "e1", Code: "nxlGG", ImageURL: "/emotes/nxlGG.svg", Scope: "GLOBAL"}}, nil
+	return []entity.Emote{{ID: "e1", Code: "nxGG", ImageURL: "/emotes/nxGG.webp", Scope: "GLOBAL"}}, nil
 }
 
 func newApp(c usecase.Chat) *fiber.App {
@@ -213,7 +213,7 @@ func TestEmotes(t *testing.T) {
 	status, body := do(t, newApp(&fakeChat{}), http.MethodGet, "/v1/chat/emotes?channelId=x", "", "")
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, map[string]any{"items": []any{map[string]any{
-		"id": "e1", "code": "nxlGG", "imageUrl": "/emotes/nxlGG.svg", "animated": false, "scope": "GLOBAL",
+		"id": "e1", "code": "nxGG", "imageUrl": "/emotes/nxGG.webp", "animated": false, "scope": "GLOBAL",
 	}}}, body["data"])
 }
 

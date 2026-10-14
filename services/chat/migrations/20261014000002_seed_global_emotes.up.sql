@@ -1,16 +1,16 @@
--- Global emotes drawn for NexusLive (deploy/emotes/*.svg, served by the edge at /emotes/).
+-- Global emotes from the NexusLive design (deploy/emotes/*.webp, served by the edge at /emotes/).
 INSERT INTO emotes (scope, code, image_url)
 VALUES
-    ('GLOBAL', 'nxlGG', '/emotes/nxlGG.svg'),
-    ('GLOBAL', 'nxlHype', '/emotes/nxlHype.svg'),
-    ('GLOBAL', 'nxlLol', '/emotes/nxlLol.svg'),
-    ('GLOBAL', 'nxlLove', '/emotes/nxlLove.svg'),
-    ('GLOBAL', 'nxlSad', '/emotes/nxlSad.svg'),
-    ('GLOBAL', 'nxlWow', '/emotes/nxlWow.svg'),
-    ('GLOBAL', 'nxlCool', '/emotes/nxlCool.svg'),
-    ('GLOBAL', 'nxlClap', '/emotes/nxlClap.svg'),
-    ('GLOBAL', 'nxlFire', '/emotes/nxlFire.svg'),
-    ('GLOBAL', 'nxlThink', '/emotes/nxlThink.svg'),
-    ('GLOBAL', 'nxlWave', '/emotes/nxlWave.svg'),
-    ('GLOBAL', 'nxlPog', '/emotes/nxlPog.svg')
+    ('GLOBAL', 'nxGG', '/emotes/nxGG.webp'),
+    ('GLOBAL', 'nxHype', '/emotes/nxHype.webp'),
+    ('GLOBAL', 'nxHaha', '/emotes/nxHaha.webp'),
+    ('GLOBAL', 'nxTim', '/emotes/nxTim.webp'),
+    ('GLOBAL', 'nxKhoc', '/emotes/nxKhoc.webp'),
+    ('GLOBAL', 'nxUa', '/emotes/nxUa.webp'),
+    ('GLOBAL', 'nxNgau', '/emotes/nxNgau.webp'),
+    ('GLOBAL', 'nxCup', '/emotes/nxCup.webp'),
+    ('GLOBAL', 'nxCay', '/emotes/nxCay.webp'),
+    ('GLOBAL', 'nxGhe', '/emotes/nxGhe.webp'),
+    ('GLOBAL', 'nxChao', '/emotes/nxChao.webp'),
+    ('GLOBAL', 'nxPog', '/emotes/nxPog.webp')
 ON CONFLICT DO NOTHING;

@@ -60,18 +60,18 @@ func TestSendHappyPath(t *testing.T) {
 	w.users[viewer] = entity.User{ID: viewer, Username: "viewer_a"}
 	uc, obs := newUC(w, defaultConfig())
 
-	res, err := uc.Send(context.Background(), user(owner), streamID, msg("  gg nxlGG @Viewer_A  "))
+	res, err := uc.Send(context.Background(), user(owner), streamID, msg("  gg nxGG @Viewer_A  "))
 	require.NoError(t, err)
 	require.False(t, res.Duplicate)
 
 	m := res.Message
-	require.Equal(t, "gg nxlGG @Viewer_A", m.Body)
+	require.Equal(t, "gg nxGG @Viewer_A", m.Body)
 	require.Equal(t, []string{entity.BadgeStreamer}, m.User.Badges)
 	require.Equal(t, "Minh", m.User.DisplayName)
 	require.Equal(t, entity.ColorOf(owner), m.User.Color)
 	require.Equal(t, []entity.Fragment{
 		{Type: "text", Text: "gg "},
-		{Type: "emote", Text: "nxlGG", Emote: &entity.EmoteRef{ID: "e1", Code: "nxlGG", ImageURL: "/emotes/nxlGG.svg"}},
+		{Type: "emote", Text: "nxGG", Emote: &entity.EmoteRef{ID: "e1", Code: "nxGG", ImageURL: "/emotes/nxGG.webp"}},
 		{Type: "text", Text: " "},
 		{Type: "mention", Text: "@Viewer_A", UserID: viewer},
 	}, m.Fragments)

@@ -1,1 +1,1 @@
-DELETE FROM emotes WHERE scope = 'GLOBAL' AND code IN ('nxlGG', 'nxlHype', 'nxlLol', 'nxlLove', 'nxlSad', 'nxlWow', 'nxlCool', 'nxlClap', 'nxlFire', 'nxlThink', 'nxlWave', 'nxlPog');
+DELETE FROM emotes WHERE scope = 'GLOBAL' AND code IN ('nxGG', 'nxHype', 'nxHaha', 'nxTim', 'nxKhoc', 'nxUa', 'nxNgau', 'nxCup', 'nxCay', 'nxGhe', 'nxChao', 'nxPog');

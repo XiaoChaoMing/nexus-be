@@ -211,7 +211,7 @@ func TestSettingsAndEmotes(t *testing.T) { //nolint:paralleltest // shared datab
 	emotes, err := r.GlobalEmotes(ctx)
 	require.NoError(t, err)
 	require.Len(t, emotes, 12, "seeded by the migration")
-	require.Equal(t, "/emotes/"+emotes[0].Code+".svg", emotes[0].ImageURL)
+	require.Equal(t, "/emotes/"+emotes[0].Code+".webp", emotes[0].ImageURL)
 
 	_, err = r.Channel(ctx, channel)
 	require.ErrorIs(t, err, entity.ErrNotFound)

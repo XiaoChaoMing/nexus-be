@@ -205,7 +205,7 @@ Migration mới (không sửa migration cũ):
 
 - `nxl_chat` `20261014000001_chat_users`: `users (id uuid PK, username varchar(25) UNIQUE, display_name, email_verified
   bool, created_at, updated_at)` — bản sao từ sự kiện identity.
-- `nxl_chat` `20261014000002_seed_global_emotes`: ~12 dòng `emotes` `GLOBAL` (`image_url` `/emotes/<code>.svg`).
+- `nxl_chat` `20261014000002_seed_global_emotes`: ~12 dòng `emotes` `GLOBAL` (`image_url` `/emotes/<code>.webp`).
   Down: xóa đúng các mã đã seed.
 - `nxl_stream` `20261014000001_streams_peak_viewers`: `ALTER TABLE streams ADD COLUMN peak_viewers integer`.
 - Partition `chat_messages`: job trong chat-svc tạo `chat_messages_YYYYMMDD` trước 3 ngày, `DETACH`+`DROP`

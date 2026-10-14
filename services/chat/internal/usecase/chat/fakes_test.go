@@ -179,7 +179,7 @@ func (f fakeRoles) Roles(_ context.Context, _ string, ids []string) (map[string]
 type fakeEmotes struct{}
 
 func (fakeEmotes) GlobalEmotes(context.Context) ([]entity.Emote, error) {
-	return []entity.Emote{{ID: "e1", Code: "nxlGG", ImageURL: "/emotes/nxlGG.svg", Scope: "GLOBAL"}}, nil
+	return []entity.Emote{{ID: "e1", Code: "nxGG", ImageURL: "/emotes/nxGG.webp", Scope: "GLOBAL"}}, nil
 }
 
 type fakeUsers struct {

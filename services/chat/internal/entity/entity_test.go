@@ -50,13 +50,13 @@ func TestNormalizeBody(t *testing.T) {
 func TestBuildFragments(t *testing.T) {
 	t.Parallel()
 
-	emotes := map[string]entity.Emote{"nxlGG": {ID: "e1", Code: "nxlGG", ImageURL: "/emotes/nxlGG.svg"}}
+	emotes := map[string]entity.Emote{"nxGG": {ID: "e1", Code: "nxGG", ImageURL: "/emotes/nxGG.webp"}}
 	users := map[string]string{"minhnn": "u1"}
 
-	got := entity.BuildFragments("gg nxlGG @MinhNN, hi @nobody nxlgg", emotes, users)
+	got := entity.BuildFragments("gg nxGG @MinhNN, hi @nobody nxlgg", emotes, users)
 	require.Equal(t, []entity.Fragment{
 		{Type: "text", Text: "gg "},
-		{Type: "emote", Text: "nxlGG", Emote: &entity.EmoteRef{ID: "e1", Code: "nxlGG", ImageURL: "/emotes/nxlGG.svg"}},
+		{Type: "emote", Text: "nxGG", Emote: &entity.EmoteRef{ID: "e1", Code: "nxGG", ImageURL: "/emotes/nxGG.webp"}},
 		{Type: "text", Text: " "},
 		{Type: "mention", Text: "@MinhNN", UserID: "u1"},
 		{Type: "text", Text: ", hi @nobody nxlgg"},

@@ -48,7 +48,7 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | `/v1/auth/{login,register,password/forgot,password/reset,verify-email,verify-email/resend}` | identity-svc :8090 | Vùng rate limit chặt (§1.1) |
 | `/v1/ws` | chat-svc (upstream `nxl_chat`: `chat-1`, `chat-2`) | WebSocket (`Upgrade`), `proxy_read_timeout 75s`, không rate limit theo request (GĐ3) |
 | `/v1/chat/*`, `/v1/channels/{id}/chat-settings` | chat-svc | Đặt trước route channel-svc (GĐ3) |
-| `/emotes/*` | file tĩnh `deploy/emotes/*.svg` | `Cache-Control: public, max-age=604800` (GĐ3) |
+| `/emotes/*` | file tĩnh `deploy/emotes/*.webp` | `Cache-Control: public, max-age=604800` (GĐ3) |
 | `/v1/channels/*` | channel-svc :8094 | GĐ1 |
 | `/v1/studio/*`, `/v1/streams/*`, `/v1/vods/*` | stream-svc :8092 | |
 | `/v1/*` còn lại | identity-svc :8090 | Gồm `/v1/auth/*`, `/v1/me*`, `/v1/creator-applications*`, `/v1/admin/*` |
