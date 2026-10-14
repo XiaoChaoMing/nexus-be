@@ -2,7 +2,7 @@
 
 | Track | Trạng thái | Ngày |
 | --- | --- | --- |
-| Full (service mới `chat-svc`, transport mới WebSocket, sự kiện mới, compose/Nginx, cross-repo web) | Draft — chờ duyệt §10 | 2026-10-14 |
+| Full (service mới `chat-svc`, transport mới WebSocket, sự kiện mới, compose/Nginx, cross-repo web) | Approved 14/10 (G3-Q1…Q5 theo đề xuất; G3-Q6: một người xem = 1 view dù mở nhiều tab) | 2026-10-14 |
 
 Lịch lộ trình GĐ3: 07/12 → 25/12, mốc **M3**. GĐ2 đã đóng sớm (~7 tuần trước lịch), nên GĐ3 có thể bắt đầu ngay.
 Bảng `nxl_chat` đã có migration từ GĐ0 nhưng chưa có code; trang xem đã chừa cột/tab Chat (GĐ2).
@@ -94,7 +94,7 @@ emote kênh và emote theo tier → GĐ6; Follow thật → GĐ4; Subscriber th�
 | --- | --- | --- |
 | Sự kiện stream mới | stream-svc phát qua outbox: `stream.status_changed.v1` (`LIVE`↔`INTERRUPTED`), `stream.updated.v1` (tiêu đề, tag), `stream.vod_ready.v1`; thêm vào `pkg/events` + NXL-00 §11.1 | NXL-A §7A, NXL-00 §17 |
 | Chuyển tiếp | chat-svc nghe `stream.*` → event `status_changed`, `title_changed`, `vod_ready` trên `stream:{streamId}` | NXL-00 §10.3 |
-| Viewer count | Mỗi kết nối nghe `stream:{id}` = 1 người xem (khử trùng theo `userId` hoặc `connId` của Guest); Redis ZSET theo stream với heartbeat, quét mỗi `VIEWER_COUNT_INTERVAL` (10 s) → event `viewer_count` + snapshot khi subscribe | NXL-A, ADR-004 |
+| Viewer count | Mỗi **người xem** nghe `stream:{id}` = 1 (khử trùng theo `userId`, Guest theo `anonId` gửi trong `auth`; nhiều tab / nhiều kết nối của cùng người = 1); Redis ZSET theo stream với heartbeat, quét mỗi `VIEWER_COUNT_INTERVAL` (10 s) → event `viewer_count` + snapshot khi subscribe | NXL-A, ADR-004 |
 | Ghi lại cho stream-svc | `GET /v1/streams` và `GET /v1/streams/{id}` trả `viewerCount` (stream-svc đọc Redis chỉ đọc, key `viewers:{streamId}`), dùng cho thẻ live trên Trang chủ; `peakViewers` lưu khi kết thúc (NXL-G2 Dashboard — chỉ chuẩn bị cột, không UI) | NXL-C, NXL-G2 |
 
 ### WP5 — Web: chat panel và realtime client
@@ -108,7 +108,7 @@ emote kênh và emote theo tier → GĐ6; Follow thật → GĐ4; Subscriber th�
 | Chế độ chat | Hộp cài đặt chế độ cho Streamer/Mod; banner đổi chế độ; lỗi `CHAT_*` theo bảng NXL-B | NXL-B §9C |
 | Guest | Đọc được; ô nhập mở modal đăng nhập (`pendingAction` GĐ1) | BR01, AF10 |
 | Trang xem | Viewer count trên player/ChannelInfo và thẻ live; trạng thái stream từ `stream:` (giữ polling làm dự phòng khi WS mất) | NXL-A |
-| Design | Dùng frame chat trên pen.dev nếu có; thiếu thì theo token hiện có + NXL-B §9 (cần ông chủ xác nhận — G3-Q4) | — |
+| Design | Cột chat của frame gốc `03 · Phòng Live Stream` (pen.dev) + token; trạng thái còn thiếu theo NXL-B §9 và brief `DATN/docs/design/2026-10-14-design-brief-gd03.md` | G3-Q4 |
 
 ### WP6 — Hiệu năng và độ bền
 
@@ -214,9 +214,9 @@ Dùng mã đã có ở NXL-00 §5.2 (`CHAT_*`, `RATE_LIMITED`, `UNAUTHORIZED`, `
 | G3-Q1 | Thư viện mới (AGENTS.md cấm tự thêm): Go `github.com/gofiber/contrib/websocket` (WebSocket trên Fiber), `github.com/redis/go-redis/v9`; web `@tanstack/react-virtual` (danh sách ảo); công cụ k6 (image `grafana/k6`, chỉ chạy tay, không vào CI) | Đồng ý cả 4 |
 | G3-Q2 | Chạy 2 instance chat-svc trong compose mặc định hay chỉ khi demo (profile riêng)? | Mặc định 2 instance, để kịch bản "tắt 1 instance" luôn chạy được |
 | G3-Q3 | Chốt giá trị NXL-B: chat khi `SCHEDULED` (Q2), VIP miễn Slow (Q3), link không nhấp được (Q4), `SAMPLING_THRESHOLD`/`CAP` 30/15 tin/s (Q5), `CHAT_DOM_LIMIT` 150 · lịch sử 50 · `RESUME_MAX_GAP` 200 · `PAUSED_BUFFER_MAX` 500 (Q6), `DUPLICATE_WINDOW` 30 s · 20 tin/30 s · `ACK_TIMEOUT` 5 s (Q7), `CHAT_RETENTION` 30 ngày, không Chat Replay (Q10), `CHAT_MAX_LINES` 3 (Q14) | Theo các giá trị đề xuất này (Q2: chưa mở) |
-| G3-Q4 | Design chat panel: ông chủ có frame pen.dev cho chat (desktop/mobile, emote picker, cài đặt chế độ) chưa? | Nếu chưa: em làm theo token + NXL-B §9 trước, chỉnh khi có frame; có thể viết brief cho agent design |
+| G3-Q4 | Design chat panel: ông chủ có frame pen.dev cho chat (desktop/mobile, emote picker, cài đặt chế độ) chưa? | **Chốt (14/10):** pen.dev chưa có frame chat GĐ3; dùng cột chat của frame gốc `03 · Phòng Live Stream` + token, brief design `DATN/docs/design/2026-10-14-design-brief-gd03.md`; chỉnh khi có frame |
 | G3-Q5 | Viết NXL-F, NXL-E trong GĐ3 (như lộ trình) hay để đầu GĐ5? | Trong GĐ3, sau khi chat chạy (WP7) |
-| G3-Q6 | Viewer count tính Guest theo kết nối (một Guest mở 2 tab = 2) hay theo `X-NXL-Anon-Id`? | Theo `anonId` (web gửi trong `auth`), khớp phiên xem GĐ2 |
+| G3-Q6 | Viewer count tính Guest theo kết nối (một Guest mở 2 tab = 2) hay theo `X-NXL-Anon-Id`? | **Chốt:** một người xem mở nhiều tab chỉ tính 1 — tài khoản theo `userId`, Guest theo `anonId` (localStorage, dùng chung giữa các tab; web gửi trong `auth`) |
 
 ## 11. Tiêu chí hoàn thành (M3)
 
