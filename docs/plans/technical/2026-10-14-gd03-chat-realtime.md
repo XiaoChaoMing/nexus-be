@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày | Working Plan |
 | --- | --- | --- | --- |
-| 1.0 | Draft — chờ duyệt | 2026-10-14 | `docs/plans/working/2026-10-14-gd03-chat-realtime.md` (Approved 14/10) |
+| 1.1 | Đã triển khai (đồng bộ theo hiện thực, §12) | 2026-10-14 | `docs/plans/working/2026-10-14-gd03-chat-realtime.md` (Approved 14/10) |
 
 Quyết định đã chốt (14/10): G3-Q1 thêm `gofiber/contrib/websocket`, `redis/go-redis/v9`, `@tanstack/react-virtual`,
 k6 (chạy tay) · G3-Q2 compose chạy 2 instance chat-svc · G3-Q3 giá trị NXL-B theo đề xuất (§9) · G3-Q4 chưa có
@@ -234,7 +234,7 @@ Migration mới (không sửa migration cũ):
 | Không phải chủ kênh / Mod / Admin | `ErrForbidden` | error / 403 | `FORBIDDEN` |
 | Stream / phòng không có | `ErrNotFound` | error / 404 | `NOT_FOUND` |
 | Phòng chưa mở / đã đóng | `ErrRoomClosed` | error | `CHAT_CLOSED` |
-| Phòng chỉ đọc, kill switch | `ErrRoomReadOnly` / `ErrChatDisabled` | error / 503 | `CHAT_READ_ONLY` / `CHAT_DISABLED` |
+| Phòng chỉ đọc / kill switch | `ErrRoomReadOnly` / `ErrChatDisabled` | error / 409 · 503 | `CHAT_READ_ONLY` / `CHAT_DISABLED` |
 | Rỗng / quá dài / quá dòng | `ErrInvalidBody` | error / 400 | `VALIDATION_FAILED` (`body: REQUIRED|LENGTH`) |
 | Trùng nội dung | `ErrDuplicate` | error | `CHAT_DUPLICATE` |
 | Quá tốc độ | `ErrRateLimited` | error / 429 | `RATE_LIMITED` (`retryAfterSec`) |
@@ -280,8 +280,28 @@ E2E Playwright 2 context; script tắt instance; k6 `deploy/k6/chat.js`.
 WP1 3 ngày · WP2 3 ngày · WP3 2 ngày · WP4 1,5 ngày · WP5 4 ngày · WP6 1,5 ngày · WP7 2 ngày · WP8 1 ngày ≈ 18 ngày
 công (lịch GĐ3: 15 ngày, có ~7 tuần dư từ GĐ1–GĐ2).
 
-## 12. Document control
+## 12. Hiện thực khác bản 1.0
+
+| Mục | Bản 1.0 | Đã làm | Lý do |
+| --- | --- | --- | --- |
+| Subject NATS core | `nxl.rt.<topic>` | `rt.<topic>` | Stream JetStream `NXL` bắt `nxl.>` → tin chat sẽ bị lưu 1 tuần |
+| Migration stream | Thêm `peak_viewers` | Không thêm | Cột đã có trong migration khởi tạo (`NOT NULL DEFAULT 0`) |
+| Bản sao kênh | — | Bảng `chat.channels` (channel → owner) từ `channel.created.v1` | Cần cho badge Streamer và quyền sửa chế độ chat |
+| Redis | §5.6 | Thêm `viewers:active` (stream đang có người xem), `stream:status:{id}` (snapshot `stream:`) | Viewer tick và snapshot |
+| Cấu hình | §7 | Thêm `CHAT_RATE_LIMIT_PRIVILEGED` (100), `CHAT_RATE_LIMIT_IP` (60), `CHAT_PG_POOL_MAX`, `CHAT_LOG_LEVEL`, `CHAT_PARTITION_TICK`, `CHAT_APP_NAME` | Mức trần riêng Streamer/Mod (BR14), giới hạn theo IP |
+| Cổng | chat 8095 | `chat-1` 8095, `chat-2` 8096 (cổng dự kiến của safety-svc dời sang 8099) | Hai instance (G3-Q2) |
+| Frame | §5.1 | `ack`, `sampling` không có `seq` (không phát lại); `error.details` là chuỗi; lỗi subscribe có `ref` = topic; >20 frame/s (burst 40) → đóng `4029`; đổi danh tính trên cùng kết nối → đóng `4001` | Thực tế triển khai, web đã theo |
+| Snapshot `chat:` khi chưa có phòng | `NOT_FOUND` | `room.status: NOT_OPEN`, `me.reason: CHAT_CLOSED` | Trang xem không phải xử lý lỗi |
+| Đổi chế độ | event `mode_change` | `mode_change` + `system {type: MODE_CHANGE}` | Người vào sau thấy dòng hệ thống trong lịch sử phát lại |
+| Badge | Gồm Verified | Chưa có Verified (chưa có nguồn) | — |
+| Emote | ~12 SVG tự vẽ | 12 emote WebP theo design pen.dev (`nxHaha`, `nxKhoc`, `nxTim`, `nxHype`, `nxGG`, `nxPog`, `nxNgau`, `nxCay`, `nxChao`, `nxUa`, `nxGhe`, `nxCup`) | Khớp design GĐ3 |
+| Nginx | — | `worker_connections 8192`, `worker_rlimit_nofile 65535` | 1.024 chỉ đủ ~500 WebSocket (k6) |
+| Sửa ngoài phạm vi | — | `pkg/httpmetrics` sao chép nhãn method/route khỏi buffer dùng lại của Fiber | `/metrics` trả 500 ở mọi service sau khi một route có cả GET và PUT |
+| Seed dev | — | identity phát `user.registered` cho tài khoản seed | Chat hiện đúng tên Creator seed |
+
+## 13. Document control
 
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
 | 1.0 | 2026-10-14 | Bản đầu sau khi duyệt Working Plan (G3-Q1…Q6) |
+| 1.1 | 2026-10-14 | Đồng bộ theo hiện thực (§12); `CHAT_READ_ONLY` là 409 như NXL-00 |

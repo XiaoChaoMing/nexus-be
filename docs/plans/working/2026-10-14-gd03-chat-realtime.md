@@ -2,7 +2,7 @@
 
 | Track | Trạng thái | Ngày |
 | --- | --- | --- |
-| Full (service mới `chat-svc`, transport mới WebSocket, sự kiện mới, compose/Nginx, cross-repo web) | Approved 14/10 (G3-Q1…Q5 theo đề xuất; G3-Q6: một người xem = 1 view dù mở nhiều tab) | 2026-10-14 |
+| Full (service mới `chat-svc`, transport mới WebSocket, sự kiện mới, compose/Nginx, cross-repo web) | Approved 14/10 (G3-Q1…Q5 theo đề xuất; G3-Q6: một người xem = 1 view dù mở nhiều tab) — WP1–WP8 xong 14/10 | 2026-10-14 |
 
 Lịch lộ trình GĐ3: 07/12 → 25/12, mốc **M3**. GĐ2 đã đóng sớm (~7 tuần trước lịch), nên GĐ3 có thể bắt đầu ngay.
 Bảng `nxl_chat` đã có migration từ GĐ0 nhưng chưa có code; trang xem đã chừa cột/tab Chat (GĐ2).
