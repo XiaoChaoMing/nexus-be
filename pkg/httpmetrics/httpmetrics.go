@@ -4,6 +4,7 @@ package httpmetrics
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -45,8 +46,9 @@ func New(reg prometheus.Registerer) fiber.Handler {
 			}
 		}
 
-		method := ctx.Method()
-		route := routeOf(ctx)
+		// Fiber's strings point into pooled request buffers; a label value must own its bytes.
+		method := strings.Clone(ctx.Method())
+		route := strings.Clone(routeOf(ctx))
 
 		requests.WithLabelValues(method, route, strconv.Itoa(status)).Inc()
 		duration.WithLabelValues(method, route).Observe(time.Since(start).Seconds())
