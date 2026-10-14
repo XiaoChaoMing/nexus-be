@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày | Working Plan |
 | --- | --- | --- | --- |
-| 1.0 | Draft — chờ duyệt | 2026-10-14 | `docs/plans/working/2026-10-14-gd04-channel-discovery.md` (Approved 14/10) |
+| 1.0 | Approved 14/10 — đang triển khai | 2026-10-14 | `docs/plans/working/2026-10-14-gd04-channel-discovery.md` (Approved 14/10) |
 
 Quyết định đã chốt (14/10): **G4-Q1** thêm `golang.org/x/image` (đọc WebP, resize), xuất JPEG, resize ngay trong request,
 bucket `nxl-public` đọc công khai qua Nginx `/media/` · **G4-Q2** chỉ PostgreSQL FTS + `unaccent` + tiền tố, không
