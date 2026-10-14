@@ -39,6 +39,7 @@ x-chat: &x-chat
     CHAT_SAMPLING_CAP: "${CHAT_SAMPLING_CAP:-15}"
     CHAT_WS_MAX_CONN_PER_USER: "${CHAT_WS_MAX_CONN_PER_USER:-5}"
     CHAT_VIEWER_INTERVAL: "${CHAT_VIEWER_INTERVAL:-10s}"
+    CHAT_SIDEBAR_BATCH_INTERVAL: "${CHAT_SIDEBAR_BATCH_INTERVAL:-5s}"
     CHAT_DISABLED: "${CHAT_DISABLED:-false}"
     CHAT_REQUIRE_VERIFIED_EMAIL: "${CHAT_REQUIRE_VERIFIED_EMAIL:-false}"
   # Open sockets are closed with 1012 on SIGTERM before the process exits.
@@ -150,7 +151,7 @@ services:
         aliases:
           - identity.lvh.me
 
-  # Channels: created on creator.approved, live flag from stream.started / stream.ended, public channel page.
+  # Channels (created on creator.approved), follows, profiles and images, categories, search, schedules.
   channel:
     container_name: channel
     profiles: ["nxl"]
@@ -163,12 +164,26 @@ services:
       CHANNEL_HTTP_PORT: "8094"
       NXL_PG_URL_CHANNEL: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432/nxl_channel?sslmode=disable"
       NATS_URL: "nats://guest:guest@nats:4222/"
+      CHANNEL_JWKS_URL: "http://identity:8090/v1/auth/.well-known/jwks.json"
+      # viewerCount of live channels, categories and search results, read from the counts chat-svc keeps.
+      CHANNEL_REDIS_ADDR: "redis:6379"
+      # Avatars, banners and category covers; the bucket nxl-public is created (public read) on start
+      # and served by the edge under /media/. Dev only: root credentials, as media-svc.
+      CHANNEL_S3_ENDPOINT: "minio:9000"
+      CHANNEL_S3_ACCESS_KEY: "minioadmin"
+      CHANNEL_S3_SECRET_KEY: "minioadmin123"
+      CHANNEL_PUBLIC_BUCKET: "nxl-public"
+      CHANNEL_SCHEDULE_TICK: "${CHANNEL_SCHEDULE_TICK:-1m}"
     ports:
       - "8094:8094"
     depends_on:
       db-migrate:
         condition: service_completed_successfully
       nats:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      minio:
         condition: service_started
     networks:
       app_network:
@@ -196,6 +211,9 @@ services:
       STREAM_INGEST_GRACE_PERIOD: "${STREAM_INGEST_GRACE_PERIOD:-60s}"
       # viewerCount in the catalog, read from the counts chat-svc keeps in Redis.
       STREAM_REDIS_ADDR: "redis:6379"
+      # Go Live attaches to a scheduled broadcast from 30 min early to 60 min late; later it is cancelled.
+      STREAM_SCHEDULE_EARLY_START: "${STREAM_SCHEDULE_EARLY_START:-30m}"
+      STREAM_SCHEDULE_LATE_GRACE: "${STREAM_SCHEDULE_LATE_GRACE:-60m}"
     ports:
       - "8092:8092"   # public API (8093 internal API stays inside the Docker network)
     depends_on:

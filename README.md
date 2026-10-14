@@ -7,7 +7,7 @@ web app in `../nexuslive-admin`.
 | Service | What it does | Ports |
 | --- | --- | --- |
 | `services/identity` | Accounts, sessions (EdDSA JWT + rotating refresh tokens), JWKS, e-mail verification and password reset, creator applications and their admin review | 8090 |
-| `services/channel` | Creator channels: created when an application is approved (`creator.approved.v1` → `channel.created.v1`), live flag, public channel page `GET /v1/channels/{handle}` | 8094 |
+| `services/channel` | Creator channels (created on `creator.approved.v1`), channel page, follows and bell, profile with avatar / banner (served at `/media/`), categories, search, schedules and reminders, Studio channel settings | 8094 |
 | `services/stream` | Stream keys, stream lifecycle (LIVE → INTERRUPTED → ENDED), live catalog, VODs | 8092 public, 8093 internal |
 | `services/media` | RTMP ingest, ffmpeg ABR transcode (720p/480p/360p), HLS to MinIO, thumbnails, crash recovery | 1935 RTMP, 8091 |
 | `services/chat` | Realtime gateway `GET /v1/ws` (chat, stream status, viewer counts), live chat with modes and limits, history, emotes; two instances in compose (`chat-1`, `chat-2`) sharing Redis | 8095 (`chat-1`), 8096 (`chat-2`) |
@@ -57,7 +57,7 @@ creates the channel. Make any account an admin with `make nxl-promote-admin EMAI
 
 No OBS at hand: `make nxl-media-publish KEY=live_...` streams a 60 s test pattern.
 
-Chat demo data without a real source yet (follows come with channel-svc later, subscriptions with
+Chat demo data without a real source yet (follows now come from channel-svc, subscriptions with
 billing): `make nxl-chat-dev-grant GRANT=follow|sub|mod|vip|owner CHANNEL=<channelId> USER_ID=<userId>`
 (`ARGS="--minutes 60"` backdates a follow, `ARGS="--tier 2"` sets the sub tier, `ARGS=--revoke` removes).
 `docker stop chat-1` shows the failover: clients reconnect to `chat-2` and resume by `seq`.
