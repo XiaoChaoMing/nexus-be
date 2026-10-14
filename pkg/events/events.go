@@ -2,6 +2,8 @@
 // Payloads are JSON; the NATS message id is the event id.
 package events
 
+import "time"
+
 // Event types.
 const (
 	// Published by media-svc.
@@ -11,8 +13,14 @@ const (
 	TypeVODProcessed  = "vod.processed.v1"
 
 	// Published by stream-svc (outbox).
-	TypeStreamStarted = "stream.started.v1"
-	TypeStreamEnded   = "stream.ended.v1"
+	TypeStreamStarted       = "stream.started.v1"
+	TypeStreamEnded         = "stream.ended.v1"
+	TypeStreamStatusChanged = "stream.status_changed.v1"
+	TypeStreamUpdated       = "stream.updated.v1"
+	TypeStreamVODReady      = "stream.vod_ready.v1"
+
+	// Published by chat-svc (outbox).
+	TypeStreamPeakViewers = "stream.peak_viewers.v1"
 
 	// Published by identity-svc (outbox).
 	TypeUserRegistered         = "user.registered.v1"
@@ -25,6 +33,9 @@ const (
 
 	// Published by channel-svc (outbox).
 	TypeChannelCreated = "channel.created.v1"
+	// Not published yet (channel-svc follows arrive later); chat-svc already consumes them.
+	TypeFollowCreated = "follow.created.v1"
+	TypeFollowDeleted = "follow.deleted.v1"
 )
 
 // IngestStarted -.
@@ -83,6 +94,41 @@ type StreamEnded struct {
 	StreamID  string `json:"streamId"`
 	ChannelID string `json:"channelId"`
 	EndReason string `json:"endReason"`
+}
+
+// Stream statuses carried by StreamStatusChanged.
+const (
+	StreamStatusLive        = "LIVE"
+	StreamStatusInterrupted = "INTERRUPTED"
+)
+
+// StreamStatusChanged is published on LIVE → INTERRUPTED and INTERRUPTED → LIVE (ENDED has stream.ended).
+type StreamStatusChanged struct {
+	StreamID   string    `json:"streamId"`
+	ChannelID  string    `json:"channelId"`
+	Status     string    `json:"status"`
+	OccurredAt time.Time `json:"occurredAt"`
+}
+
+// StreamUpdated is published when the creator changes the settings of the stream on air.
+type StreamUpdated struct {
+	StreamID  string   `json:"streamId"`
+	ChannelID string   `json:"channelId"`
+	Title     string   `json:"title"`
+	Tags      []string `json:"tags"`
+}
+
+// StreamVODReady is published when the stream's VOD becomes READY.
+type StreamVODReady struct {
+	StreamID  string `json:"streamId"`
+	ChannelID string `json:"channelId"`
+	VODID     string `json:"vodId"`
+}
+
+// StreamPeakViewers carries the highest viewer count chat-svc measured, sent after stream.ended.
+type StreamPeakViewers struct {
+	StreamID    string `json:"streamId"`
+	PeakViewers int    `json:"peakViewers"`
 }
 
 // UserRegistered -.
@@ -148,4 +194,17 @@ type ChannelCreated struct {
 	OwnerID     string `json:"ownerId"`
 	Handle      string `json:"handle"`
 	DisplayName string `json:"displayName"`
+}
+
+// FollowCreated -.
+type FollowCreated struct {
+	UserID    string    `json:"userId"`
+	ChannelID string    `json:"channelId"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// FollowDeleted -.
+type FollowDeleted struct {
+	UserID    string `json:"userId"`
+	ChannelID string `json:"channelId"`
 }
