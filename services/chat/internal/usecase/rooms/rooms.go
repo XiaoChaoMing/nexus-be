@@ -33,6 +33,7 @@ type Repos struct {
 	Roles    repo.RoleRepo
 	Audience repo.AudienceStore
 	Presence repo.PresenceStore
+	Live     repo.LiveStore
 }
 
 // UseCase implements usecase.Rooms and usecase.Grants.
@@ -59,8 +60,9 @@ type roomStatePayload struct {
 }
 
 type statusPayload struct {
-	Status    string  `json:"status"`
-	EndReason *string `json:"endReason,omitempty"`
+	Status           string     `json:"status"`
+	EndReason        *string    `json:"endReason,omitempty"`
+	ScheduledStartAt *time.Time `json:"scheduledStartAt,omitempty"`
 }
 
 // StreamStarted opens the room. Relays are sent on every delivery: a duplicate realtime event is
@@ -78,7 +80,68 @@ func (uc *UseCase) StreamStarted(ctx context.Context, e events.StreamStarted) er
 		return err
 	}
 
-	return uc.relay(ctx, entity.StreamTopic(e.StreamID), entity.EventStatusChanged, statusPayload{Status: entity.StreamLive})
+	if err := uc.relay(ctx, entity.StreamTopic(e.StreamID), entity.EventStatusChanged, statusPayload{Status: entity.StreamLive}); err != nil {
+		return err
+	}
+
+	started := e.StartedAt
+	if started.IsZero() {
+		started = uc.now().UTC()
+	}
+
+	live := entity.LiveInfo{StreamID: e.StreamID, Title: e.Title, CategoryID: e.CategoryID, StartedAt: started}
+	if err := uc.r.Live.SetLive(ctx, e.ChannelID, live); err != nil {
+		return fmt.Errorf("RoomsUseCase - StreamStarted - live: %w", err)
+	}
+
+	uc.announce(ctx, e.ChannelID, entity.EventChannelLive, channelLivePayload{ChannelID: e.ChannelID, Stream: liveStreamPayload{
+		ID: e.StreamID, Title: e.Title, CategoryID: e.CategoryID,
+	}})
+
+	return nil
+}
+
+type liveStreamPayload struct {
+	ID         string  `json:"id"`
+	Title      string  `json:"title"`
+	CategoryID *string `json:"categoryId"`
+	// ViewerCount is always null here: counts follow in viewer_count_batch.
+	ViewerCount *int `json:"viewerCount"`
+}
+
+type channelLivePayload struct {
+	ChannelID string            `json:"channelId"`
+	Stream    liveStreamPayload `json:"stream"`
+}
+
+type channelOfflinePayload struct {
+	ChannelID  string    `json:"channelId"`
+	StreamID   string    `json:"streamId"`
+	LastLiveAt time.Time `json:"lastLiveAt"`
+}
+
+// announce sends a sidebar event to the channel's followers that have a connection open. It is best effort:
+// a follower who misses it sees the change on the next GET /v1/me/following/sidebar.
+func (uc *UseCase) announce(ctx context.Context, channelID, typ string, data any) {
+	followers, err := uc.r.Audience.Followers(ctx, channelID)
+	if err != nil {
+		uc.l.Warn("rooms - sidebar %s of %s: followers: %v", typ, channelID, err)
+
+		return
+	}
+
+	online, err := uc.r.Presence.Online(ctx, followers)
+	if err != nil {
+		uc.l.Warn("rooms - sidebar %s of %s: online: %v", typ, channelID, err)
+
+		return
+	}
+
+	for _, userID := range online {
+		if _, err = uc.pub.Publish(ctx, entity.SidebarTopic(userID), typ, data); err != nil {
+			uc.l.Warn("rooms - sidebar %s to %s: %v", typ, userID, err)
+		}
+	}
 }
 
 // StreamEnded makes the room read only and reports the peak viewer count to stream-svc.
@@ -110,16 +173,39 @@ func (uc *UseCase) StreamEnded(ctx context.Context, e events.StreamEnded) error 
 		reason = &e.EndReason
 	}
 
-	return uc.relay(ctx, entity.StreamTopic(e.StreamID), entity.EventStatusChanged, statusPayload{Status: entity.StreamEnded, EndReason: reason})
+	if err := uc.relay(ctx, entity.StreamTopic(e.StreamID), entity.EventStatusChanged,
+		statusPayload{Status: entity.StreamEnded, EndReason: reason}); err != nil {
+		return err
+	}
+
+	if e.ChannelID == "" {
+		return nil // event published before channelId was required
+	}
+
+	if err := uc.r.Live.ClearLive(ctx, e.ChannelID, e.StreamID); err != nil {
+		return fmt.Errorf("RoomsUseCase - StreamEnded - live: %w", err)
+	}
+
+	uc.announce(ctx, e.ChannelID, entity.EventChannelOffline, channelOfflinePayload{
+		ChannelID: e.ChannelID, StreamID: e.StreamID, LastLiveAt: uc.now().UTC(),
+	})
+
+	return nil
 }
 
-// StreamStatusChanged relays LIVE ↔ INTERRUPTED; the room stays OPEN (NXL-B §7A).
+// StreamStatusChanged relays LIVE ↔ INTERRUPTED (the room stays OPEN, NXL-B §7A), a cancelled occurrence
+// and a moved one (SCHEDULED with its new start) to the Upcoming page.
 func (uc *UseCase) StreamStatusChanged(ctx context.Context, e events.StreamStatusChanged) error {
 	if err := uc.r.Presence.SetStreamStatus(ctx, e.StreamID, e.Status); err != nil {
 		return fmt.Errorf("RoomsUseCase - StreamStatusChanged: %w", err)
 	}
 
-	return uc.relay(ctx, entity.StreamTopic(e.StreamID), entity.EventStatusChanged, statusPayload{Status: e.Status})
+	p := statusPayload{Status: e.Status}
+	if e.Status == entity.StreamScheduled {
+		p.ScheduledStartAt = e.ScheduledStartAt
+	}
+
+	return uc.relay(ctx, entity.StreamTopic(e.StreamID), entity.EventStatusChanged, p)
 }
 
 type titlePayload struct {
@@ -127,14 +213,34 @@ type titlePayload struct {
 	Tags  []string `json:"tags"`
 }
 
-// StreamUpdated -.
+// StreamUpdated relays the new title and keeps the sidebar's copy of the stream current.
 func (uc *UseCase) StreamUpdated(ctx context.Context, e events.StreamUpdated) error {
 	tags := e.Tags
 	if tags == nil {
 		tags = []string{}
 	}
 
-	return uc.relay(ctx, entity.StreamTopic(e.StreamID), entity.EventTitleChanged, titlePayload{Title: e.Title, Tags: tags})
+	if err := uc.relay(ctx, entity.StreamTopic(e.StreamID), entity.EventTitleChanged, titlePayload{Title: e.Title, Tags: tags}); err != nil {
+		return err
+	}
+
+	if e.ChannelID == "" {
+		return nil
+	}
+
+	live, err := uc.r.Live.Live(ctx, []string{e.ChannelID})
+	if err != nil {
+		return fmt.Errorf("RoomsUseCase - StreamUpdated - live: %w", err)
+	}
+
+	l, ok := live[e.ChannelID]
+	if !ok || l.StreamID != e.StreamID {
+		return nil
+	}
+
+	l.Title, l.CategoryID = e.Title, e.CategoryID
+
+	return wrap("StreamUpdated - live", uc.r.Live.SetLive(ctx, e.ChannelID, l))
 }
 
 type vodPayload struct {
@@ -214,8 +320,13 @@ func (uc *UseCase) MaintainPartitions(ctx context.Context) error {
 // ---- Grants --------------------------------------------------------------------------------------
 
 // Follow -.
-func (uc *UseCase) Follow(ctx context.Context, channelID, userID string, at time.Time) error {
-	return wrap("Follow", uc.r.Audience.SetFollow(ctx, channelID, userID, at))
+func (uc *UseCase) Follow(ctx context.Context, channelID, userID string, at time.Time, notifyLevel string) error {
+	return wrap("Follow", uc.r.Audience.SetFollow(ctx, channelID, userID, at, notifyLevel))
+}
+
+// SetNotifyLevel -.
+func (uc *UseCase) SetNotifyLevel(ctx context.Context, channelID, userID, notifyLevel string) error {
+	return wrap("SetNotifyLevel", uc.r.Audience.SetNotifyLevel(ctx, channelID, userID, notifyLevel))
 }
 
 // Unfollow -.

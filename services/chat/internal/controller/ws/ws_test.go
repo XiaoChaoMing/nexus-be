@@ -102,8 +102,12 @@ func (fakeGateway) ConnAlive(context.Context, entity.Principal)        {}
 func (fakeGateway) ConnClosed(context.Context, entity.Principal)       {}
 func (fakeGateway) Leave(entity.Principal, entity.Topic)               {}
 
+func (fakeGateway) SidebarCounts(_ context.Context, userID string) ([]entity.SidebarCount, error) {
+	return []entity.SidebarCount{{ChannelID: userID, StreamID: streamID, Count: 7}}, nil
+}
+
 func (fakeGateway) Join(_ context.Context, p entity.Principal, t entity.Topic) (any, error) {
-	if t.Kind == entity.TopicUser && t.ID != p.UserID {
+	if (t.Kind == entity.TopicUser || t.Kind == entity.TopicSidebar) && t.ID != p.UserID {
 		return nil, entity.ErrForbidden
 	}
 
@@ -500,4 +504,28 @@ func TestShutdownClosesWith1012(t *testing.T) {
 
 	require.Equal(t, ws.CloseServiceRestart, c.closed())
 	require.Eventually(t, func() bool { return s.hub.Connections() == 0 }, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestSidebarBatch(t *testing.T) {
+	t.Parallel()
+
+	s := start(t, nil)
+	c := dial(t, s, nil)
+	c.auth("good-" + userA)
+
+	c.send(map[string]any{"op": "subscribe", "topic": "sidebar:" + userB})
+	require.Equal(t, "FORBIDDEN", c.next()["code"], "only the user's own sidebar")
+
+	c.send(map[string]any{"op": "subscribe", "topic": "sidebar:" + userA})
+	require.Equal(t, "subscribed", c.next()["op"])
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	go s.hub.RunSidebarBatch(ctx, 20*time.Millisecond)
+
+	ev := c.next()
+	require.Equal(t, "viewer_count_batch", ev["type"])
+	require.NotContains(t, ev, "seq", "local to the socket")
+	require.Equal(t, map[string]any{"items": []any{map[string]any{"channelId": userA, "streamId": streamID, "count": float64(7)}}}, ev["data"])
 }

@@ -28,6 +28,8 @@ type (
 	evMsg    struct{ ev entity.Event }
 	gapMsg   struct{}
 	tickMsg  struct{}
+	// localMsg is a connection-local frame (no seq) for every subscriber of the topic.
+	localMsg struct{ frame []byte }
 )
 
 // member is one subscriber: it gets the events with seq > after.
@@ -154,6 +156,16 @@ func (a *actor) handle(msg any) {
 	case tickMsg:
 		a.tickArmed = false
 		a.window(time.Now(), false)
+	case localMsg:
+		sent := 0
+
+		for cl := range a.subs {
+			if cl.enqueue(m.frame) {
+				sent++
+			}
+		}
+
+		a.h.m.Delivered(sent)
 	}
 }
 

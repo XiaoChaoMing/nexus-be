@@ -19,20 +19,23 @@ import (
 
 // Key prefixes. viewers:{streamId} is read by stream-svc.
 const (
-	_seqKey      = "rt:seq:"
-	_bufKey      = "rt:buf:"
-	_dedupeKey   = "chat:dedupe:"
-	_lastKey     = "chat:last:"
-	_slowKey     = "chat:slow:"
-	_followKey   = "follow:"
-	_subKey      = "sub:"
-	_connKey     = "ws:conn:"
-	_viewersZ    = "viewers:z:"
-	_viewersN    = "viewers:"
-	_viewersPeak = "viewers:peak:"
-	_viewersLead = "viewers:leader"
-	_viewersSet  = "viewers:active"
-	_statusKey   = "stream:status:"
+	_seqKey       = "rt:seq:"
+	_bufKey       = "rt:buf:"
+	_dedupeKey    = "chat:dedupe:"
+	_lastKey      = "chat:last:"
+	_slowKey      = "chat:slow:"
+	_followKey    = "follow:"
+	_subKey       = "sub:"
+	_connKey      = "ws:conn:"
+	_viewersZ     = "viewers:z:"
+	_viewersN     = "viewers:"
+	_viewersPeak  = "viewers:peak:"
+	_viewersLead  = "viewers:leader"
+	_viewersSet   = "viewers:active"
+	_statusKey    = "stream:status:"
+	_followingKey = "following:"
+	_notifyKey    = "follow:level:"
+	_liveKey      = "rt:live"
 
 	_seqTTL     = 24 * time.Hour
 	_dedupeTTL  = 10 * time.Minute
@@ -67,6 +70,7 @@ var (
 	_ repo.SendGuard     = (*Store)(nil)
 	_ repo.AudienceStore = (*Store)(nil)
 	_ repo.PresenceStore = (*Store)(nil)
+	_ repo.LiveStore     = (*Store)(nil)
 )
 
 // New -.

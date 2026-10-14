@@ -38,7 +38,7 @@ var (
 	ErrBanned = errors.New("banned")
 	// ErrEmailNotVerified: only when CHAT_REQUIRE_VERIFIED_EMAIL is on.
 	ErrEmailNotVerified = errors.New("email not verified")
-	// ErrInvalidTopic: the topic is not chat:{uuid}, stream:{uuid} or user:{uuid}.
+	// ErrInvalidTopic: the topic is not chat:{uuid}, stream:{uuid}, user:{uuid} or sidebar:{uuid}.
 	ErrInvalidTopic = errors.New("invalid topic")
 	// ErrTooManySubscriptions: WS_MAX_SUBSCRIPTIONS reached on one connection.
 	ErrTooManySubscriptions = errors.New("too many subscriptions")

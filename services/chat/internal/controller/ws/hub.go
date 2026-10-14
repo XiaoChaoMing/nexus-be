@@ -19,6 +19,7 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/minhnn/nexuslive-be/pkg/logger"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase"
 )
 
@@ -257,4 +258,69 @@ func (h *Hub) Connections() int {
 	defer h.mu.Unlock()
 
 	return len(h.clients)
+}
+
+type sidebarBatchData struct {
+	Items []entity.SidebarCount `json:"items"`
+}
+
+// RunSidebarBatch sends viewer_count_batch to the sidebar: subscribers of this instance every interval until ctx
+// is canceled (each instance serves its own sockets, like sampling).
+func (h *Hub) RunSidebarBatch(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+
+	t := time.NewTicker(interval)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			h.sidebarBatch(ctx)
+		}
+	}
+}
+
+func (h *Hub) sidebarBatch(ctx context.Context) {
+	for _, a := range h.actorsOf(entity.TopicSidebar) {
+		topic, err := entity.ParseTopic(a.topic)
+		if err != nil {
+			continue
+		}
+
+		rctx, cancel := context.WithTimeout(ctx, _redisWait)
+		items, err := h.gw.SidebarCounts(rctx, topic.ID)
+
+		cancel()
+
+		if err != nil {
+			h.l.Warn("ws - sidebar counts of %s: %v", topic.ID, err)
+
+			continue
+		}
+
+		if len(items) > 0 {
+			a.post(localMsg{frame: encodeLocal(a.topic, entity.EventViewerCountBatch, sidebarBatchData{Items: items}, time.Now())})
+		}
+	}
+}
+
+// actorsOf returns the running actors of one topic kind.
+func (h *Hub) actorsOf(kind entity.TopicKind) []*actor {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	prefix := string(kind) + ":"
+	out := []*actor{}
+
+	for topic, ref := range h.actors {
+		if strings.HasPrefix(topic, prefix) {
+			out = append(out, ref.a)
+		}
+	}
+
+	return out
 }

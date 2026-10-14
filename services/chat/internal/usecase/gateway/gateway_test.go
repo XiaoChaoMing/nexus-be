@@ -105,3 +105,65 @@ func TestAuthorizeAndJoin(t *testing.T) {
 	require.Equal(t, 1, s.ViewerCount)
 	require.Equal(t, []string{"u:" + userID}, v.joined)
 }
+
+type audience struct {
+	repo.AudienceStore
+	following []string
+}
+
+func (a audience) Following(context.Context, string) ([]string, error) { return a.following, nil }
+
+type live map[string]entity.LiveInfo
+
+func (l live) SetLive(context.Context, string, entity.LiveInfo) error { return nil }
+func (l live) ClearLive(context.Context, string, string) error        { return nil }
+
+func (l live) Live(_ context.Context, ids []string) (map[string]entity.LiveInfo, error) {
+	out := map[string]entity.LiveInfo{}
+
+	for _, id := range ids {
+		if v, ok := l[id]; ok {
+			out[id] = v
+		}
+	}
+
+	return out, nil
+}
+
+type counts struct{ presence }
+
+func (counts) ViewerCounts(_ context.Context, ids []string) (map[string]int, error) {
+	out := map[string]int{}
+	for _, id := range ids {
+		out[id] = 12
+	}
+
+	return out, nil
+}
+
+func TestSidebar(t *testing.T) {
+	t.Parallel()
+
+	uc := gateway.New(gateway.Deps{
+		Verifier: verifier{}, Viewers: &viewers{}, Presence: &counts{},
+		Audience: audience{following: []string{"ch-live", "ch-off"}}, Live: live{"ch-live": {StreamID: "s1"}},
+	}, 1, logger.New("error"))
+	ctx := context.Background()
+
+	good := "good"
+	p, err := uc.Authorize(ctx, &good, "")
+	require.NoError(t, err)
+
+	_, err = uc.Join(ctx, p, entity.SidebarTopic(userID))
+	require.NoError(t, err)
+
+	_, err = uc.Join(ctx, p, entity.SidebarTopic(stream))
+	require.ErrorIs(t, err, entity.ErrForbidden, "another user's sidebar")
+
+	_, err = uc.Join(ctx, entity.Principal{AnonID: "x"}, entity.SidebarTopic(userID))
+	require.ErrorIs(t, err, entity.ErrForbidden, "guests have no sidebar topic")
+
+	items, err := uc.SidebarCounts(ctx, userID)
+	require.NoError(t, err)
+	require.Equal(t, []entity.SidebarCount{{ChannelID: "ch-live", StreamID: "s1", Count: 12}}, items)
+}

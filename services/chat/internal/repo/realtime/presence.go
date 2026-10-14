@@ -2,11 +2,13 @@ package realtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -64,8 +66,13 @@ func (s *Store) SubTiers(ctx context.Context, channelID string, userIDs []string
 }
 
 // SetFollow -.
-func (s *Store) SetFollow(ctx context.Context, channelID, userID string, at time.Time) error {
-	if err := s.rdb.HSet(ctx, _followKey+channelID, userID, at.Unix()).Err(); err != nil {
+func (s *Store) SetFollow(ctx context.Context, channelID, userID string, at time.Time, notifyLevel string) error {
+	pipe := s.rdb.TxPipeline()
+	pipe.HSet(ctx, _followKey+channelID, userID, at.Unix())
+	pipe.SAdd(ctx, _followingKey+userID, channelID)
+	pipe.HSet(ctx, _notifyKey+channelID, userID, notifyLevel)
+
+	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("realtime - SetFollow: %w", err)
 	}
 
@@ -74,11 +81,45 @@ func (s *Store) SetFollow(ctx context.Context, channelID, userID string, at time
 
 // RemoveFollow -.
 func (s *Store) RemoveFollow(ctx context.Context, channelID, userID string) error {
-	if err := s.rdb.HDel(ctx, _followKey+channelID, userID).Err(); err != nil {
+	pipe := s.rdb.TxPipeline()
+	pipe.HDel(ctx, _followKey+channelID, userID)
+	pipe.SRem(ctx, _followingKey+userID, channelID)
+	pipe.HDel(ctx, _notifyKey+channelID, userID)
+
+	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("realtime - RemoveFollow: %w", err)
 	}
 
 	return nil
+}
+
+// SetNotifyLevel -.
+func (s *Store) SetNotifyLevel(ctx context.Context, channelID, userID, notifyLevel string) error {
+	if err := s.rdb.HSet(ctx, _notifyKey+channelID, userID, notifyLevel).Err(); err != nil {
+		return fmt.Errorf("realtime - SetNotifyLevel: %w", err)
+	}
+
+	return nil
+}
+
+// Followers -.
+func (s *Store) Followers(ctx context.Context, channelID string) ([]string, error) {
+	ids, err := s.rdb.HKeys(ctx, _followKey+channelID).Result()
+	if err != nil {
+		return nil, fmt.Errorf("realtime - Followers: %w", err)
+	}
+
+	return ids, nil
+}
+
+// Following -.
+func (s *Store) Following(ctx context.Context, userID string) ([]string, error) {
+	ids, err := s.rdb.SMembers(ctx, _followingKey+userID).Result()
+	if err != nil {
+		return nil, fmt.Errorf("realtime - Following: %w", err)
+	}
+
+	return ids, nil
 }
 
 // SetSub -.
@@ -291,4 +332,125 @@ func (s *Store) StreamStatus(ctx context.Context, streamID string) (string, erro
 	}
 
 	return st, nil
+}
+
+// Online -.
+func (s *Store) Online(ctx context.Context, userIDs []string) ([]string, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+
+	pipe := s.rdb.Pipeline()
+	cmds := make([]*goredis.IntCmd, len(userIDs))
+
+	for i, id := range userIDs {
+		cmds[i] = pipe.Exists(ctx, _connKey+id)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, fmt.Errorf("realtime - Online: %w", err)
+	}
+
+	out := []string{}
+
+	for i, c := range cmds {
+		if c.Val() > 0 {
+			out = append(out, userIDs[i])
+		}
+	}
+
+	return out, nil
+}
+
+// ViewerCounts -.
+func (s *Store) ViewerCounts(ctx context.Context, streamIDs []string) (map[string]int, error) {
+	out := make(map[string]int, len(streamIDs))
+	if len(streamIDs) == 0 {
+		return out, nil
+	}
+
+	keys := make([]string, len(streamIDs))
+	for i, id := range streamIDs {
+		keys[i] = _viewersN + id
+	}
+
+	vals, err := s.rdb.MGet(ctx, keys...).Result()
+	if err != nil && !errors.Is(err, goredis.Nil) {
+		return nil, fmt.Errorf("realtime - ViewerCounts: %w", err)
+	}
+
+	for i, v := range vals {
+		str, ok := v.(string)
+		if !ok {
+			continue
+		}
+
+		if n, perr := strconv.Atoi(str); perr == nil && n >= 0 {
+			out[streamIDs[i]] = n
+		}
+	}
+
+	return out, nil
+}
+
+// ---- channels on air (sidebar) -------------------------------------------------------------------
+
+// SetLive -.
+func (s *Store) SetLive(ctx context.Context, channelID string, l entity.LiveInfo) error {
+	b, err := json.Marshal(l)
+	if err != nil {
+		return fmt.Errorf("realtime - SetLive - marshal: %w", err)
+	}
+
+	if err = s.rdb.HSet(ctx, _liveKey, channelID, b).Err(); err != nil {
+		return fmt.Errorf("realtime - SetLive: %w", err)
+	}
+
+	return nil
+}
+
+// _clearLiveLua removes the channel only while it still points at the ended stream (a late stream.ended must
+// not clear a newer broadcast).
+const _clearLiveLua = `
+local cur = redis.call('HGET', KEYS[1], ARGV[1])
+if cur and string.find(cur, ARGV[2], 1, true) then
+  return redis.call('HDEL', KEYS[1], ARGV[1])
+end
+return 0`
+
+// ClearLive -.
+func (s *Store) ClearLive(ctx context.Context, channelID, streamID string) error {
+	if err := s.rdb.Eval(ctx, _clearLiveLua, []string{_liveKey}, channelID, `"streamId":"`+streamID+`"`).Err(); err != nil &&
+		!errors.Is(err, goredis.Nil) {
+		return fmt.Errorf("realtime - ClearLive: %w", err)
+	}
+
+	return nil
+}
+
+// Live -.
+func (s *Store) Live(ctx context.Context, channelIDs []string) (map[string]entity.LiveInfo, error) {
+	out := map[string]entity.LiveInfo{}
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+
+	vals, err := s.rdb.HMGet(ctx, _liveKey, channelIDs...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("realtime - Live: %w", err)
+	}
+
+	for i, v := range vals {
+		str, ok := v.(string)
+		if !ok {
+			continue
+		}
+
+		var l entity.LiveInfo
+		if json.Unmarshal([]byte(str), &l) == nil {
+			out[channelIDs[i]] = l
+		}
+	}
+
+	return out, nil
 }

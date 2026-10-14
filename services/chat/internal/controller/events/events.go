@@ -29,7 +29,8 @@ var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeStreamStarted, events.TypeStreamEnded, events.TypeStreamStatusChanged, events.TypeStreamUpdated,
 	events.TypeStreamVODReady,
 	events.TypeUserRegistered, events.TypeUserProfileUpdated, events.TypeUserEmailVerified,
-	events.TypeChannelCreated, events.TypeFollowCreated, events.TypeFollowDeleted,
+	events.TypeChannelCreated, events.TypeChannelUpdated, events.TypeFollowCreated, events.TypeFollowUpdated,
+	events.TypeFollowDeleted,
 }
 
 // Handler routes one event to the rooms or grants use case.
@@ -81,7 +82,9 @@ func streamHandlers(rooms usecase.Rooms) map[string]eventbus.Handler {
 			func(ctx context.Context, _ string, p events.StreamEnded) error { return rooms.StreamEnded(ctx, p) }),
 		events.TypeStreamStatusChanged: handle(func(p events.StreamStatusChanged) []string { return []string{p.StreamID} },
 			func(ctx context.Context, _ string, p events.StreamStatusChanged) error {
-				if p.Status != events.StreamStatusLive && p.Status != events.StreamStatusInterrupted {
+				switch p.Status {
+				case events.StreamStatusLive, events.StreamStatusInterrupted, events.StreamStatusCancelled, events.StreamStatusScheduled:
+				default:
 					return fmt.Errorf("%w: status %q", eventbus.ErrSkip, p.Status)
 				}
 
@@ -122,6 +125,11 @@ func copyHandlers(rooms usecase.Rooms, grants usecase.Grants) map[string]eventbu
 			func(ctx context.Context, id string, p events.ChannelCreated) error {
 				return rooms.ChannelCreated(ctx, id, entity.Channel{ID: p.ChannelID, OwnerID: p.OwnerID})
 			}),
+		// Only the owner matters here (chat modes and the broadcaster badge); names come from the identity copy.
+		events.TypeChannelUpdated: handle(func(p events.ChannelUpdated) []string { return []string{p.ChannelID, p.OwnerID} },
+			func(ctx context.Context, id string, p events.ChannelUpdated) error {
+				return rooms.ChannelCreated(ctx, id, entity.Channel{ID: p.ChannelID, OwnerID: p.OwnerID})
+			}),
 		events.TypeFollowCreated: handle(func(p events.FollowCreated) []string { return []string{p.UserID, p.ChannelID} },
 			func(ctx context.Context, _ string, p events.FollowCreated) error {
 				at := p.CreatedAt
@@ -129,7 +137,22 @@ func copyHandlers(rooms usecase.Rooms, grants usecase.Grants) map[string]eventbu
 					at = time.Now()
 				}
 
-				return grants.Follow(ctx, p.ChannelID, p.UserID, at)
+				level := p.NotifyLevel
+				if level == "" {
+					level = events.NotifyAll
+				}
+
+				return grants.Follow(ctx, p.ChannelID, p.UserID, at, level)
+			}),
+		events.TypeFollowUpdated: handle(func(p events.FollowUpdated) []string { return []string{p.UserID, p.ChannelID} },
+			func(ctx context.Context, _ string, p events.FollowUpdated) error {
+				switch p.NotifyLevel {
+				case events.NotifyAll, events.NotifyLiveOnly, events.NotifyOff:
+				default:
+					return fmt.Errorf("%w: notifyLevel %q", eventbus.ErrSkip, p.NotifyLevel)
+				}
+
+				return grants.SetNotifyLevel(ctx, p.ChannelID, p.UserID, p.NotifyLevel)
 			}),
 		events.TypeFollowDeleted: handle(func(p events.FollowDeleted) []string { return []string{p.UserID, p.ChannelID} },
 			func(ctx context.Context, _ string, p events.FollowDeleted) error {

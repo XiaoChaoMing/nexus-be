@@ -50,13 +50,19 @@ func (r *rec) ChannelCreated(_ context.Context, _ string, c entity.Channel) erro
 	return nil
 }
 
-func (r *rec) Follow(_ context.Context, _, _ string, at time.Time) error {
-	r.calls = append(r.calls, "follow "+at.UTC().Format(time.RFC3339))
+func (r *rec) SetNotifyLevel(_ context.Context, _, _, level string) error {
+	r.calls = append(r.calls, "bell "+level)
 
 	return nil
 }
 
-func TestHandler(t *testing.T) {
+func (r *rec) Follow(_ context.Context, _, _ string, at time.Time, level string) error {
+	r.calls = append(r.calls, "follow "+at.UTC().Format(time.RFC3339)+" "+level)
+
+	return nil
+}
+
+func TestHandler(t *testing.T) { //nolint:funlen // one table of event types
 	t.Parallel()
 
 	stream, ch, user := uuid.NewString(), uuid.NewString(), uuid.NewString()
@@ -79,7 +85,28 @@ func TestHandler(t *testing.T) {
 		{
 			name: "follow", typ: pkgevents.TypeFollowCreated,
 			payload:  `{"userId":"` + user + `","channelId":"` + ch + `","createdAt":"2026-10-14T10:00:00Z"}`,
-			wantCall: "follow 2026-10-14T10:00:00Z",
+			wantCall: "follow 2026-10-14T10:00:00Z ALL",
+		},
+		{
+			name: "follow with bell", typ: pkgevents.TypeFollowCreated,
+			payload:  `{"userId":"` + user + `","channelId":"` + ch + `","createdAt":"2026-10-14T10:00:00Z","notifyLevel":"OFF"}`,
+			wantCall: "follow 2026-10-14T10:00:00Z OFF",
+		},
+		{
+			name: "bell", typ: pkgevents.TypeFollowUpdated, payload: `{"userId":"` + user + `","channelId":"` + ch + `","notifyLevel":"LIVE_ONLY"}`,
+			wantCall: "bell LIVE_ONLY",
+		},
+		{
+			name: "bad bell", typ: pkgevents.TypeFollowUpdated, payload: `{"userId":"` + user + `","channelId":"` + ch + `","notifyLevel":"NONE"}`,
+			wantSkip: true,
+		},
+		{
+			name: "channel updated", typ: pkgevents.TypeChannelUpdated, payload: `{"channelId":"` + ch + `","ownerId":"` + user + `","handle":"x"}`,
+			wantCall: "channel " + user,
+		},
+		{
+			name: "cancelled", typ: pkgevents.TypeStreamStatusChanged, payload: `{"streamId":"` + stream + `","status":"CANCELLED"}`,
+			wantCall: "status CANCELLED",
 		},
 		{name: "not json", typ: pkgevents.TypeStreamEnded, payload: `{`, wantSkip: true},
 		{name: "ignored type", typ: "ingest.health.v1", payload: `{}`},

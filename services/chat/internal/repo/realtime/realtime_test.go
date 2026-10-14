@@ -146,7 +146,7 @@ func TestGuards(t *testing.T) {
 	require.Zero(t, left)
 }
 
-func TestAudienceAndConnections(t *testing.T) {
+func TestAudienceAndConnections(t *testing.T) { //nolint:funlen // one story over the follow copy and connections
 	t.Parallel()
 
 	s := setup(t, realtime.Options{})
@@ -154,7 +154,7 @@ func TestAudienceAndConnections(t *testing.T) {
 	ch, u1, u2 := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	at := time.Now().Add(-time.Hour).Truncate(time.Second).UTC()
 
-	require.NoError(t, s.SetFollow(ctx, ch, u1, at))
+	require.NoError(t, s.SetFollow(ctx, ch, u1, at, "ALL"))
 	require.NoError(t, s.SetSub(ctx, ch, u2, 2))
 
 	followed, tier, err := s.Audience(ctx, ch, u1)
@@ -171,8 +171,21 @@ func TestAudienceAndConnections(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]int{u2: 2}, tiers)
 
+	followers, err := s.Followers(ctx, ch)
+	require.NoError(t, err)
+	require.Equal(t, []string{u1}, followers)
+
+	following, err := s.Following(ctx, u1)
+	require.NoError(t, err)
+	require.Equal(t, []string{ch}, following)
+	require.NoError(t, s.SetNotifyLevel(ctx, ch, u1, "OFF"))
+
 	require.NoError(t, s.RemoveFollow(ctx, ch, u1))
 	require.NoError(t, s.RemoveSub(ctx, ch, u2))
+
+	following, err = s.Following(ctx, u1)
+	require.NoError(t, err)
+	require.Empty(t, following)
 
 	followed, tier, err = s.Audience(ctx, ch, u1)
 	require.NoError(t, err)
@@ -255,4 +268,44 @@ func TestViewers(t *testing.T) { //nolint:paralleltest,funlen // the leader key 
 	status, err = s.StreamStatus(ctx, uuid.NewString())
 	require.NoError(t, err)
 	require.Empty(t, status)
+}
+
+func TestLiveAndOnline(t *testing.T) {
+	t.Parallel()
+
+	s := setup(t, realtime.Options{})
+	ctx := context.Background()
+	ch, st, newer, u1, u2 := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+
+	require.NoError(t, s.SetLive(ctx, ch, entity.LiveInfo{StreamID: st, Title: "Rank"}))
+
+	live, err := s.Live(ctx, []string{ch, uuid.NewString()})
+	require.NoError(t, err)
+	require.Len(t, live, 1)
+	require.Equal(t, "Rank", live[ch].Title)
+
+	require.NoError(t, s.SetLive(ctx, ch, entity.LiveInfo{StreamID: newer}))
+	require.NoError(t, s.ClearLive(ctx, ch, st), "a late end of the older stream")
+
+	live, err = s.Live(ctx, []string{ch})
+	require.NoError(t, err)
+	require.Equal(t, newer, live[ch].StreamID)
+
+	require.NoError(t, s.ClearLive(ctx, ch, newer))
+
+	live, err = s.Live(ctx, []string{ch})
+	require.NoError(t, err)
+	require.Empty(t, live)
+
+	ok, err := s.AddConn(ctx, u1, "c1", 5)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	online, err := s.Online(ctx, []string{u1, u2})
+	require.NoError(t, err)
+	require.Equal(t, []string{u1}, online)
+
+	counts, err := s.ViewerCounts(ctx, []string{st})
+	require.NoError(t, err)
+	require.Empty(t, counts)
 }

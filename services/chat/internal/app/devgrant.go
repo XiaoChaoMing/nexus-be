@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/pkg/logger"
 	"github.com/minhnn/nexuslive-be/pkg/postgres"
 	"github.com/minhnn/nexuslive-be/pkg/redis"
@@ -117,7 +118,7 @@ func applyGrant(ctx context.Context, g usecase.Grants, a grantArgs) error {
 			return g.Unfollow(ctx, a.channel, a.user)
 		}
 
-		return g.Follow(ctx, a.channel, a.user, time.Now().Add(-time.Duration(a.minutes)*time.Minute))
+		return g.Follow(ctx, a.channel, a.user, time.Now().Add(-time.Duration(a.minutes)*time.Minute), events.NotifyAll)
 	case "sub":
 		if a.revoke {
 			return g.Unsubscribe(ctx, a.channel, a.user)

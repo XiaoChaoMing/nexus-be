@@ -96,6 +96,8 @@ type (
 		RequireVerified     bool          `env:"CHAT_REQUIRE_VERIFIED_EMAIL" envDefault:"false"`
 		ViewerInterval      time.Duration `env:"CHAT_VIEWER_INTERVAL"        envDefault:"10s"`
 		PartitionTick       time.Duration `env:"CHAT_PARTITION_TICK"         envDefault:"1h"`
+		// SidebarBatchInterval paces viewer_count_batch on sidebar:{userId} (RT_BATCH_MS); 0 turns it off.
+		SidebarBatchInterval time.Duration `env:"CHAT_SIDEBAR_BATCH_INTERVAL" envDefault:"5s"`
 	}
 )
 

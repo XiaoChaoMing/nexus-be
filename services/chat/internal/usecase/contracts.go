@@ -28,6 +28,8 @@ type (
 		Since(ctx context.Context, topic string, after int64, limit int) ([]entity.Event, bool, error)
 		// Listen delivers the topic's events published by any instance until stop is called.
 		Listen(topic string, fn func(entity.Event)) (stop func(), err error)
+		// SidebarCounts returns the viewer counts of the user's followed channels that are live.
+		SidebarCounts(ctx context.Context, userID string) ([]entity.SidebarCount, error)
 	}
 
 	// Chat is B1–B3: sending, history, emotes and chat modes.
@@ -60,7 +62,8 @@ type (
 
 	// Grants keeps the follow/sub copies and channel roles (follow.* events and the dev CLI).
 	Grants interface {
-		Follow(ctx context.Context, channelID, userID string, at time.Time) error
+		Follow(ctx context.Context, channelID, userID string, at time.Time, notifyLevel string) error
+		SetNotifyLevel(ctx context.Context, channelID, userID, notifyLevel string) error
 		Unfollow(ctx context.Context, channelID, userID string) error
 		Subscribe(ctx context.Context, channelID, userID string, tier int) error
 		Unsubscribe(ctx context.Context, channelID, userID string) error

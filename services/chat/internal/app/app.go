@@ -127,6 +127,8 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	}, m, l)
 	hub.Register(server.App)
 
+	go hub.RunSidebarBatch(ctx, cfg.Chat.SidebarBatchInterval)
+
 	server.Start()
 
 	l.Info("chat - Run - :%s (WebSocket /v1/ws + REST), disabled=%t", cfg.HTTP.Port, cfg.Chat.Disabled)
@@ -179,10 +181,10 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 		viewers: viewersUC,
 		gateway: gateway.New(gateway.Deps{
 			Verifier: jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer),
-			Chat:     chatUC, Viewers: viewersUC, Seq: rt, Presence: rt, Broker: br,
+			Chat:     chatUC, Viewers: viewersUC, Seq: rt, Presence: rt, Broker: br, Audience: rt, Live: rt,
 		}, cfg.WS.MaxConnPerUser, l),
 		rooms: rooms.New(rooms.Repos{
-			Rooms: store, Messages: store, Users: store, Roles: store, Audience: rt, Presence: rt,
+			Rooms: store, Messages: store, Users: store, Roles: store, Audience: rt, Presence: rt, Live: rt,
 		}, pub, cfg.Chat.Retention, l),
 	}
 }

@@ -104,8 +104,14 @@ type (
 		// Audience returns when userID followed the channel (nil = not following) and their sub tier (0 = none).
 		Audience(ctx context.Context, channelID, userID string) (*time.Time, int, error)
 		SubTiers(ctx context.Context, channelID string, userIDs []string) (map[string]int, error)
-		SetFollow(ctx context.Context, channelID, userID string, at time.Time) error
+		// SetFollow records the follow in both directions (follow:{channelId}, following:{userId}) with its bell.
+		SetFollow(ctx context.Context, channelID, userID string, at time.Time, notifyLevel string) error
 		RemoveFollow(ctx context.Context, channelID, userID string) error
+		SetNotifyLevel(ctx context.Context, channelID, userID, notifyLevel string) error
+		// Followers lists the users following the channel.
+		Followers(ctx context.Context, channelID string) ([]string, error)
+		// Following lists the channels the user follows.
+		Following(ctx context.Context, userID string) ([]string, error)
 		SetSub(ctx context.Context, channelID, userID string, tier int) error
 		RemoveSub(ctx context.Context, channelID, userID string) error
 	}
@@ -136,6 +142,20 @@ type (
 		SetStreamStatus(ctx context.Context, streamID, status string) error
 		// StreamStatus returns "" when unknown.
 		StreamStatus(ctx context.Context, streamID string) (string, error)
+
+		// Online returns the users among userIDs that have an open connection.
+		Online(ctx context.Context, userIDs []string) ([]string, error)
+		// ViewerCounts reads viewers:{streamId}; streams without a count are absent.
+		ViewerCounts(ctx context.Context, streamIDs []string) (map[string]int, error)
+	}
+
+	// LiveStore is the map of channels on air (rt:live) behind the sidebar topics.
+	LiveStore interface {
+		SetLive(ctx context.Context, channelID string, l entity.LiveInfo) error
+		// ClearLive removes the channel unless a newer stream replaced streamID.
+		ClearLive(ctx context.Context, channelID, streamID string) error
+		// Live returns the streams on air of the given channels.
+		Live(ctx context.Context, channelIDs []string) (map[string]entity.LiveInfo, error)
 	}
 
 	// Broker fans realtime events out to every chat-svc instance (core NATS, no persistence).

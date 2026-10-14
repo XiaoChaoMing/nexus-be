@@ -28,6 +28,8 @@ type UseCase struct {
 	seq      repo.SeqStore
 	presence repo.PresenceStore
 	broker   repo.Broker
+	audience repo.AudienceStore
+	live     repo.LiveStore
 	maxConns int
 	l        logger.Interface
 }
@@ -42,13 +44,15 @@ type Deps struct {
 	Seq      repo.SeqStore
 	Presence repo.PresenceStore
 	Broker   repo.Broker
+	Audience repo.AudienceStore
+	Live     repo.LiveStore
 }
 
 // New -.
 func New(d Deps, maxConnsPerUser int, l logger.Interface) *UseCase {
 	return &UseCase{
 		verifier: d.Verifier, chat: d.Chat, viewers: d.Viewers, seq: d.Seq, presence: d.Presence, broker: d.Broker,
-		maxConns: maxConnsPerUser, l: l,
+		audience: d.Audience, live: d.Live, maxConns: maxConnsPerUser, l: l,
 	}
 }
 
@@ -118,7 +122,7 @@ func (uc *UseCase) ConnClosed(ctx context.Context, p entity.Principal) {
 // Join -.
 func (uc *UseCase) Join(ctx context.Context, p entity.Principal, topic entity.Topic) (any, error) {
 	switch topic.Kind {
-	case entity.TopicUser:
+	case entity.TopicUser, entity.TopicSidebar:
 		if p.Guest() || topic.ID != p.UserID {
 			return nil, entity.ErrForbidden
 		}
@@ -209,6 +213,42 @@ func (uc *UseCase) Listen(topic string, fn func(entity.Event)) (func(), error) {
 	}
 
 	return stop, nil
+}
+
+// SidebarCounts -.
+func (uc *UseCase) SidebarCounts(ctx context.Context, userID string) ([]entity.SidebarCount, error) {
+	channels, err := uc.audience.Following(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("GatewayUseCase - SidebarCounts - following: %w", err)
+	}
+
+	live, err := uc.live.Live(ctx, channels)
+	if err != nil {
+		return nil, fmt.Errorf("GatewayUseCase - SidebarCounts - live: %w", err)
+	}
+
+	if len(live) == 0 {
+		return nil, nil
+	}
+
+	streamIDs := make([]string, 0, len(live))
+	for _, l := range live {
+		streamIDs = append(streamIDs, l.StreamID)
+	}
+
+	counts, err := uc.presence.ViewerCounts(ctx, streamIDs)
+	if err != nil {
+		return nil, fmt.Errorf("GatewayUseCase - SidebarCounts - counts: %w", err)
+	}
+
+	out := make([]entity.SidebarCount, 0, len(live))
+	for _, ch := range channels {
+		if l, ok := live[ch]; ok {
+			out = append(out, entity.SidebarCount{ChannelID: ch, StreamID: l.StreamID, Count: counts[l.StreamID]})
+		}
+	}
+
+	return out, nil
 }
 
 // TokenGrace is how long a connection may stay open after its access token expired (NXL-00 §10.1).

@@ -206,6 +206,10 @@ const (
 	EventViewerCount   = "viewer_count"
 	EventTitleChanged  = "title_changed"
 	EventVODReady      = "vod_ready"
+	// sidebar:{userId}: a followed channel went live / offline; viewer_count_batch is local to each socket.
+	EventChannelLive      = "channel_live"
+	EventChannelOffline   = "channel_offline"
+	EventViewerCountBatch = "viewer_count_batch"
 )
 
 // Stream statuses relayed on stream:{id}.
@@ -213,4 +217,21 @@ const (
 	StreamLive        = "LIVE"
 	StreamInterrupted = "INTERRUPTED"
 	StreamEnded       = "ENDED"
+	StreamScheduled   = "SCHEDULED"
+	StreamCancelled   = "CANCELLED"
 )
+
+// LiveInfo is chat-svc's record of a channel's stream on air (Redis rt:live).
+type LiveInfo struct {
+	StreamID   string    `json:"streamId"`
+	Title      string    `json:"title"`
+	CategoryID *string   `json:"categoryId"`
+	StartedAt  time.Time `json:"startedAt"`
+}
+
+// SidebarCount is the live viewer count of one followed channel.
+type SidebarCount struct {
+	ChannelID string `json:"channelId"`
+	StreamID  string `json:"streamId"`
+	Count     int    `json:"count"`
+}

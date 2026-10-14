@@ -69,13 +69,13 @@ func TestParseTopic(t *testing.T) {
 
 	id := "0199d4a2-0000-7000-8000-000000000001"
 
-	for _, ok := range []string{"chat:" + id, "stream:" + id, "user:" + id, "chat:" + strings.ToUpper(id)} {
+	for _, ok := range []string{"chat:" + id, "stream:" + id, "user:" + id, "sidebar:" + id, "chat:" + strings.ToUpper(id)} {
 		tp, err := entity.ParseTopic(ok)
 		require.NoError(t, err, ok)
 		require.Equal(t, id, tp.ID)
 	}
 
-	for _, bad := range []string{"", "chat", "chat:x", "sidebar:" + id, "chat:" + id + "x", "chat:{" + id + "}"} {
+	for _, bad := range []string{"", "chat", "chat:x", "home:" + id, "sidebar:x", "chat:" + id + "x", "chat:{" + id + "}"} {
 		_, err := entity.ParseTopic(bad)
 		require.ErrorIs(t, err, entity.ErrInvalidTopic, bad)
 	}
