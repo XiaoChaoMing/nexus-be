@@ -73,12 +73,15 @@ func (fakeUsers) Channel(_ context.Context, id string) (entity.Channel, error) {
 	return entity.Channel{ID: channelID, OwnerID: owner}, nil
 }
 
+// _registeredAt is the registration time every fake user carries.
+var _registeredAt = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC) //nolint:gochecknoglobals // test fixture
+
 func (fakeUsers) Users(_ context.Context, ids []string) (map[string]entity.User, error) {
 	out := map[string]entity.User{}
 
 	for _, id := range ids {
 		if id != ghost {
-			out[id] = entity.User{ID: id, Username: "u" + id[len(id)-3:]}
+			out[id] = entity.User{ID: id, Username: "u" + id[len(id)-3:], CreatedAt: _registeredAt}
 		}
 	}
 
@@ -467,6 +470,7 @@ func TestCard(t *testing.T) {
 	require.Equal(t, "MODERATOR", c.Role)
 	require.Equal(t, []string{"MODERATOR", "SUB_T2"}, c.Badges)
 	require.Nil(t, c.Restriction, "guests do not see restrictions")
+	require.Equal(t, _registeredAt, *c.CreatedAt)
 
 	c, err = uc.Card(ctx, as(mod), channelID, viewer)
 	require.NoError(t, err)

@@ -105,16 +105,25 @@ func streamHandlers(rooms usecase.Rooms) map[string]eventbus.Handler {
 	}
 }
 
-func copyHandlers(rooms usecase.Rooms, grants usecase.Grants) map[string]eventbus.Handler {
-	return map[string]eventbus.Handler{
-		events.TypeUserRegistered: handle(func(p events.UserRegistered) []string { return []string{p.UserID} },
+// userRegistered copies the account; Nxl-Occurred-At of the event is its registration time.
+func userRegistered(rooms usecase.Rooms) eventbus.Handler {
+	return func(ctx context.Context, e eventbus.Event) error {
+		return handle(func(p events.UserRegistered) []string { return []string{p.UserID} },
 			func(ctx context.Context, id string, p events.UserRegistered) error {
 				if n := utf8.RuneCountInString(p.Username); n == 0 || n > _maxUsername || utf8.RuneCountInString(p.DisplayName) > _maxDisplayName {
 					return fmt.Errorf("%w: bad names", eventbus.ErrSkip)
 				}
 
-				return rooms.UserRegistered(ctx, id, entity.User{ID: p.UserID, Username: p.Username, DisplayName: p.DisplayName})
-			}),
+				return rooms.UserRegistered(ctx, id, entity.User{
+					ID: p.UserID, Username: p.Username, DisplayName: p.DisplayName, CreatedAt: e.OccurredAt.UTC(),
+				})
+			})(ctx, e)
+	}
+}
+
+func copyHandlers(rooms usecase.Rooms, grants usecase.Grants) map[string]eventbus.Handler {
+	return map[string]eventbus.Handler{
+		events.TypeUserRegistered: userRegistered(rooms),
 		events.TypeUserProfileUpdated: handle(func(p events.UserProfileUpdated) []string { return []string{p.UserID} },
 			func(ctx context.Context, id string, p events.UserProfileUpdated) error {
 				if utf8.RuneCountInString(p.DisplayName) > _maxDisplayName {

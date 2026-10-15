@@ -372,6 +372,11 @@ func (uc *UseCase) standingCard(ctx context.Context, ch entity.Channel, u entity
 		User: entity.UserRef{ID: u.ID, Username: u.Username, DisplayName: u.Name()}, Badges: st.Badges(), FollowedAt: followedAt,
 	}
 
+	if !u.CreatedAt.IsZero() {
+		createdAt := u.CreatedAt
+		card.CreatedAt = &createdAt
+	}
+
 	switch {
 	case st.Streamer:
 		card.Role = string(entity.ActorOwner)

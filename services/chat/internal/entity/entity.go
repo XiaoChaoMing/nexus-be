@@ -88,6 +88,8 @@ type User struct {
 	Username      string
 	DisplayName   string
 	EmailVerified bool
+	// CreatedAt is when the account was registered; zero when the copy does not know.
+	CreatedAt time.Time
 }
 
 // Name is what other viewers see.

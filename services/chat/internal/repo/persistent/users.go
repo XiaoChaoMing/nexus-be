@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
@@ -17,7 +18,7 @@ func (r *Repo) Users(ctx context.Context, ids []string) (map[string]entity.User,
 	}
 
 	rows, err := r.Pool.Query(ctx,
-		`SELECT id::text, username, display_name, email_verified FROM users WHERE id = ANY($1::uuid[])`, ids)
+		`SELECT id::text, username, display_name, email_verified, created_at FROM users WHERE id = ANY($1::uuid[])`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("Repo - Users: %w", err)
 	}
@@ -25,7 +26,7 @@ func (r *Repo) Users(ctx context.Context, ids []string) (map[string]entity.User,
 	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (entity.User, error) {
 		var u entity.User
 
-		return u, row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.EmailVerified)
+		return u, row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.EmailVerified, &u.CreatedAt)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("Repo - Users: %w", err)
@@ -67,14 +68,22 @@ func (r *Repo) UserIDsByUsername(ctx context.Context, names []string) (map[strin
 	return out, nil
 }
 
-// UpsertUser -.
+// UpsertUser keeps the earliest known created_at: u.CreatedAt is the registration time when the event carried
+// it, else the copy falls back to now().
 func (r *Repo) UpsertUser(ctx context.Context, eventID string, u entity.User) error {
+	var createdAt *time.Time
+	if !u.CreatedAt.IsZero() {
+		createdAt = &u.CreatedAt
+	}
+
 	return r.inEventTx(ctx, "Repo - UpsertUser", eventID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO users (id, username, display_name, email_verified) VALUES ($1, $2, $3, $4)
+			`INSERT INTO users (id, username, display_name, email_verified, created_at)
+			 VALUES ($1, $2, $3, $4, COALESCE($5, now()))
 			 ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, display_name = EXCLUDED.display_name,
-			     email_verified = users.email_verified OR EXCLUDED.email_verified, updated_at = now()`,
-			u.ID, u.Username, u.DisplayName, u.EmailVerified)
+			     email_verified = users.email_verified OR EXCLUDED.email_verified,
+			     created_at = LEAST(users.created_at, EXCLUDED.created_at), updated_at = now()`,
+			u.ID, u.Username, u.DisplayName, u.EmailVerified, createdAt)
 		if err != nil {
 			return fmt.Errorf("Repo - UpsertUser: %w", err)
 		}

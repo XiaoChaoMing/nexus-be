@@ -218,11 +218,17 @@ func TestSettingsAndEmotes(t *testing.T) { //nolint:paralleltest // shared datab
 
 	// processed_events makes a redelivered copy event a no-op.
 	ev, user := uuid.NewString(), uuid.NewString()
-	require.NoError(t, r.UpsertUser(ctx, ev, entity.User{ID: user, Username: "a1"}))
+	registered := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	require.NoError(t, r.UpsertUser(ctx, ev, entity.User{ID: user, Username: "a1", CreatedAt: registered}))
 	require.NoError(t, r.UpsertUser(ctx, ev, entity.User{ID: user, Username: "a2"}))
 	require.NoError(t, r.UpdateDisplayName(ctx, uuid.NewString(), user, "Shown"))
+	// A later copy event (no registration time) keeps the earliest created_at.
+	require.NoError(t, r.UpsertUser(ctx, uuid.NewString(), entity.User{ID: user, Username: "a1", DisplayName: "Shown"}))
 
 	users, err := r.Users(ctx, []string{user})
 	require.NoError(t, err)
-	require.Equal(t, entity.User{ID: user, Username: "a1", DisplayName: "Shown"}, users[user])
+
+	got := users[user]
+	got.CreatedAt = got.CreatedAt.UTC()
+	require.Equal(t, entity.User{ID: user, Username: "a1", DisplayName: "Shown", CreatedAt: registered}, got)
 }
