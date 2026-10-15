@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.6 |
-| **Cập nhật** | 2026-10-15 |
+| **Phiên bản** | 1.8 |
+| **Cập nhật** | 2026-10-16 |
 | **Phạm vi** | REST công khai, API nội bộ giữa service, RTMP/HLS, sự kiện NATS. Gồm API đã chạy và API dự kiến theo lộ trình |
 
 Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, trạng thái nào, quy ước chung là gì.
@@ -176,7 +176,7 @@ Auth: `—` không cần · `Bearer` · `cookie+H` = cookie `nxl_rt` + header `X
 | --- | --- | --- | --- | --- |
 | POST | `/v1/auth/register` | — | `{username, displayName?, email, password, acceptTerms}` → `201 {accessToken, expiresIn, user}` + cookie. GĐ1: `acceptTerms` bắt buộc, `details.<field> = TAKEN` khi trùng | ✅ · GĐ1 🔧 |
 | POST | `/v1/auth/login` | — | `{login, password}` (email hoặc username). GĐ1: sai 10 lần / 15 phút → khóa tạm 15 phút, `403 ACCOUNT_LOCKED` + `details.lockedUntil` | ✅ · GĐ1 🔧 |
-| POST | `/v1/auth/refresh` | cookie+H | Cấp access token mới, xoay vòng refresh token (phát hiện dùng lại → thu hồi mọi phiên) | ✅ · GĐ1 🔧 header |
+| POST | `/v1/auth/refresh` | cookie+H | Cấp access token mới, xoay vòng refresh token (phát hiện dùng lại → thu hồi mọi phiên). GĐ5: tài khoản đang bị khóa (Admin hoặc khóa tạm) → `403 ACCOUNT_LOCKED` như đăng nhập (`details.lockedUntil` khi có hạn, cookie giữ nguyên) thay cho `401 SESSION_EXPIRED` | ✅ · GĐ1 🔧 header · GĐ5 🔧 |
 | POST | `/v1/auth/logout` | cookie+H | Thu hồi phiên hiện tại → `204` | ✅ · GĐ1 🔧 header |
 | GET | `/v1/auth/me` | Bearer | `{user}` — giữ nguyên, Shell dùng `/v1/me` | ✅ |
 | GET | `/v1/auth/.well-known/jwks.json` | — | Khóa công khai để service khác xác minh token | ✅ |
@@ -271,7 +271,7 @@ Cổng 8094, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (thêm `chann
 
 | Method | Path | Auth | Mô tả |
 | --- | --- | --- | --- |
-| GET | `/v1/channels/{handle}` | O | `ChannelProfile`: hồ sơ đủ trường, `currentStream` khi live, `viewer {following, notifyLevel, isOwner}` (`null` khi Guest); `404`, `403 CHANNEL_SUSPENDED` |
+| GET | `/v1/channels/{handle}` | O | `ChannelProfile`: hồ sơ đủ trường, `currentStream` khi live, `viewer {following, notifyLevel, isOwner}` (`null` khi Guest); `404`, `403 CHANNEL_SUSPENDED` (GĐ5: `details {handle, displayName, avatarUrl?}` để trang tạm ngưng hiện tên + ảnh) |
 | POST · PUT · DELETE | `/v1/channels/{id}/follow` | B | Follow (lặp → như cũ), đổi chuông `{notifyLevel: ALL\|LIVE_ONLY\|OFF}` (chưa follow → `404`), bỏ follow (`204`); kênh của mình → `422 CANNOT_FOLLOW_SELF` |
 | GET | `/v1/channels/{id}/schedule?from=&to=` | O | Lần phát trong `[from, to)` (mặc định 14 ngày, ≤ 31 ngày, ≤ now + 90 ngày); `streamId` khi đã có dòng `SCHEDULED`; `reminded` (`null` khi Guest) |
 | GET | `/v1/me/following?status=all\|live\|offline&cursor=&limit=` · `/v1/me/following/sidebar?limit=` | B | Kênh đang theo dõi; sidebar: live trước (theo người xem), lấp bằng offline, `totalFollowing` |
@@ -306,7 +306,7 @@ Hợp đồng đầy đủ (khung WebSocket, snapshot, sự kiện, khóa Redis)
 | PUT · DELETE | `/v1/chat/rooms/{streamId}/pin` | Bearer (mod) | Ghim `{messageId}` / bỏ ghim; tin `SYSTEM` / đã xóa → `409 INVALID_STATE`; phòng `READ_ONLY` → `409 CHAT_READ_ONLY` | GĐ5 🔧 |
 | PUT · DELETE | `/v1/channels/{channelId}/timeouts/{userId}` · `/bans/{userId}` | Bearer (mod) | `{durationSec, reason?}` / `{reason?}`; chính mình → `userId = INVALID`; chủ kênh / Mod (người làm không phải Admin) → `403 FORBIDDEN details.target = PROTECTED` | GĐ5 🔧 |
 | GET | `/v1/channels/{channelId}/restrictions?type=&cursor=&limit=` | Bearer (mod) | `{items: Restriction[], nextCursor}` | GĐ5 🔧 |
-| GET | `/v1/channels/{channelId}/users/{userId}/card` | — / Bearer | `UserCard` (`restriction` chỉ cho người có quyền mod) | GĐ5 🔧 |
+| GET | `/v1/channels/{channelId}/users/{userId}/card` | — / Bearer | `UserCard` (`restriction` chỉ cho người có quyền mod; `createdAt` = thời điểm đăng ký, từ `Nxl-Occurred-At` của `user.registered.v1`) | GĐ5 🔧 |
 | GET · POST · DELETE | `/v1/channels/{channelId}/blocked-terms[/{termId}]` | Bearer (mod) | ≤ 100 từ (`409 CONFLICT details.limit`); tin vi phạm → frame `error` `CHAT_CONTENT_BLOCKED details.reason = TERM\|LINK` (Mod miễn trừ) | GĐ5 🔧 |
 | GET · POST · PUT · DELETE | `/v1/channels/{channelId}/roles[/{userId}]` | Bearer (chủ kênh; Admin) | Gán / gỡ `MODERATOR` / `VIP` (≤ 50 mỗi vai trò) | GĐ5 🔧 |
 | GET | `/v1/me/channel-roles` | Bearer | `{items: ModChannel[]}` — kênh mình là Mod / VIP | GĐ5 🔧 |
@@ -325,13 +325,13 @@ Cổng 8099, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (`safety_repo
 | Method | Path | Auth | Mô tả |
 | --- | --- | --- | --- |
 | POST | `/v1/reports` | B | `{targetType: USER\|CHANNEL\|STREAM\|MESSAGE, targetId, reason, note?, streamId?}` → `201 {id, status, createdAt}`; report mở trùng → `200` cùng `id`; > 10/giờ → `429 RATE_LIMITED details.retryAfterSec` + `Retry-After`; chính mình → `targetId = INVALID`; `MESSAGE` cần `streamId`, bằng chứng ≤ 10 tin (chat chậm > 300 ms → `evidenceStatus = UNAVAILABLE`) |
-| GET | `/v1/admin/reports?status=&targetType=&reason=&cursor=&limit=` · `/open-count` · `/{id}` | A | Hàng đợi cũ nhất trước (`status` CSV, mặc định `OPEN,IN_REVIEW`); `{open, inReview}`; `AdminReportDetail` (bằng chứng, report liên quan ≤ 20, hành động ≤ 20) |
+| GET | `/v1/admin/reports?status=&targetType=&reason=&cursor=&limit=` · `/open-count` · `/{id}` | A | Hàng đợi cũ nhất trước (`status` CSV, mặc định `OPEN,IN_REVIEW`); `{open, inReview}`; `AdminReportDetail` (bằng chứng có `username` / `displayName` của người viết, `channelId` của kênh / buổi phát / phòng, report liên quan ≤ 20, hành động ≤ 20 gồm cả `CHAT_TIMEOUT` / `CHAT_UNTIMEOUT` / `CHAT_BAN` / `CHAT_UNBAN` của người bị báo cáo từ audit log, kèm `actorRole`, `channelId`); `sameTargetCount` đếm cả chính report |
 | POST | `/v1/admin/reports/{id}/claim` · `/resolve` | A | Nhận (`IN_REVIEW`, nhận lại được); `{status: RESOLVED\|DISMISSED, note 10–500, applyToSameTarget?}` → `{report, closedCount}`; đã đóng → `409 INVALID_STATE` |
 | POST | `/v1/admin/users/{id}/lock` · `/unlock` | A | `{durationHours: 24\|168\|720\|null, reason 10–500, reportId?}` → `202 {actionId}`; identity áp dụng (≤ 2 s, socket đóng `4003`); Admin khác → `403`, chính mình → `userId = INVALID` |
 | GET | `/v1/admin/users?q=&status=` · `/v1/admin/channels?q=&status=` · `/v1/admin/channels/{id}` | A | Tra cứu trên bản sao (UUID → id; còn lại tiền tố username / handle, tên kênh chứa `q`) |
 | POST | `/v1/admin/channels/{id}/suspend` · `/restore` | A | `{reason, reportId?}` → `202`; channel-svc khóa kênh, stream-svc kết thúc buổi phát + hủy lịch, chat đóng phòng |
 | POST | `/v1/admin/streams/{id}/takedown` | A | `202`; đang phát → kết thúc `admin_takedown`; đã kết thúc còn VOD → VOD bị xóa; `SCHEDULED` / `CANCELLED` / hết VOD → `409 INVALID_STATE` |
-| GET | `/v1/admin/audit-log?actorId=&action=&resourceType=&resourceId=&from=&to=&cursor=&limit=` | A | Mới nhất trước; chỉ thêm (trigger chặn sửa / xóa) |
+| GET | `/v1/admin/audit-log?actorId=&actor=&action=&resourceType=&resourceId=&from=&to=&cursor=&limit=` | A | Mới nhất trước; chỉ thêm (trigger chặn sửa / xóa); `actor` = username (bỏ `@`, không phân biệt hoa thường) khi không có `actorId`, không có người đó → trang rỗng |
 
 Sự kiện: nghe `user.*`, `channel.*`, `stream.*`, `vod.deleted` (bản sao), `chat.mod_action`, `chat.settings_changed`,
 `channel.role_changed`, `audit.recorded` (audit); phát `safety.user_actioned`, `safety.channel_actioned`,
@@ -358,7 +358,7 @@ Cổng 8097, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (`notificatio
 `CREATOR_LIVE {channel{id,handle,displayName,avatarUrl}, streamId, title}` · `STREAM_STARTING {channel, scheduleId,
 occurrenceAt, title}` · `SCHEDULE {channel, scheduleId, title, occurrenceAt, newOccurrenceAt, reason
 (CANCELLED|MOVED|SERIES_CHANGED|CREATED)}` · `MENTION {channel, streamId, lastSender{id,username,displayName}, excerpt}` ·
-`NEW_FOLLOWER {channelId, lastFollower{id,username,displayName}}` · `CREATOR_APPLICATION {applicationId, result, reason}` ·
+`NEW_FOLLOWER {channelId, lastFollower{id,username,displayName}}` (link `/studio`) · `CREATOR_APPLICATION {applicationId, result, reason}` ·
 `REPORT_RESULT {reportId, targetType, result (RESOLVED|DISMISSED)}` · `SYSTEM {kind (CHANNEL_SUSPENDED|CHANNEL_RESTORED|
 STREAM_TAKEDOWN), channelId, reason, streamId?, title?}`.
 
@@ -472,6 +472,7 @@ Phá vỡ tương thích REST: xem §3.1.
 
 | Ngày | Thay đổi |
 | --- | --- |
+| 2026-10-16 | v1.8 — GĐ5 close-out (chỉ thêm, trừ refresh): refresh của tài khoản bị khóa → `403 ACCOUNT_LOCKED`; `CHANNEL_SUSPENDED` của hồ sơ kèm `details`; `UserCard.createdAt`; `AdminReportDetail.channelId`, `evidence[].username/displayName`, `actions[]` có hạn chế chat + `actorRole`/`channelId`; audit `actor=`; `NEW_FOLLOWER` link `/studio` |
 | 2026-10-15 | v1.7 — GĐ5 phần B: notification-svc (§6D: trung tâm thông báo, cài đặt, hủy nhận email, `user:` `notification` / `unread_count`), chuyển email xác thực từ identity (`IDENTITY_MAILER_ENABLED`, `make nxl-mailer-cutover`) |
 | 2026-10-15 | v1.6 — GĐ4 backend: channel-svc (follow, hồ sơ + ảnh, danh mục, tìm kiếm, lịch sử tìm kiếm, lịch phát, nhắc lịch, Studio kênh); stream-svc (lọc / sắp xếp danh sách, gợi ý, VOD theo danh mục và kênh, `SCHEDULED`/`CANCELLED`, Dashboard, Studio VOD, VOD ẩn); chat `sidebar:{userId}`; media xóa file VOD; Nginx tách route + `/media/`; sự kiện mới §8 |
 | 2026-10-14 | v1.4 — GĐ2 backend: phiên xem + cổng 18+ phía server, tiến độ xem theo tài khoản, continue-watching; Nginx chuyển `/v1/me/(watch-progress|continue-watching)` sang stream-svc, CORS thêm `X-NXL-Anon-Id` |

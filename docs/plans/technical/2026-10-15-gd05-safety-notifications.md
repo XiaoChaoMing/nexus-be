@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày | Working Plan |
 | --- | --- | --- | --- |
-| 1.0 | Approved 15/10 — đang triển khai | 2026-10-15 | `docs/plans/working/2026-10-15-gd05-safety-notifications.md` (Approved 15/10) |
+| 1.1 | Đã triển khai — đồng bộ theo hiện thực (§16) | 2026-10-16 | `docs/plans/working/2026-10-15-gd05-safety-notifications.md` (Approved 15/10) |
 
 Quyết định đã chốt (15/10, chủ đồ án duyệt theo đề xuất): **G5-Q1** tách hai service mới — safety-svc cổng **8099**,
 notification-svc cổng **8097** · **G5-Q2** API vai trò Mod / VIP + Studio → Cộng đồng ngay GĐ5 (`dev-grant` chỉ còn cho dữ
@@ -1967,8 +1967,26 @@ NXL-G1 (§7.1, §15, GL-Q2); TSD GĐ2 (`manifestURL()`), GĐ3 (realtime, `SendCo
 `pkg/eventbus/eventbus.go`; migration `services/{chat,safety,notification,identity}/migrations/*`;
 `services/identity/internal/mailer`, `services/stream/internal/controller/restapi/v1/viewer.go`.
 
+## 16. Hiện thực khác bản 1.0
+
+Các mục dưới là hành vi đã giao (Completed Plan `docs/plans/completed/2026-10-15-gd05-safety-notifications.md`). Thay đổi hợp
+đồng đều **chỉ thêm**, trừ dòng refresh (đổi mã lỗi có chủ đích, web đã xử lý `403 ACCOUNT_LOCKED` từ trước).
+
+| Mục | Đã làm |
+| --- | --- |
+| Khóa Admin → phiên (identity) | Phần A xóa dòng `sessions`; bản close-out đổi thành **hết hạn** (`expires_at = now()`, không `revoked_at`) để refresh vẫn tìm ra tài khoản. `POST /v1/auth/refresh` của tài khoản đang khóa (Admin, hoặc khóa tạm khi phiên còn sống) → `403 ACCOUNT_LOCKED` giống đăng nhập (`details.lockedUntil` khi có hạn, không có khi vĩnh viễn), cookie giữ nguyên nên tải lại trang vẫn ra màn khóa; hết khóa / mở khóa → `401 SESSION_EXPIRED` như cũ. `Rotate` thêm điều kiện `expires_at > now` nên refresh chạy song song với lệnh khóa không cấp được phiên mới. Lệch NXL-00 §7 / §13, NXL-D E-D05, NXL-F BR-F20, AF-F11 (ghi `401 SESSION_EXPIRED`) — cần errata phía `docs` |
+| `secure_link` | Code đủ (§6.9) nhưng compose để **tắt** mặc định: `STREAM_HLS_SIGNING=false`, `NXL_HLS_ALLOW_UNSIGNED=1`; bật theo §9.3 (đặt `NXL_HLS_SECRET` thật). Khi bật, `manifestUrl` của DTO công khai = `""` (§9.1) |
+| Hồ sơ kênh bị khóa | `403 CHANNEL_SUSPENDED` kèm `details {handle, displayName, avatarUrl?}` (bỏ `avatarUrl` khi kênh không có ảnh) — trang "Kênh tạm ngưng" hiện tên + ảnh; follow / Studio / playback giữ `details` rỗng |
+| `UserCard.createdAt` (chat) | Bản sao `chat.users.created_at` lấy `Nxl-Occurred-At` của `user.registered.v1` (thiếu header → `now()`), upsert giữ giá trị sớm nhất; không migration, không đổi payload. Tài khoản chỉ có trong bản sao trước bản này mang thời điểm chat nhận sự kiện |
+| `AdminReportDetail` (safety) | Thêm `channelId` (kênh bị báo cáo / kênh của buổi phát / của phòng `streamId`; `null` khi không xác định), `evidence[].username`, `evidence[].displayName` (từ bản sao, `null` khi chưa có). `actions[]` gộp `admin_actions` với `CHAT_TIMEOUT` / `CHAT_UNTIMEOUT` / `CHAT_BAN` / `CHAT_UNBAN` của người đứng sau đối tượng (audit log, mọi kênh), mới nhất trước, ≤ 20; `AdminAction` thêm `actorRole` (`ADMIN` / `OWNER` / `MODERATOR`) và `channelId` (dòng chat); với dòng chat, `admin` là người thực hiện |
+| `sameTargetCount` | Đếm mọi report đang mở cùng đối tượng **gồm cả chính report** (admin trừ 1 khi hiển thị "báo cáo khác") — giữ nguyên |
+| Audit log | Thêm `?actor=` (username, bỏ `@`, khớp trọn không phân biệt hoa thường; dùng khi không có `actorId`; không có người đó → trang rỗng) |
+| `NEW_FOLLOWER` | `link = "/studio"` (route Studio của web), không phải `/studio/dashboard` như NXL-E §7.4; dòng cũ đã lưu do web đổi hướng |
+| notification-svc | `email_outbox` unique `(user_id, source_event_id)` (một email / sự kiện / người nhận); worker giữ lô bằng `FOR UPDATE SKIP LOCKED` + lease 5 phút (worker chết → gửi lại); bản sao được ghi trong lúc backfill, cột `synced_at` chặn bản cũ đè bản mới; hạn link email qua `NOTIFICATION_VERIFY_TTL` (24h) / `NOTIFICATION_RESET_TTL` (30m) khớp identity; `MENTION` đã gộp không gửi email lần hai; thông báo gỡ buổi phát dùng `title` trong payload `safety.stream_takedown.v1`; sự kiện tới trước bản sao (seed / lần chạy đầu) → bỏ người nhận đó, log `warn` (NXL-E E-E11) |
+
 ## 15. Document control
 
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
 | 1.0 | 2026-10-15 | Bản đầu sau khi duyệt Working Plan (G5-Q1…Q8 theo đề xuất); trạng thái "Approved 15/10 — đang triển khai" |
+| 1.1 | 2026-10-16 | Đồng bộ theo hiện thực (§16): refresh của tài khoản bị khóa → `403 ACCOUNT_LOCKED`, khóa Admin làm phiên hết hạn thay vì xóa; bổ sung chỉ-thêm cho hồ sơ kênh bị khóa, `UserCard.createdAt`, chi tiết report (`channelId`, tác giả bằng chứng, hạn chế chat trong `actions[]`), audit `actor=`; link `NEW_FOLLOWER`; các lệch của phần A / B |
