@@ -1,0 +1,8 @@
+{{define "subject"}}Kênh {{.Channel}} đã được mở lại{{end}}{{define "body"}}Chào {{.Name}},
+
+Kênh {{.Channel}} của bạn đã được mở lại. Bạn có thể phát trực tiếp như bình thường.
+
+{{.Link}}
+
+— NexusLive
+{{end}}

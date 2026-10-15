@@ -1,0 +1,11 @@
+{{define "subject"}}Xác minh email tài khoản NexusLive{{end}}{{define "body"}}Chào {{.Username}},
+
+Cảm ơn bạn đã đăng ký NexusLive. Mở liên kết dưới đây để xác minh địa chỉ email:
+
+{{.Link}}
+
+Liên kết có hiệu lực trong {{.ValidFor}} và chỉ dùng được một lần.
+Nếu bạn không đăng ký tài khoản, hãy bỏ qua email này.
+
+— NexusLive
+{{end}}

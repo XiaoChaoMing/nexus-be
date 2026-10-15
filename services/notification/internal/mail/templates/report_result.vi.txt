@@ -1,0 +1,11 @@
+{{define "subject"}}{{if eq .Result "RESOLVED"}}Báo cáo của bạn đã được xử lý{{else}}Báo cáo của bạn đã được xem xét — không phát hiện vi phạm{{end}}{{end}}{{define "body"}}Chào {{.Name}},
+
+{{if eq .Result "RESOLVED"}}Cảm ơn bạn đã báo cáo. Đội ngũ NexusLive đã xem xét và xử lý nội dung bạn báo cáo.{{else}}Cảm ơn bạn đã báo cáo. Đội ngũ NexusLive đã xem xét và không phát hiện vi phạm.{{end}}
+
+{{.Link}}
+
+Bạn nhận email này vì đã bật email cho kết quả báo cáo.
+Không muốn nhận loại email này? Hủy nhận: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

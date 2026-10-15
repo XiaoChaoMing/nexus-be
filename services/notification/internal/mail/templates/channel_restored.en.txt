@@ -1,0 +1,8 @@
+{{define "subject"}}Your channel {{.Channel}} was restored{{end}}{{define "body"}}Hi {{.Name}},
+
+Your channel {{.Channel}} was restored. You can go live again.
+
+{{.Link}}
+
+— NexusLive
+{{end}}

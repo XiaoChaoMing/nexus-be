@@ -1,0 +1,10 @@
+{{define "subject"}}{{if eq .Result "APPROVED"}}Your creator application was approved{{else}}Your creator application was not approved{{end}}{{end}}{{define "body"}}Hi {{.Name}},
+
+{{if eq .Result "APPROVED"}}Congratulations! Your creator application was approved. Your channel is ready to go live.{{else}}Sorry, your creator application was not approved.{{end}}
+
+{{if .Reason}}Reason: {{.Reason}}{{end}}
+
+{{.Link}}
+
+— NexusLive
+{{end}}

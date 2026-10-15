@@ -1,0 +1,11 @@
+{{define "subject"}}[LIVE] {{.Channel}} đang phát: {{.Title}}{{end}}{{define "body"}}Chào {{.Name}},
+
+{{.Channel}} vừa bắt đầu phát: {{.Title}}
+
+{{.Link}}
+
+Bạn nhận email này vì đang theo dõi {{.Channel}} và bật thông báo khi kênh phát trực tiếp.
+Không muốn nhận loại email này? Hủy nhận: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

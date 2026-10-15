@@ -1,0 +1,11 @@
+{{define "subject"}}{{if eq .Reason "CANCELLED"}}{{.Channel}} đã hủy buổi phát {{.Title}}{{else if eq .Reason "MOVED"}}{{.Channel}} đã dời buổi phát {{.Title}}{{else}}Lịch {{.Title}} của {{.Channel}} đã thay đổi{{end}}{{end}}{{define "body"}}Chào {{.Name}},
+
+{{if eq .Reason "CANCELLED"}}{{.Channel}} đã hủy buổi phát {{.Title}} lúc {{.When}}.{{else if eq .Reason "MOVED"}}{{.Channel}} đã dời buổi phát {{.Title}} lúc {{.When}} sang {{.NewWhen}}. Nhắc của bạn đã được chuyển theo.{{else}}Lịch {{.Title}} của {{.Channel}} đã thay đổi — hãy đặt lại nhắc nếu cần.{{end}}
+
+{{.Link}}
+
+Bạn nhận email này vì đã đặt nhắc cho buổi phát này.
+Không muốn nhận loại email này? Hủy nhận: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

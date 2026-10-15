@@ -1,0 +1,13 @@
+{{define "subject"}}{{.Sender}} đã nhắc bạn trong buổi phát của {{.Channel}}{{end}}{{define "body"}}Chào {{.Name}},
+
+{{.Sender}} đã nhắc bạn trong chat:
+
+“{{.Excerpt}}”
+
+{{.Link}}
+
+Bạn nhận email này vì đã bật email cho thông báo nhắc tên (@mention).
+Không muốn nhận loại email này? Hủy nhận: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

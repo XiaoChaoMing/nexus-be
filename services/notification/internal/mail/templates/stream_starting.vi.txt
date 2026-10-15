@@ -1,0 +1,11 @@
+{{define "subject"}}{{.Channel}} sẽ phát sau 10 phút{{end}}{{define "body"}}Chào {{.Name}},
+
+Buổi phát {{.Title}} của {{.Channel}} sẽ bắt đầu lúc {{.When}}.
+
+{{.Link}}
+
+Bạn nhận email này vì đã đặt nhắc cho buổi phát này.
+Không muốn nhận loại email này? Hủy nhận: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

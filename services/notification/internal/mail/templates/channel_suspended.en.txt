@@ -1,0 +1,10 @@
+{{define "subject"}}Your channel {{.Channel}} was suspended{{end}}{{define "body"}}Hi {{.Name}},
+
+An administrator suspended your channel {{.Channel}}. It cannot go live and is hidden from viewers until it is restored.
+
+Reason: {{.Reason}}
+
+{{.Link}}
+
+— NexusLive
+{{end}}

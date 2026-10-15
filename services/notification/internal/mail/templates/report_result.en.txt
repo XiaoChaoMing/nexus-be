@@ -1,0 +1,11 @@
+{{define "subject"}}{{if eq .Result "RESOLVED"}}Your report was handled{{else}}Your report was reviewed — no violation found{{end}}{{end}}{{define "body"}}Hi {{.Name}},
+
+{{if eq .Result "RESOLVED"}}Thank you for your report. The NexusLive team reviewed it and took action.{{else}}Thank you for your report. The NexusLive team reviewed it and found no violation.{{end}}
+
+{{.Link}}
+
+You get this e-mail because you turned on e-mails for report results.
+Don't want these e-mails? Unsubscribe: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

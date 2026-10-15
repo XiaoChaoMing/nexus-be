@@ -1,0 +1,8 @@
+{{define "subject"}}Your NexusLive account was locked{{end}}{{define "body"}}Hi {{.Name}},
+
+An administrator locked your NexusLive account {{if .Until}}until {{.Until}}{{else}}permanently{{end}}.
+
+Reason: {{.Reason}}
+
+— NexusLive
+{{end}}

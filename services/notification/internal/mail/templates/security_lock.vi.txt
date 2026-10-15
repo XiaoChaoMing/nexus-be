@@ -1,0 +1,10 @@
+{{define "subject"}}Tài khoản tạm khóa do đăng nhập sai nhiều lần{{end}}{{define "body"}}Chào {{.Username}},
+
+Tài khoản NexusLive của bạn vừa bị tạm khóa trong {{.ValidFor}} vì có nhiều lần đăng nhập sai mật khẩu liên tiếp.
+
+Nếu đó là bạn, hãy chờ hết thời gian khóa rồi đăng nhập lại. Nếu không phải bạn, hãy đặt lại mật khẩu ngay.
+
+{{.Link}}
+
+— NexusLive
+{{end}}

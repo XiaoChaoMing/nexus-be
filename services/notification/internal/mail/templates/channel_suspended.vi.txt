@@ -1,0 +1,10 @@
+{{define "subject"}}Kênh {{.Channel}} đã bị khóa{{end}}{{define "body"}}Chào {{.Name}},
+
+Kênh {{.Channel}} của bạn đã bị quản trị viên khóa. Kênh không phát được và không hiện với người xem cho tới khi được mở lại.
+
+Lý do: {{.Reason}}
+
+{{.Link}}
+
+— NexusLive
+{{end}}

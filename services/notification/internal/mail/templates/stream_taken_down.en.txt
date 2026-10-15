@@ -1,0 +1,10 @@
+{{define "subject"}}Your stream {{.Title}} was taken down{{end}}{{define "body"}}Hi {{.Name}},
+
+An administrator took down {{.Title}} on {{.Channel}}; its recording (VOD) was deleted.
+
+Reason: {{.Reason}}
+
+{{.Link}}
+
+— NexusLive
+{{end}}

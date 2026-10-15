@@ -1,0 +1,10 @@
+{{define "subject"}}{{if eq .Result "APPROVED"}}Đơn đăng ký Creator đã được duyệt{{else}}Đơn đăng ký Creator chưa được duyệt{{end}}{{end}}{{define "body"}}Chào {{.Name}},
+
+{{if eq .Result "APPROVED"}}Chúc mừng! Đơn đăng ký Creator của bạn đã được duyệt. Kênh của bạn đã sẵn sàng để phát.{{else}}Rất tiếc, đơn đăng ký Creator của bạn chưa được duyệt.{{end}}
+
+{{if .Reason}}Lý do: {{.Reason}}{{end}}
+
+{{.Link}}
+
+— NexusLive
+{{end}}

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Account locked</title></head>
+<body style="margin:0;padding:24px;background:#0f0f14;font-family:Arial,Helvetica,sans-serif;color:#e8e8f0">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;margin:0 auto;background:#181822;border-radius:12px">
+    <tr><td style="padding:32px">
+      <h1 style="margin:0 0 16px;font-size:20px;color:#ffffff">Account locked</h1>
+      <p style="margin:0 0 12px">Hi {{.Name}},</p>
+      <p style="margin:0 0 16px">An administrator locked your NexusLive account {{if .Until}}until {{.Until}}{{else}}permanently{{end}}.</p>
+      <p style="margin:0 0 16px">Reason: {{.Reason}}</p>
+    </td></tr>
+  </table>
+</body>
+</html>

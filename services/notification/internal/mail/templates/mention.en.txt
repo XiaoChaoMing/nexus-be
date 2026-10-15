@@ -1,0 +1,13 @@
+{{define "subject"}}{{.Sender}} mentioned you on {{.Channel}}{{end}}{{define "body"}}Hi {{.Name}},
+
+{{.Sender}} mentioned you in the chat:
+
+“{{.Excerpt}}”
+
+{{.Link}}
+
+You get this e-mail because you turned on e-mails for mentions.
+Don't want these e-mails? Unsubscribe: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

@@ -1,0 +1,10 @@
+{{define "subject"}}Your account was locked after too many failed sign-ins{{end}}{{define "body"}}Hi {{.Username}},
+
+Your NexusLive account was locked for {{.ValidFor}} after several wrong passwords in a row.
+
+If that was you, wait for the lock to end and sign in again. If it was not you, reset your password now.
+
+{{.Link}}
+
+— NexusLive
+{{end}}

@@ -1,0 +1,11 @@
+{{define "subject"}}{{.Channel}} goes live in 10 minutes{{end}}{{define "body"}}Hi {{.Name}},
+
+{{.Title}} by {{.Channel}} starts at {{.When}}.
+
+{{.Link}}
+
+You get this e-mail because you set a reminder for this broadcast.
+Don't want these e-mails? Unsubscribe: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

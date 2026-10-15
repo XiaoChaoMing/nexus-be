@@ -6,6 +6,7 @@ use (
 	./services/chat
 	./services/identity
 	./services/media
+	./services/notification
 	./services/safety
 	./services/stream
 )

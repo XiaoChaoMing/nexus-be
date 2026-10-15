@@ -1,0 +1,566 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "The notification center (list, unread count, read, delete), notification settings and e-mail unsubscribe. Realtime delivery goes through chat-svc on the WebSocket topic user:{userId}. Get a token from identity-svc (http://localhost:8090/swagger/index.html → /auth/login) and paste \"Bearer \u003caccessToken\u003e\" into Authorize.",
+        "title": "NexusLive notification-svc API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/v1",
+    "paths": {
+        "/me/notification-settings": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "The 8 types in a fixed order. Locked switches (CREATOR_APPLICATION, SYSTEM) cannot change; NEW_FOLLOWER has no e-mail. emailVerified=false means no e-mail is sent until the address is verified.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-settings"
+                ],
+                "summary": "My notification settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Settings"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Send only the rows that change (1–8); an omitted switch keeps its value. Turning a locked switch off or e-mail on for NEW_FOLLOWER → 400 details.\u003cTYPE\u003e=INVALID. Returns the whole table.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-settings"
+                ],
+                "summary": "Change my notification settings",
+                "parameters": [
+                    {
+                        "description": "rows to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Settings"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (items=REQUIRED, type=ENUM, \u003cTYPE\u003e=INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Most recently updated first (a grouped notification moves up when it grows). unread=true keeps the unread ones. Keyset paging with nextCursor.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "List my notifications",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "only unread",
+                        "name": "unread",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1–50, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_NotificationList"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (unread=FORMAT, limit=FORMAT, cursor=INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/read-all": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Only those updated at or before `before` (default now), so a notification arriving meanwhile stays unread.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Mark all my notifications read",
+                "parameters": [
+                    {
+                        "description": "optional before",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/ReadAllRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (before=FORMAT)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/unread-count": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "My unread count (bell)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_UnreadCount"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/unsubscribe": {
+            "post": {
+                "description": "The token comes from {WEB_BASE_URL}/notifications/unsubscribe?token=…; it never expires. A malformed or forged token → 400 TOKEN_INVALID.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification-settings"
+                ],
+                "summary": "Turn off one type of e-mail from the link of an e-mail (no sign-in)",
+                "parameters": [
+                    {
+                        "description": "token",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UnsubscribeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Unsubscribed"
+                        }
+                    },
+                    "400": {
+                        "description": "TOKEN_INVALID, VALIDATION_FAILED (token=REQUIRED)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft delete. Already deleted → 204; another user's or unknown → 404.",
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Delete one notification",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "notification id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/{id}/read": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Already read → 204. Another user's, deleted or unknown → 404. Other tabs get unread_count on user:{userId}.",
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Mark one notification read",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "notification id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "Data-internal_controller_restapi_v1_NotificationList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/NotificationList"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Settings": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Settings"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_UnreadCount": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/UnreadCount"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Unsubscribed": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Unsubscribed"
+                }
+            }
+        },
+        "ErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/ErrorBody"
+                }
+            }
+        },
+        "Notification": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "groupCount": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "link": {
+                    "type": "string"
+                },
+                "payload": {
+                    "type": "object"
+                },
+                "read": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "CREATOR_LIVE",
+                        "STREAM_STARTING",
+                        "SCHEDULE",
+                        "MENTION",
+                        "NEW_FOLLOWER",
+                        "CREATOR_APPLICATION",
+                        "REPORT_RESULT",
+                        "SYSTEM"
+                    ]
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "NotificationList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Notification"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "NotificationSetting": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "boolean"
+                },
+                "emailAvailable": {
+                    "type": "boolean"
+                },
+                "emailLocked": {
+                    "type": "boolean"
+                },
+                "inApp": {
+                    "type": "boolean"
+                },
+                "inAppLocked": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "ReadAllRequest": {
+            "type": "object",
+            "properties": {
+                "before": {
+                    "type": "string"
+                }
+            }
+        },
+        "SettingPatch": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "boolean"
+                },
+                "inApp": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "CREATOR_LIVE",
+                        "STREAM_STARTING",
+                        "SCHEDULE",
+                        "MENTION",
+                        "NEW_FOLLOWER",
+                        "CREATOR_APPLICATION",
+                        "REPORT_RESULT",
+                        "SYSTEM"
+                    ]
+                }
+            }
+        },
+        "Settings": {
+            "type": "object",
+            "properties": {
+                "emailVerified": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/NotificationSetting"
+                    }
+                }
+            }
+        },
+        "SettingsRequest": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/SettingPatch"
+                    }
+                }
+            }
+        },
+        "UnreadCount": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "UnsubscribeRequest": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "Unsubscribed": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

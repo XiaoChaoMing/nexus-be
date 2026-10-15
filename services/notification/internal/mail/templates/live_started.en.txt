@@ -1,0 +1,11 @@
+{{define "subject"}}[LIVE] {{.Channel}} is live: {{.Title}}{{end}}{{define "body"}}Hi {{.Name}},
+
+{{.Channel}} just went live: {{.Title}}
+
+{{.Link}}
+
+You get this e-mail because you follow {{.Channel}} with live notifications on.
+Don't want these e-mails? Unsubscribe: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

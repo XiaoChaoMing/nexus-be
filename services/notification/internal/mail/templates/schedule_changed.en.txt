@@ -1,0 +1,11 @@
+{{define "subject"}}{{if eq .Reason "CANCELLED"}}{{.Channel}} cancelled {{.Title}}{{else if eq .Reason "MOVED"}}{{.Channel}} moved {{.Title}}{{else}}The schedule of {{.Title}} by {{.Channel}} changed{{end}}{{end}}{{define "body"}}Hi {{.Name}},
+
+{{if eq .Reason "CANCELLED"}}{{.Channel}} cancelled {{.Title}} planned for {{.When}}.{{else if eq .Reason "MOVED"}}{{.Channel}} moved {{.Title}} from {{.When}} to {{.NewWhen}}. Your reminder moved with it.{{else}}The schedule of {{.Title}} by {{.Channel}} changed — set your reminder again if needed.{{end}}
+
+{{.Link}}
+
+You get this e-mail because you set a reminder for this broadcast.
+Don't want these e-mails? Unsubscribe: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

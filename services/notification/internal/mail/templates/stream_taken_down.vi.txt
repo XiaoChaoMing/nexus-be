@@ -1,0 +1,10 @@
+{{define "subject"}}Buổi phát {{.Title}} đã bị gỡ{{end}}{{define "body"}}Chào {{.Name}},
+
+Buổi phát {{.Title}} trên kênh {{.Channel}} đã bị quản trị viên gỡ; bản ghi (VOD) của buổi phát đã bị xóa.
+
+Lý do: {{.Reason}}
+
+{{.Link}}
+
+— NexusLive
+{{end}}

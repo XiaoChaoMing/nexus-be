@@ -1,0 +1,375 @@
+basePath: /v1
+definitions:
+  Data-internal_controller_restapi_v1_NotificationList:
+    properties:
+      data:
+        $ref: '#/definitions/NotificationList'
+    type: object
+  Data-internal_controller_restapi_v1_Settings:
+    properties:
+      data:
+        $ref: '#/definitions/Settings'
+    type: object
+  Data-internal_controller_restapi_v1_UnreadCount:
+    properties:
+      data:
+        $ref: '#/definitions/UnreadCount'
+    type: object
+  Data-internal_controller_restapi_v1_Unsubscribed:
+    properties:
+      data:
+        $ref: '#/definitions/Unsubscribed'
+    type: object
+  ErrorBody:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/ErrorBody'
+    type: object
+  Notification:
+    properties:
+      createdAt:
+        type: string
+      groupCount:
+        type: integer
+      id:
+        type: string
+      link:
+        type: string
+      payload:
+        type: object
+      read:
+        type: boolean
+      type:
+        enum:
+        - CREATOR_LIVE
+        - STREAM_STARTING
+        - SCHEDULE
+        - MENTION
+        - NEW_FOLLOWER
+        - CREATOR_APPLICATION
+        - REPORT_RESULT
+        - SYSTEM
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  NotificationList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Notification'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  NotificationSetting:
+    properties:
+      email:
+        type: boolean
+      emailAvailable:
+        type: boolean
+      emailLocked:
+        type: boolean
+      inApp:
+        type: boolean
+      inAppLocked:
+        type: boolean
+      type:
+        type: string
+    type: object
+  ReadAllRequest:
+    properties:
+      before:
+        type: string
+    type: object
+  SettingPatch:
+    properties:
+      email:
+        type: boolean
+      inApp:
+        type: boolean
+      type:
+        enum:
+        - CREATOR_LIVE
+        - STREAM_STARTING
+        - SCHEDULE
+        - MENTION
+        - NEW_FOLLOWER
+        - CREATOR_APPLICATION
+        - REPORT_RESULT
+        - SYSTEM
+        type: string
+    type: object
+  Settings:
+    properties:
+      emailVerified:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/NotificationSetting'
+        type: array
+    type: object
+  SettingsRequest:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/SettingPatch'
+        type: array
+    type: object
+  UnreadCount:
+    properties:
+      count:
+        type: integer
+    type: object
+  UnsubscribeRequest:
+    properties:
+      token:
+        type: string
+    type: object
+  Unsubscribed:
+    properties:
+      type:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: The notification center (list, unread count, read, delete), notification
+    settings and e-mail unsubscribe. Realtime delivery goes through chat-svc on the
+    WebSocket topic user:{userId}. Get a token from identity-svc (http://localhost:8090/swagger/index.html
+    → /auth/login) and paste "Bearer <accessToken>" into Authorize.
+  title: NexusLive notification-svc API
+  version: "1.0"
+paths:
+  /me/notification-settings:
+    get:
+      description: The 8 types in a fixed order. Locked switches (CREATOR_APPLICATION,
+        SYSTEM) cannot change; NEW_FOLLOWER has no e-mail. emailVerified=false means
+        no e-mail is sent until the address is verified.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Settings'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: My notification settings
+      tags:
+      - notification-settings
+    put:
+      consumes:
+      - application/json
+      description: Send only the rows that change (1–8); an omitted switch keeps its
+        value. Turning a locked switch off or e-mail on for NEW_FOLLOWER → 400 details.<TYPE>=INVALID.
+        Returns the whole table.
+      parameters:
+      - description: rows to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/SettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Settings'
+        "400":
+          description: VALIDATION_FAILED (items=REQUIRED, type=ENUM, <TYPE>=INVALID)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Change my notification settings
+      tags:
+      - notification-settings
+  /notifications:
+    get:
+      description: Most recently updated first (a grouped notification moves up when
+        it grows). unread=true keeps the unread ones. Keyset paging with nextCursor.
+      parameters:
+      - description: only unread
+        in: query
+        name: unread
+        type: boolean
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–50, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_NotificationList'
+        "400":
+          description: VALIDATION_FAILED (unread=FORMAT, limit=FORMAT, cursor=INVALID)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List my notifications
+      tags:
+      - notifications
+  /notifications/{id}:
+    delete:
+      description: Soft delete. Already deleted → 204; another user's or unknown →
+        404.
+      parameters:
+      - description: notification id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete one notification
+      tags:
+      - notifications
+  /notifications/{id}/read:
+    post:
+      description: Already read → 204. Another user's, deleted or unknown → 404. Other
+        tabs get unread_count on user:{userId}.
+      parameters:
+      - description: notification id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark one notification read
+      tags:
+      - notifications
+  /notifications/read-all:
+    post:
+      consumes:
+      - application/json
+      description: Only those updated at or before `before` (default now), so a notification
+        arriving meanwhile stays unread.
+      parameters:
+      - description: optional before
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/ReadAllRequest'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: VALIDATION_FAILED (before=FORMAT)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Mark all my notifications read
+      tags:
+      - notifications
+  /notifications/unread-count:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_UnreadCount'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: My unread count (bell)
+      tags:
+      - notifications
+  /notifications/unsubscribe:
+    post:
+      consumes:
+      - application/json
+      description: The token comes from {WEB_BASE_URL}/notifications/unsubscribe?token=…;
+        it never expires. A malformed or forged token → 400 TOKEN_INVALID.
+      parameters:
+      - description: token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UnsubscribeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Unsubscribed'
+        "400":
+          description: TOKEN_INVALID, VALIDATION_FAILED (token=REQUIRED)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      summary: Turn off one type of e-mail from the link of an e-mail (no sign-in)
+      tags:
+      - notification-settings
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
