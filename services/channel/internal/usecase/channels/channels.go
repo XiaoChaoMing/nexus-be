@@ -59,6 +59,17 @@ func (uc *UseCase) activeChannel(ctx context.Context, channelID string) (entity.
 	return ch, nil
 }
 
+// suspendedProfile is CHANNEL_SUSPENDED with the public name and avatar, so the page can still say whose
+// channel it is; avatarUrl is left out when the channel has none.
+func suspendedProfile(ch entity.Channel) error {
+	kv := []string{"handle", ch.Handle, "displayName", ch.DisplayName}
+	if ch.AvatarURL != nil && *ch.AvatarURL != "" {
+		kv = append(kv, "avatarUrl", *ch.AvatarURL)
+	}
+
+	return entity.Reject(entity.ErrSuspended, kv...)
+}
+
 // Profile -.
 func (uc *UseCase) Profile(ctx context.Context, handle, viewerID string) (entity.Profile, error) {
 	if !entity.ValidHandle(handle) {
@@ -71,7 +82,7 @@ func (uc *UseCase) Profile(ctx context.Context, handle, viewerID string) (entity
 	}
 
 	if ch.Suspended() {
-		return entity.Profile{}, entity.ErrSuspended
+		return entity.Profile{}, suspendedProfile(ch)
 	}
 
 	p := entity.Profile{Channel: ch}

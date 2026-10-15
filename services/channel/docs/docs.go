@@ -139,7 +139,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "CHANNEL_SUSPENDED",
+                        "description": "CHANNEL_SUSPENDED (details: handle, displayName, avatarUrl when set)",
                         "schema": {
                             "$ref": "#/definitions/Error"
                         }

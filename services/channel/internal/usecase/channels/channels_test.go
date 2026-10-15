@@ -268,7 +268,10 @@ func TestProfile(t *testing.T) {
 	f := newFake()
 	cat := "cat1"
 	f.byOwner["u1"] = entity.Channel{ID: "c1", OwnerID: "u1", Handle: "minhnn", Status: entity.StatusActive, IsLive: true}
-	f.byOwner["u2"] = entity.Channel{ID: "c2", OwnerID: "u2", Handle: "banned", Status: entity.StatusSuspended}
+	avatar := "https://cdn.example/a.webp"
+	f.byOwner["u2"] = entity.Channel{
+		ID: "c2", OwnerID: "u2", Handle: "banned", DisplayName: "Banned", AvatarURL: &avatar, Status: entity.StatusSuspended,
+	}
 	f.live["c1"] = entity.LiveStream{StreamID: "s1", ChannelID: "c1", CategoryID: &cat}
 	f.follows["v1/c1"] = entity.Follow{UserID: "v1", ChannelID: "c1", NotifyLevel: entity.NotifyLiveOnly}
 	uc := newUC(f, fakeViewers{"s1": 42})
@@ -300,6 +303,13 @@ func TestProfile(t *testing.T) {
 		{name: "malformed", handle: "a-b", wantErr: entity.ErrNotFound},
 		{name: "suspended", handle: "banned", wantErr: entity.ErrSuspended},
 	}
+
+	t.Run("suspended details", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := uc.Profile(context.Background(), "banned", "")
+		require.Equal(t, map[string]string{"handle": "banned", "displayName": "Banned", "avatarUrl": avatar}, entity.DetailsOf(err))
+	})
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

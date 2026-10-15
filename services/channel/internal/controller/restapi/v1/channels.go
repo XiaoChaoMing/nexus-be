@@ -21,7 +21,7 @@ import (
 //	@Param       handle path     string true "channel handle"
 //	@Success     200    {object} response.Data[response.ChannelProfile]
 //	@Failure     401    {object} response.Error "UNAUTHORIZED (token sent but invalid)"
-//	@Failure     403    {object} response.Error "CHANNEL_SUSPENDED"
+//	@Failure     403    {object} response.Error "CHANNEL_SUSPENDED (details: handle, displayName, avatarUrl when set)"
 //	@Failure     404    {object} response.Error "NOT_FOUND"
 //	@Router      /channels/{handle} [get]
 func (r *routes) profile(ctx *fiber.Ctx) error {
