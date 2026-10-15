@@ -29,6 +29,8 @@ var (
 	ErrCapacity = errors.New("too many concurrent streams")
 	// ErrRecentlyEnded -.
 	ErrRecentlyEnded = errors.New("channel ended a stream moments ago")
+	// ErrSuspended: an admin suspended the channel.
+	ErrSuspended = errors.New("channel suspended")
 	// ErrUnsupportedCodec -.
 	ErrUnsupportedCodec = errors.New("unsupported codec: H.264 video and AAC audio required")
 )

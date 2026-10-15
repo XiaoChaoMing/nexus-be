@@ -35,6 +35,7 @@ const (
 	AuthorizeInvalidKey    = "invalid_key"
 	AuthorizeAlreadyLive   = "already_live"
 	AuthorizeRecentlyEnded = "recently_ended"
+	AuthorizeSuspended     = "suspended"
 	AuthorizeError         = "error"
 )
 
@@ -293,15 +294,23 @@ func authorizeResult(g entity.Grant, err error) string {
 		return AuthorizeResumed
 	case err == nil:
 		return AuthorizeOK
-	case errors.Is(err, entity.ErrInvalidStreamKey):
-		return AuthorizeInvalidKey
-	case errors.Is(err, entity.ErrAlreadyLive):
-		return AuthorizeAlreadyLive
-	case errors.Is(err, entity.ErrRecentlyEnded):
-		return AuthorizeRecentlyEnded
-	default:
-		return AuthorizeError
 	}
+
+	for _, m := range []struct {
+		err    error
+		result string
+	}{
+		{entity.ErrInvalidStreamKey, AuthorizeInvalidKey},
+		{entity.ErrAlreadyLive, AuthorizeAlreadyLive},
+		{entity.ErrRecentlyEnded, AuthorizeRecentlyEnded},
+		{entity.ErrChannelSuspended, AuthorizeSuspended},
+	} {
+		if errors.Is(err, m.err) {
+			return m.result
+		}
+	}
+
+	return AuthorizeError
 }
 
 // IngestStarted -.

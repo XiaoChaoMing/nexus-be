@@ -54,6 +54,9 @@ func TestHTTP(t *testing.T) {
 		case "live_cooldown":
 			w.WriteHeader(http.StatusConflict)
 			fmt.Fprint(w, `{"error":{"code":"RECENTLY_ENDED"}}`)
+		case "live_suspended":
+			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, `{"error":{"code":"CHANNEL_SUSPENDED"}}`)
 		default:
 			w.WriteHeader(http.StatusForbidden)
 		}
@@ -72,6 +75,9 @@ func TestHTTP(t *testing.T) {
 
 	_, err = a.Authorize(context.Background(), "live_cooldown", "")
 	require.ErrorIs(t, err, entity.ErrRecentlyEnded)
+
+	_, err = a.Authorize(context.Background(), "live_suspended", "")
+	require.ErrorIs(t, err, entity.ErrSuspended)
 
 	_, err = a.Authorize(context.Background(), "nope", "")
 	require.ErrorIs(t, err, entity.ErrUnauthorized)

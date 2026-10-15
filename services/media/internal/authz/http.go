@@ -12,7 +12,10 @@ import (
 	"github.com/minhnn/nexuslive-be/services/media/internal/entity"
 )
 
-const codeRecentlyEnded = "RECENTLY_ENDED"
+const (
+	codeRecentlyEnded = "RECENTLY_ENDED"
+	codeSuspended     = "CHANNEL_SUSPENDED"
+)
 
 // HTTP asks stream-svc (POST /internal/v1/ingest/authorize). Any failure rejects the publish:
 // letting an unverified key through is worse than making OBS retry.
@@ -87,6 +90,10 @@ func statusError(resp *http.Response) error {
 	case http.StatusOK:
 		return nil
 	case http.StatusForbidden:
+		if errorCode(resp) == codeSuspended {
+			return entity.ErrSuspended
+		}
+
 		return entity.ErrUnauthorized
 	case http.StatusConflict:
 		return conflictError(resp)
@@ -99,15 +106,24 @@ func statusError(resp *http.Response) error {
 
 // conflictError tells "already live" from the cooldown after the creator ended a stream.
 func conflictError(resp *http.Response) error {
+	if errorCode(resp) == codeRecentlyEnded {
+		return entity.ErrRecentlyEnded
+	}
+
+	return entity.ErrAlreadyLive
+}
+
+// errorCode reads error.code of a stream-svc error body ("" when unreadable).
+func errorCode(resp *http.Response) string {
 	var body struct {
 		Error struct {
 			Code string `json:"code"`
 		} `json:"error"`
 	}
 
-	if json.NewDecoder(resp.Body).Decode(&body) == nil && body.Error.Code == codeRecentlyEnded {
-		return entity.ErrRecentlyEnded
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return ""
 	}
 
-	return entity.ErrAlreadyLive
+	return body.Error.Code
 }

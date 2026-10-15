@@ -103,6 +103,18 @@ type (
 		UpsertChannel(ctx context.Context, eventID string, c entity.Channel) error
 	}
 
+	// SafetyRepo applies safety-svc's actions; eventID de-duplicates through processed_events.
+	SafetyRepo interface {
+		// Takedown ends an on-air stream with admin_takedown (stream.ended), marks it taken down so a later VOD
+		// is created DELETED, and deletes its VODs (vod.deleted), in one transaction.
+		Takedown(ctx context.Context, eventID, streamID string) (entity.TakedownResult, error)
+		// SetSuspended stores the channel's suspension; suspending also ends its on-air stream (admin_takedown)
+		// and cancels its SCHEDULED streams. Returns the streams it ended or cancelled.
+		SetSuspended(ctx context.Context, eventID, channelID string, suspended bool) (ended, cancelled int, err error)
+		// Streams pages through every stream (id > after, ordered by id) for other services' backfill.
+		Streams(ctx context.Context, after string, limit int) ([]entity.StreamCopy, error)
+	}
+
 	// ViewerRepo stores what viewers do: playback sessions, mature consents and VOD positions.
 	ViewerRepo interface {
 		CreatePlaybackSession(ctx context.Context, s entity.PlaybackSession) error

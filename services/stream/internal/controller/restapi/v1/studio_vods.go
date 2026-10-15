@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
@@ -82,7 +83,7 @@ func dashboardBody(d entity.Dashboard) Dashboard {
 func (r *routes) studioVODBody(v entity.VOD) StudioVOD {
 	return StudioVOD{
 		ID: v.ID, StreamID: v.StreamID, Title: v.Title, DurationSec: v.DurationSec, ThumbnailURL: r.objectURL(v.ThumbnailURL),
-		ManifestURL: r.objectURL(v.PlaylistPath), Status: v.Status, Visibility: v.Visibility, Category: categoryRef(v.CategoryID),
+		ManifestURL: r.manifestURL(v.PlaylistPath, time.Now().Add(entity.PlaybackTTL)), Status: v.Status, Visibility: v.Visibility, Category: categoryRef(v.CategoryID),
 		CreatedAt: v.CreatedAt.UTC(), ExpiresAt: v.ExpiresAt.UTC(),
 	}
 }

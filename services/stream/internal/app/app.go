@@ -26,6 +26,7 @@ import (
 	"github.com/minhnn/nexuslive-be/services/stream/internal/repo/persistent"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/repo/viewers"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/playback"
+	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/safety"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/streams"
 )
 
@@ -83,11 +84,12 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	uc := streams.New(store, store, store, store, cfg.Stream.GracePeriod, cfg.Stream.VODRetention, l, opts...)
 
 	viewer := playback.New(store, store, store, l)
+	moderation := safety.New(store, l)
 
 	// Outgoing events (stream.started / stream.ended) leave through the outbox.
 	go outbox.New(pg.Pool, bus, l).Run(ctx)
 
-	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc, uc, uc), func(e eventbus.Event, herr error) {
+	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc, uc, uc, moderation), func(e eventbus.Event, herr error) {
 		l.Warn("stream - event %s %s: %v", e.Type, e.ID, herr)
 	})
 	if err != nil {
@@ -118,16 +120,19 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	restapi.NewRouter(public.App, uc, uc, viewer, jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l, v1.Options{
 		RTMPPublicURL: cfg.Stream.RTMPPublicURL,
 		HLSBase:       cfg.Stream.HLSBase,
+		HLSSigning:    cfg.Stream.HLSSigning,
+		HLSSecret:     cfg.Stream.HLSSecret,
 	}, cfg.Swagger.Enabled)
 	public.App.Get("/metrics", adaptor.HTTPHandler(m.Handler()))
 
 	internal := httpserver.New(l, httpserver.Port(cfg.HTTP.InternalPort))
-	internalapi.NewRouter(internal.App, uc, cfg.HTTP.InternalSecret, l)
+	internalapi.NewRouter(internal.App, uc, moderation, cfg.HTTP.InternalSecret, l)
 
 	public.Start()
 	internal.Start()
 
-	l.Info("stream - Run - public :%s, internal :%s, grace %s", cfg.HTTP.Port, cfg.HTTP.InternalPort, cfg.Stream.GracePeriod)
+	l.Info("stream - Run - public :%s, internal :%s, grace %s, signed HLS %t", cfg.HTTP.Port, cfg.HTTP.InternalPort,
+		cfg.Stream.GracePeriod, cfg.Stream.HLSSigning)
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)

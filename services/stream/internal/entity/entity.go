@@ -26,6 +26,8 @@ type EndReason string
 const (
 	EndCreator       EndReason = "creator"
 	EndIngestTimeout EndReason = "ingest_timeout"
+	// EndAdminTakedown: an admin took the stream down or suspended its channel.
+	EndAdminTakedown EndReason = "admin_takedown"
 )
 
 // Stream is one broadcast.
@@ -61,6 +63,8 @@ type Channel struct {
 	Handle      string
 	DisplayName string
 	AvatarURL   *string
+	// Suspended: safety-svc suspended the channel (channel.suspended.v1).
+	Suspended bool
 }
 
 // OnAir reports whether viewers can watch it live.
@@ -95,6 +99,7 @@ const (
 	VisibilityHidden = "HIDDEN"
 	VODReady         = "READY"
 	VODExpired       = "EXPIRED"
+	VODDeleted       = "DELETED"
 )
 
 // VOD -.
@@ -157,4 +162,31 @@ var (
 	ErrNotCreator = errors.New("caller has no channel")
 	// ErrInvalidState: the transition is not allowed in the current state (an EXPIRED VOD cannot be edited).
 	ErrInvalidState = errors.New("invalid state")
+	// ErrChannelSuspended: the channel is suspended (no publish, playback or Studio change).
+	ErrChannelSuspended = errors.New("channel suspended")
+	// ErrInvalidCursor: a snapshot cursor that this service never returned.
+	ErrInvalidCursor = errors.New("invalid cursor")
 )
+
+// TakedownResult says what an admin takedown changed.
+type TakedownResult struct {
+	// Ended is true when the stream was on air and is now ENDED (admin_takedown).
+	Ended bool
+	// VODsDeleted counts the VODs moved to DELETED.
+	VODsDeleted int
+	// Found is false when the stream does not exist.
+	Found bool
+}
+
+// StreamCopy is what other services copy of a stream (internal snapshot).
+type StreamCopy struct {
+	ID         string
+	ChannelID  string
+	Title      string
+	Status     Status
+	EndReason  *string
+	VODID      *string
+	VODDeleted bool
+	StartedAt  *time.Time
+	EndedAt    *time.Time
+}

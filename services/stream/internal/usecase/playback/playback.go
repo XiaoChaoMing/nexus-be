@@ -61,6 +61,10 @@ func (uc *UseCase) Open(ctx context.Context, in usecase.PlaybackInput) (entity.P
 		return entity.PlaybackGrant{}, err
 	}
 
+	if serr := uc.refuseSuspended(ctx, m.channelID); serr != nil {
+		return entity.PlaybackGrant{}, serr
+	}
+
 	grant := entity.PlaybackGrant{}
 
 	if in.UserID == "" {
@@ -98,6 +102,20 @@ func (uc *UseCase) Open(ctx context.Context, in usecase.PlaybackInput) (entity.P
 	grant.ObjectKey = m.objectKey
 
 	return grant, nil
+}
+
+// refuseSuspended answers entity.ErrChannelSuspended for the streams and VODs of a suspended channel.
+func (uc *UseCase) refuseSuspended(ctx context.Context, channelID string) error {
+	byID, err := uc.channels.ChannelsByID(ctx, []string{channelID})
+	if err != nil {
+		return fmt.Errorf("PlaybackUseCase - Open - channel: %w", err)
+	}
+
+	if ch, ok := byID[channelID]; ok && ch.Suspended {
+		return entity.ErrChannelSuspended
+	}
+
+	return nil
 }
 
 // gate decides the mature outcome. Signed-in viewers who acknowledge once are not asked again for that channel.

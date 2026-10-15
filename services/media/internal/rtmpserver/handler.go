@@ -333,6 +333,8 @@ func rejectReason(err error) string {
 		return session.RejectAlreadyLive
 	case errors.Is(err, entity.ErrRecentlyEnded):
 		return session.RejectRecentlyEnded
+	case errors.Is(err, entity.ErrSuspended):
+		return session.RejectSuspended
 	default:
 		return session.RejectError
 	}

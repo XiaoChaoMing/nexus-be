@@ -59,6 +59,7 @@ const (
 	RejectInvalidKey    = "invalid_key"
 	RejectAlreadyLive   = "already_live"
 	RejectRecentlyEnded = "recently_ended"
+	RejectSuspended     = "suspended"
 	RejectError         = "error"
 )
 

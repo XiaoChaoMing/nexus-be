@@ -3,10 +3,12 @@ package v1
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/minhnn/nexuslive-be/pkg/hlssign"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/controller/restapi/middleware"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase"
@@ -64,7 +66,7 @@ type VODViewer struct {
 // openStream godoc
 //
 //	@Summary     Open a live (or ended) stream for playback
-//	@Description Guests may call it; send X-NXL-Anon-Id when you have one. Mature streams return mature.required=true and no manifestUrl until called again with acknowledgeMature=true (signed-in viewers are remembered per channel). manifestUrl gains a signature in GĐ5.
+//	@Description Guests may call it; send X-NXL-Anon-Id when you have one. Mature streams return mature.required=true and no manifestUrl until called again with acknowledgeMature=true (signed-in viewers are remembered per channel). With STREAM_HLS_SIGNING the manifestUrl is /hls/t/{expires}/{md5}/streams/{id}/master.m3u8, valid until expiresAt; a suspended channel answers 403 CHANNEL_SUSPENDED.
 //	@Tags        playback
 //	@Accept      json
 //	@Produce     json
@@ -76,6 +78,7 @@ type VODViewer struct {
 //	@Failure     400            {object} ErrorResponse "VALIDATION_FAILED"
 //	@Failure     401            {object} ErrorResponse "UNAUTHORIZED (token sent but invalid)"
 //	@Failure     404            {object} ErrorResponse "NOT_FOUND"
+//	@Failure     403  {object} ErrorResponse "CHANNEL_SUSPENDED"
 //	@Router      /streams/{id}/playback [post]
 func (r *routes) openStream(ctx *fiber.Ctx) error {
 	return r.open(ctx, "stream")
@@ -96,6 +99,7 @@ func (r *routes) openStream(ctx *fiber.Ctx) error {
 //	@Failure     400            {object} ErrorResponse "VALIDATION_FAILED"
 //	@Failure     401            {object} ErrorResponse "UNAUTHORIZED (token sent but invalid)"
 //	@Failure     404            {object} ErrorResponse "NOT_FOUND"
+//	@Failure     403  {object} ErrorResponse "CHANNEL_SUSPENDED"
 //	@Router      /vods/{id}/playback [post]
 func (r *routes) openVOD(ctx *fiber.Ctx) error {
 	return r.open(ctx, "vod")
@@ -136,6 +140,10 @@ func (r *routes) open(ctx *fiber.Ctx, kind string) error {
 		return errorJSON(ctx, http.StatusNotFound, CodeNotFound, kind+" not found", nil)
 	}
 
+	if errors.Is(err, entity.ErrChannelSuspended) {
+		return channelSuspended(ctx)
+	}
+
 	if err != nil {
 		return r.internal(ctx, "open "+kind, err)
 	}
@@ -153,16 +161,36 @@ func (r *routes) playbackBody(g entity.PlaybackGrant) Playback {
 	}
 
 	if g.Session != nil {
-		id, url, exp := g.Session.ID, r.manifestURL(g.ObjectKey), g.Session.ExpiresAt.UTC()
+		id, url, exp := g.Session.ID, r.manifestURL(g.ObjectKey, g.Session.ExpiresAt), g.Session.ExpiresAt.UTC()
 		out.SessionID, out.ManifestURL, out.ExpiresAt = &id, &url, &exp
 	}
 
 	return out
 }
 
-// manifestURL is the single place playback URLs are built, so GĐ5 can add the secure_link signature here.
-func (r *routes) manifestURL(key string) string {
-	return r.objectURL(key)
+// manifestURL is the single place playback URLs are built. Signed, the token covers the stream's directory
+// (streams/{id}/) so the variant playlists and segments the player resolves relative to it share it.
+func (r *routes) manifestURL(key string, expires time.Time) string {
+	if !r.o.HLSSigning {
+		return r.objectURL(key)
+	}
+
+	prefix, file, ok := streamDir(key)
+	if !ok {
+		return r.objectURL(key)
+	}
+
+	return hlssign.Path(r.o.HLSBase, r.o.HLSSecret, prefix, file, expires)
+}
+
+// streamDir splits "streams/{id}/rest" into "streams/{id}/" and "rest".
+func streamDir(key string) (prefix, file string, ok bool) {
+	parts := strings.SplitN(strings.TrimPrefix(key, "/"), "/", 3) //nolint:mnd // streams, id, rest
+	if len(parts) != 3 || parts[0] != "streams" || parts[2] == "" {
+		return "", "", false
+	}
+
+	return parts[0] + "/" + parts[1] + "/", parts[2], true
 }
 
 // saveProgress godoc

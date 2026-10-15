@@ -34,10 +34,24 @@ var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeIngestStarted, events.TypeIngestStopped, events.TypeIngestHealth, events.TypeVODProcessed,
 	events.TypeChannelCreated, events.TypeChannelUpdated, events.TypeStreamPeakViewers,
 	events.TypeScheduleUpdated, events.TypeScheduleOccurrenceUpcoming, events.TypeScheduleOccurrenceChanged,
+	events.TypeStreamTakedown, events.TypeChannelSuspended, events.TypeChannelRestored,
 }
 
-// Handler routes one event to the ingest, channel or schedule use case.
-func Handler(ingest usecase.Ingest, channels usecase.ChannelSync, schedules usecase.Schedules) eventbus.Handler {
+// Handler routes one event to the ingest, channel, schedule or safety use case.
+func Handler(ingest usecase.Ingest, channels usecase.ChannelSync, schedules usecase.Schedules, safety usecase.Safety) eventbus.Handler {
+	base := ingestHandler(ingest, channels, schedules)
+
+	return func(ctx context.Context, e eventbus.Event) error {
+		switch e.Type {
+		case events.TypeStreamTakedown, events.TypeChannelSuspended, events.TypeChannelRestored:
+			return onSafety(ctx, safety, e)
+		}
+
+		return base(ctx, e)
+	}
+}
+
+func ingestHandler(ingest usecase.Ingest, channels usecase.ChannelSync, schedules usecase.Schedules) eventbus.Handler {
 	return func(ctx context.Context, e eventbus.Event) error {
 		switch e.Type {
 		case events.TypeIngestStarted:
@@ -68,6 +82,33 @@ func Handler(ingest usecase.Ingest, channels usecase.ChannelSync, schedules usec
 
 		return onSchedule(ctx, schedules, e)
 	}
+}
+
+// onSafety needs the event id: processed_events applies each action once.
+func onSafety(ctx context.Context, safety usecase.Safety, e eventbus.Event) error {
+	if e.ID == "" {
+		return fmt.Errorf("%w: %s: no event id", eventbus.ErrSkip, e.Type)
+	}
+
+	if e.Type == events.TypeStreamTakedown {
+		var p events.StreamTakedown
+		if err := decode(e, &p.StreamID, &p); err != nil {
+			return err
+		}
+
+		return safety.Takedown(ctx, e.ID, p)
+	}
+
+	var p events.ChannelSuspended
+	if err := decode(e, &p.ChannelID, &p); err != nil {
+		return err
+	}
+
+	if e.Type == events.TypeChannelSuspended {
+		return safety.ChannelSuspended(ctx, e.ID, p)
+	}
+
+	return safety.ChannelRestored(ctx, e.ID, p)
 }
 
 func onSchedule(ctx context.Context, schedules usecase.Schedules, e eventbus.Event) error {

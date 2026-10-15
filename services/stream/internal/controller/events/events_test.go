@@ -68,7 +68,7 @@ func TestChannelCreated(t *testing.T) {
 	rec := &recChannels{}
 	ch, owner := uuid.NewString(), uuid.NewString()
 
-	err := events.Handler(noIngest{}, rec, &recSchedules{})(context.Background(), eventbus.Event{
+	err := events.Handler(noIngest{}, rec, &recSchedules{}, nil)(context.Background(), eventbus.Event{
 		ID: uuid.NewString(), Type: pkgevents.TypeChannelCreated, Payload: channelPayload(ch, owner, "minhnn", "Minh"),
 	})
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestChannelCreatedSkipsBadPayloads(t *testing.T) {
 			t.Parallel()
 
 			rec := &recChannels{}
-			err := events.Handler(noIngest{}, rec, &recSchedules{})(context.Background(), eventbus.Event{
+			err := events.Handler(noIngest{}, rec, &recSchedules{}, nil)(context.Background(), eventbus.Event{
 				ID: tc.id, Type: pkgevents.TypeChannelCreated, Payload: tc.payload,
 			})
 			require.ErrorIs(t, err, eventbus.ErrSkip)
@@ -127,7 +127,7 @@ func TestPeakViewers(t *testing.T) {
 
 	id := uuid.NewString()
 	rec := &recPeak{}
-	h := events.Handler(rec, &recChannels{}, &recSchedules{})
+	h := events.Handler(rec, &recChannels{}, &recSchedules{}, nil)
 
 	err := h(context.Background(), eventbus.Event{
 		ID: uuid.NewString(), Type: pkgevents.TypeStreamPeakViewers, Payload: []byte(`{"streamId":"` + id + `","peakViewers":7}`),
@@ -149,7 +149,7 @@ func TestChannelUpdated(t *testing.T) {
 	rec := &recChannels{}
 	ch, owner := uuid.NewString(), uuid.NewString()
 
-	err := events.Handler(noIngest{}, rec, &recSchedules{})(context.Background(), eventbus.Event{
+	err := events.Handler(noIngest{}, rec, &recSchedules{}, nil)(context.Background(), eventbus.Event{
 		ID: uuid.NewString(), Type: pkgevents.TypeChannelUpdated,
 		Payload: []byte(`{"channelId":"` + ch + `","ownerId":"` + owner + `","handle":"new_handle","displayName":"Minh","avatarUrl":"/media/a.jpg"}`),
 	})
@@ -162,7 +162,7 @@ func TestScheduleEvents(t *testing.T) {
 	t.Parallel()
 
 	rec := &recSchedules{}
-	h := events.Handler(noIngest{}, &recChannels{}, rec)
+	h := events.Handler(noIngest{}, &recChannels{}, rec, nil)
 	ctx := context.Background()
 	sched, ch := uuid.NewString(), uuid.NewString()
 
@@ -194,4 +194,60 @@ func TestScheduleEvents(t *testing.T) {
 		err := h(ctx, eventbus.Event{ID: uuid.NewString(), Type: pkgevents.TypeScheduleOccurrenceUpcoming, Payload: []byte(bad)})
 		require.ErrorIs(t, err, eventbus.ErrSkip, bad)
 	}
+}
+
+type recSafety struct {
+	takedowns []pkgevents.StreamTakedown
+	suspended []string
+	restored  []string
+}
+
+func (r *recSafety) Takedown(_ context.Context, _ string, e pkgevents.StreamTakedown) error {
+	r.takedowns = append(r.takedowns, e)
+
+	return nil
+}
+
+func (r *recSafety) ChannelSuspended(_ context.Context, _ string, e pkgevents.ChannelSuspended) error {
+	r.suspended = append(r.suspended, e.ChannelID)
+
+	return nil
+}
+
+func (r *recSafety) ChannelRestored(_ context.Context, _ string, e pkgevents.ChannelSuspended) error {
+	r.restored = append(r.restored, e.ChannelID)
+
+	return nil
+}
+
+func TestSafetyEvents(t *testing.T) {
+	t.Parallel()
+
+	rec := &recSafety{}
+	h := events.Handler(noIngest{}, &recChannels{}, &recSchedules{}, rec)
+	ctx := context.Background()
+	st, ch := uuid.NewString(), uuid.NewString()
+
+	require.NoError(t, h(ctx, eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeStreamTakedown,
+		Payload: []byte(`{"actionId":"` + uuid.NewString() + `","streamId":"` + st + `","channelId":"` + ch + `","reason":"r"}`),
+	}))
+	require.NoError(t, h(ctx, eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeChannelSuspended,
+		Payload: []byte(`{"channelId":"` + ch + `","ownerId":"` + uuid.NewString() + `","reason":"r"}`),
+	}))
+	require.NoError(t, h(ctx, eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeChannelRestored,
+		Payload: []byte(`{"channelId":"` + ch + `"}`),
+	}))
+
+	require.Len(t, rec.takedowns, 1)
+	require.Equal(t, []string{ch}, rec.suspended)
+	require.Equal(t, []string{ch}, rec.restored)
+
+	err := h(ctx, eventbus.Event{Type: pkgevents.TypeChannelSuspended, Payload: []byte(`{"channelId":"` + ch + `"}`)})
+	require.ErrorIs(t, err, eventbus.ErrSkip, "no event id")
+
+	err = h(ctx, eventbus.Event{ID: uuid.NewString(), Type: pkgevents.TypeStreamTakedown, Payload: []byte(`{"streamId":"x"}`)})
+	require.ErrorIs(t, err, eventbus.ErrSkip, "bad stream id")
 }

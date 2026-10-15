@@ -56,6 +56,18 @@ type (
 		CancelLate(ctx context.Context) (int, error)
 	}
 
+	// Safety applies safety-svc's actions and channel-svc's suspensions; idempotent on eventID.
+	Safety interface {
+		Takedown(ctx context.Context, eventID string, e events.StreamTakedown) error
+		ChannelSuspended(ctx context.Context, eventID string, e events.ChannelSuspended) error
+		ChannelRestored(ctx context.Context, eventID string, e events.ChannelSuspended) error
+	}
+
+	// Snapshot pages through every stream for other services' backfill (internal API); next is "" on the last page.
+	Snapshot interface {
+		Streams(ctx context.Context, after string, limit int) (items []entity.StreamCopy, next string, err error)
+	}
+
 	// Observer receives counters for /metrics; the use case never depends on a metrics library.
 	Observer interface {
 		Authorize(result string)

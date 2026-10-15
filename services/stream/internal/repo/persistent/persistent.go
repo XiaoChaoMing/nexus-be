@@ -311,6 +311,10 @@ func (r *Repo) Authorize(ctx context.Context, channelID string, p repo.Authorize
 	var g entity.Grant
 
 	err := r.inTx(ctx, "Repo - Authorize", func(tx pgx.Tx) error {
+		if err := refuseSuspended(ctx, tx, channelID); err != nil {
+			return err
+		}
+
 		resumed, ok, err := onAirGrant(ctx, tx, channelID, p.Grace)
 		if err != nil {
 			return err
@@ -341,6 +345,25 @@ func (r *Repo) Authorize(ctx context.Context, channelID string, p repo.Authorize
 	})
 
 	return g, err
+}
+
+// refuseSuspended answers entity.ErrChannelSuspended for a channel safety-svc suspended. A channel the copy does
+// not know yet is let through, as before.
+func refuseSuspended(ctx context.Context, tx pgx.Tx, channelID string) error {
+	var suspended bool
+
+	err := tx.QueryRow(ctx, `SELECT suspended FROM creator_channels WHERE channel_id = $1`, channelID).Scan(&suspended)
+
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("Repo - Authorize - suspended: %w", err)
+	case suspended:
+		return entity.ErrChannelSuspended
+	}
+
+	return nil
 }
 
 // _liveCols is what goLive returns of the stream that went live.
@@ -584,10 +607,13 @@ func (r *Repo) OnVODProcessed(ctx context.Context, eventID string, v repo.VODInp
 			return err
 		}
 
+		// The VOD of a stream an admin took down is recorded DELETED, so media-svc removes its files.
 		vod, err := scanVOD(tx.QueryRow(ctx,
 			`INSERT INTO vods (stream_id, channel_id, title, duration_sec, playlist_path, thumbnail_url, status, expires_at,
-			                  category_id, is_mature)
-			 SELECT id, channel_id, title, $2, $3, $4, 'READY', now() + make_interval(secs => $5), category_id, is_mature
+			                  category_id, is_mature, deleted_at)
+			 SELECT id, channel_id, title, $2, $3, $4, CASE WHEN taken_down_at IS NULL THEN 'READY' ELSE 'DELETED' END,
+			        now() + make_interval(secs => $5), category_id, is_mature,
+			        CASE WHEN taken_down_at IS NULL THEN NULL ELSE now() END
 			 FROM streams WHERE id = $1
 			 ON CONFLICT (stream_id) DO NOTHING
 			 RETURNING `+_vodCols,
@@ -598,6 +624,11 @@ func (r *Repo) OnVODProcessed(ctx context.Context, eventID string, v repo.VODInp
 			return nil // unknown stream or VOD already recorded
 		case err != nil:
 			return fmt.Errorf("Repo - OnVODProcessed - insert vod: %w", err)
+		}
+
+		if vod.Status == entity.VODDeleted {
+			return addOutbox(ctx, tx, v.StreamID, events.TypeVODDeleted,
+				events.VODDeleted{VODID: vod.ID, StreamID: v.StreamID, ChannelID: vod.ChannelID})
 		}
 
 		return addOutbox(ctx, tx, v.StreamID, events.TypeStreamVODReady, events.StreamVODReady{
@@ -727,12 +758,12 @@ func (r *Repo) GetVOD(ctx context.Context, vodID string) (entity.VOD, error) {
 
 // ---- creator channels ----------------------------------------------------------------------------
 
-const _channelCols = `channel_id::text, owner_id::text, handle, display_name, avatar_url`
+const _channelCols = `channel_id::text, owner_id::text, handle, display_name, avatar_url, suspended`
 
 func scanChannel(row scanner) (entity.Channel, error) {
 	var c entity.Channel
 
-	err := row.Scan(&c.ID, &c.OwnerID, &c.Handle, &c.DisplayName, &c.AvatarURL)
+	err := row.Scan(&c.ID, &c.OwnerID, &c.Handle, &c.DisplayName, &c.AvatarURL, &c.Suspended)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entity.Channel{}, entity.ErrNotFound
 	}

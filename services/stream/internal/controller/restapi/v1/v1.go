@@ -24,6 +24,7 @@ const (
 	CodeNotCreator       = "NOT_CREATOR"
 	CodeNotFound         = "NOT_FOUND"
 	CodeNotLive          = "NOT_LIVE"
+	CodeChannelSuspended = "CHANNEL_SUSPENDED"
 	CodeInternal         = "INTERNAL_ERROR"
 
 	_maxTitle   = 140
@@ -39,6 +40,9 @@ const (
 type Options struct {
 	RTMPPublicURL string
 	HLSBase       string
+	// HLSSigning signs playback URLs with HLSSecret (nginx secure_link) and empties the public manifestUrl.
+	HLSSigning bool
+	HLSSecret  string
 }
 
 type routes struct {
@@ -127,6 +131,10 @@ func notCreator(ctx *fiber.Ctx) error {
 	return errorJSON(ctx, http.StatusForbidden, CodeNotCreator, "only creators can use the Studio", nil)
 }
 
+func channelSuspended(ctx *fiber.Ctx) error {
+	return errorJSON(ctx, http.StatusForbidden, CodeChannelSuspended, "channel suspended", nil)
+}
+
 // creatorChannel returns the channel stored by requireCreator.
 func creatorChannel(ctx *fiber.Ctx) (entity.Channel, bool) {
 	ch, ok := ctx.Locals(_localChannel).(entity.Channel)
@@ -145,12 +153,16 @@ func creatorChannel(ctx *fiber.Ctx) (entity.Channel, bool) {
 //	@Security    BearerAuth
 //	@Success     201 {object} Data[StreamKeyCreated]
 //	@Failure     401 {object} ErrorResponse "UNAUTHORIZED"
-//	@Failure     403 {object} ErrorResponse "NOT_CREATOR"
+//	@Failure     403 {object} ErrorResponse "NOT_CREATOR, CHANNEL_SUSPENDED"
 //	@Router      /studio/stream-key [post]
 func (r *routes) createKey(ctx *fiber.Ctx) error {
 	ch, ok := creatorChannel(ctx)
 	if !ok {
 		return notCreator(ctx)
+	}
+
+	if ch.Suspended {
+		return channelSuspended(ctx)
 	}
 
 	key, err := r.studio.CreateKey(ctx.UserContext(), ch.ID)
@@ -264,12 +276,16 @@ func (b SettingsRequest) validate() map[string]string {
 //	@Success     200  {object} Data[Settings]
 //	@Failure     400  {object} ErrorResponse "VALIDATION_FAILED"
 //	@Failure     401  {object} ErrorResponse "UNAUTHORIZED"
-//	@Failure     403  {object} ErrorResponse "NOT_CREATOR"
+//	@Failure     403  {object} ErrorResponse "NOT_CREATOR, CHANNEL_SUSPENDED"
 //	@Router      /studio/stream [put]
 func (r *routes) updateSettings(ctx *fiber.Ctx) error {
 	ch, ok := creatorChannel(ctx)
 	if !ok {
 		return notCreator(ctx)
+	}
+
+	if ch.Suspended {
+		return channelSuspended(ctx)
 	}
 
 	var body SettingsRequest
@@ -462,7 +478,7 @@ func (r *routes) vodBody(v entity.VOD) VOD {
 		ChannelID:    v.ChannelID,
 		Title:        v.Title,
 		DurationSec:  v.DurationSec,
-		ManifestURL:  r.objectURL(v.PlaylistPath),
+		ManifestURL:  r.publicManifest(v.PlaylistPath),
 		ThumbnailURL: r.objectURL(v.ThumbnailURL),
 		Status:       v.Status,
 		Visibility:   v.Visibility,
@@ -485,6 +501,16 @@ func (r *routes) objectURL(key string) string {
 	return strings.TrimSuffix(r.o.HLSBase, "/") + "/" + strings.TrimPrefix(key, "/")
 }
 
+// publicManifest is the manifestUrl of the public DTOs: empty once URLs are signed (deprecated field; viewers
+// get a signed URL from the playback endpoints).
+func (r *routes) publicManifest(key string) string {
+	if r.o.HLSSigning {
+		return ""
+	}
+
+	return r.objectURL(key)
+}
+
 func (r *routes) streamBody(s entity.Stream) Stream {
 	var reason *string
 
@@ -504,7 +530,7 @@ func (r *routes) streamBody(s entity.Stream) Stream {
 		StartedAt:        utcPtr(s.StartedAt),
 		EndedAt:          utcPtr(s.EndedAt),
 		EndReason:        reason,
-		ManifestURL:      r.objectURL("streams/" + s.ID + "/master.m3u8"),
+		ManifestURL:      r.publicManifest("streams/" + s.ID + "/master.m3u8"),
 		ThumbnailURL:     r.objectURL("streams/" + s.ID + "/thumb.jpg"),
 		VODID:            s.VODID,
 		ViewerCount:      s.ViewerCount,
@@ -562,7 +588,7 @@ func (r *routes) studioBody(ch entity.Channel, ov usecase.StudioOverview) Studio
 			Status:        string(ov.Current.Status),
 			StartedAt:     utcPtr(ov.Current.StartedAt),
 			InterruptedAt: utcPtr(ov.Current.InterruptedAt),
-			ManifestURL:   r.objectURL("streams/" + ov.Current.ID + "/master.m3u8"),
+			ManifestURL:   r.manifestURL("streams/"+ov.Current.ID+"/master.m3u8", time.Now().Add(entity.PlaybackTTL)),
 			Health:        ov.Health,
 		}
 	}

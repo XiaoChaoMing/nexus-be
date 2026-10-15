@@ -77,6 +77,10 @@ type (
 		RTMPPublicURL string `env:"STREAM_RTMP_PUBLIC_URL" envDefault:"rtmp://localhost:1935/live"`
 		// Prefix viewers use for HLS objects (Vite proxy /hls → MinIO bucket).
 		HLSBase string `env:"STREAM_HLS_BASE" envDefault:"/hls"`
+		// HLSSigning makes playback URLs /hls/t/{expires}/{md5}/streams/{id}/… (nginx secure_link) and empties the
+		// manifestUrl of the public DTOs. HLSSecret is NXL_HLS_SECRET of the edge, at least 32 characters.
+		HLSSigning bool   `env:"STREAM_HLS_SIGNING" envDefault:"false"`
+		HLSSecret  string `env:"STREAM_HLS_SECRET"`
 		// NXL-A §7A: how long an interrupted stream waits for OBS before it ends.
 		GracePeriod  time.Duration `env:"STREAM_INGEST_GRACE_PERIOD" envDefault:"60s"`
 		VODRetention time.Duration `env:"STREAM_VOD_RETENTION" envDefault:"336h"`
@@ -95,6 +99,11 @@ type (
 
 // ErrInternalSecretRequired -.
 var ErrInternalSecretRequired = errors.New("NXL_INTERNAL_SECRET is required outside dev")
+
+// ErrHLSSecretTooShort -.
+var ErrHLSSecretTooShort = errors.New("STREAM_HLS_SIGNING needs STREAM_HLS_SECRET of at least 32 characters")
+
+const _minHLSSecret = 32
 
 // _devInternalSecret keeps `make nxl-up` working without an .env; refused outside dev.
 const _devInternalSecret = "dev-internal-secret" //nolint:gosec // dev-only default, refused outside dev
@@ -117,6 +126,10 @@ func NewConfig() (*Config, error) {
 		}
 
 		cfg.HTTP.InternalSecret = _devInternalSecret
+	}
+
+	if cfg.Stream.HLSSigning && len(cfg.Stream.HLSSecret) < _minHLSSecret {
+		return nil, fmt.Errorf("config error: %w", ErrHLSSecretTooShort)
 	}
 
 	return cfg, nil

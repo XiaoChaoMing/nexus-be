@@ -5,10 +5,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/minhnn/nexuslive-be/pkg/hlssign"
 	v1 "github.com/minhnn/nexuslive-be/services/stream/internal/controller/restapi/v1"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase"
@@ -21,6 +23,7 @@ const (
 	_matureID = "0199d4a2-0000-7000-8000-0000000000ff"
 	_missing  = "0199d4a2-0000-7000-8000-000000000404"
 	_anon     = "0199d4a2-0000-7000-8000-0000000000aa"
+	_banned   = "0199d4a2-0000-7000-8000-0000000000bb"
 )
 
 // fakeViewer: _matureID needs acknowledgment, _missing does not exist, every VOD is at 42 s for "viewer".
@@ -36,6 +39,10 @@ func (f *fakeViewer) Open(_ context.Context, in usecase.PlaybackInput) (entity.P
 	id := in.Target.StreamID + in.Target.VODID
 	if id == _missing {
 		return entity.PlaybackGrant{}, entity.ErrNotFound
+	}
+
+	if id == _banned {
+		return entity.PlaybackGrant{}, entity.ErrChannelSuspended
 	}
 
 	g := entity.PlaybackGrant{AnonID: in.AnonID}
@@ -256,4 +263,31 @@ func TestVODViewerField(t *testing.T) {
 	status, body = send(t, req(http.MethodGet, "/v1/vods/"+_vodID, "other", "", ""), app)
 	require.Equal(t, http.StatusOK, status)
 	require.Contains(t, string(body), `"viewer":{"positionSec":null}`)
+}
+
+func TestSignedPlayback(t *testing.T) {
+	t.Parallel()
+
+	secret := strings.Repeat("s", 32)
+	app := newAppOpts(&fakeStudio{}, &fakeViewer{}, v1.Options{HLSBase: "/hls", HLSSigning: true, HLSSecret: secret})
+
+	status, body := send(t, req(http.MethodPost, "/v1/streams/"+_streamID+"/playback", "", _anon, ""), app)
+	require.Equal(t, http.StatusOK, status)
+
+	p := decode[v1.Data[v1.Playback]](t, body).Data
+	require.NotNil(t, p.ManifestURL)
+
+	exp := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	prefix := "streams/" + _streamID + "/"
+	require.Equal(t, hlssign.Path("/hls", secret, prefix, "master.m3u8", exp), *p.ManifestURL)
+	require.True(t, strings.HasPrefix(*p.ManifestURL, "/hls/t/"+strconv.FormatInt(exp.Unix(), 10)+"/"))
+
+	// The public stream DTO no longer carries a usable URL.
+	status, body = send(t, req(http.MethodGet, "/v1/streams/"+_streamID, "", "", ""), app)
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, string(body), `"manifestUrl":""`)
+
+	status, body = send(t, req(http.MethodPost, "/v1/streams/"+_banned+"/playback", "", _anon, ""), app)
+	require.Equal(t, http.StatusForbidden, status)
+	require.Contains(t, string(body), "CHANNEL_SUSPENDED")
 }

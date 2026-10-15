@@ -23,11 +23,11 @@ type fakeStudio struct {
 }
 
 func (*fakeStudio) Channel(_ context.Context, ownerID string) (entity.Channel, error) {
-	if ownerID != "creator" {
+	if ownerID != "creator" && ownerID != "suspended" {
 		return entity.Channel{}, entity.ErrNotCreator
 	}
 
-	return entity.Channel{ID: "ch1", OwnerID: ownerID, Handle: "minhnn", DisplayName: "Minh"}, nil
+	return entity.Channel{ID: "ch1", OwnerID: ownerID, Handle: "minhnn", DisplayName: "Minh", Suspended: ownerID == "suspended"}, nil
 }
 
 func (f *fakeStudio) KeyInfo(_ context.Context, channelID string) (entity.StreamKeyInfo, error) {
@@ -56,6 +56,10 @@ func newApp(studio usecase.Studio) *fiber.App {
 }
 
 func newAppWith(studio usecase.Studio, viewer usecase.Viewer) *fiber.App {
+	return newAppOpts(studio, viewer, v1.Options{HLSBase: "/hls"})
+}
+
+func newAppOpts(studio usecase.Studio, viewer usecase.Viewer, o v1.Options) *fiber.App {
 	app := fiber.New()
 	// Stands in for middleware.Auth: the "X-User" header becomes the authenticated user id.
 	auth := func(ctx *fiber.Ctx) error {
@@ -67,7 +71,7 @@ func newAppWith(studio usecase.Studio, viewer usecase.Viewer) *fiber.App {
 	}
 
 	v1.NewRoutes(app.Group("/v1"), studio, fakeCatalog{}, viewer, v1.Auth{Required: auth, Optional: auth},
-		logger.New("error"), v1.Options{HLSBase: "/hls"})
+		logger.New("error"), o)
 
 	return app
 }
@@ -162,4 +166,26 @@ func TestStreamChannelField(t *testing.T) {
 
 	require.Nil(t, decode[v1.Data[v1.Stream]](t, body).Data.Channel)
 	require.Contains(t, string(body), `"channel":null`, "unknown channel is null, not missing")
+}
+
+func TestSuspendedStudioWrites(t *testing.T) {
+	t.Parallel()
+
+	app := newApp(&fakeStudio{})
+
+	for _, tc := range []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodPost, "/v1/studio/stream-key", http.StatusForbidden},
+		{http.MethodPut, "/v1/studio/stream", http.StatusForbidden},
+		{http.MethodGet, "/v1/studio/stream-key", http.StatusOK},
+	} {
+		status, body := do(t, app, tc.method, tc.path, "suspended")
+		require.Equal(t, tc.want, status, tc.method+" "+tc.path)
+
+		if tc.want == http.StatusForbidden {
+			require.Contains(t, string(body), "CHANNEL_SUSPENDED")
+		}
+	}
 }
