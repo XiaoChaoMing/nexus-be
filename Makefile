@@ -11,7 +11,7 @@ BASE_STACK = docker compose -f docker-compose.yml
 ALL_PROFILES = --profile nxl --profile obs
 
 # Go modules of the workspace (go.work). Add a service here when it gets its own module.
-NXL_GO_MODULES := . services/identity services/channel services/stream services/media services/chat services/safety
+NXL_GO_MODULES := . services/identity services/channel services/stream services/media services/chat services/safety services/notification
 # -race needs cgo (gcc). Without a C compiler on Windows: make nxl-test NXL_TEST_FLAGS=
 NXL_TEST_FLAGS ?= -race
 
@@ -61,7 +61,7 @@ nxl-lint: ### golangci-lint on every Go module of the workspace
 	$(foreach m,$(NXL_GO_MODULES),go -C $(m) tool golangci-lint run ./...$(nl))
 .PHONY: nxl-lint
 
-nxl-test: ### unit tests of every Go module; repository tests also need NXL_TEST_PG_URL_<SVC> (stream, channel, chat, identity, safety), Redis tests NXL_TEST_REDIS_ADDR
+nxl-test: ### unit tests of every Go module; repository tests also need NXL_TEST_PG_URL_<SVC> (stream, channel, chat, identity, safety, notification), Redis tests NXL_TEST_REDIS_ADDR
 	$(foreach m,$(NXL_GO_MODULES),go -C $(m) test $(NXL_TEST_FLAGS) -covermode atomic ./...$(nl))
 .PHONY: nxl-test
 
@@ -112,8 +112,8 @@ nxl-migrate-down: ### roll back every migration of one service: make nxl-migrate
 	$(BASE_STACK) --profile nxl run --rm db-migrate 'migrate -path /services/$(SVC)/migrations -database "$$NXL_PG_BASE/nxl_$(SVC)?sslmode=disable" down -all'
 .PHONY: nxl-migrate-down
 
-nxl-up: ### start postgres + migrations, NATS, Mailpit, identity-svc :8090, channel-svc :8094 and stream-svc :8092
-	$(BASE_STACK) --profile nxl up --build -d db db-init db-migrate nats mailpit identity channel stream pgadmin
+nxl-up: ### start postgres + migrations, NATS, Redis, Mailpit, notification-svc :8097 (account e-mails), identity-svc :8090, channel-svc :8094 and stream-svc :8092
+	$(BASE_STACK) --profile nxl up --build -d db db-init db-migrate nats redis mailpit notification identity channel stream pgadmin
 .PHONY: nxl-up
 
 nxl-pgadmin: ### start pgAdmin on http://127.0.0.1:5050 (server "NexusLive (db)" is preconfigured)
@@ -134,7 +134,7 @@ nxl-identity-test: ### unit tests of identity-svc and the shared jwt package
 .PHONY: nxl-identity-test
 
 nxl-media-up: ### start the livestream stack: identity, channel-svc, stream-svc, MinIO, media-svc (RTMP :1935, http://localhost:8091/dev/player)
-	$(BASE_STACK) --profile nxl up --build -d db db-init db-migrate nats mailpit identity channel stream minio media
+	$(BASE_STACK) --profile nxl up --build -d db db-init db-migrate nats redis mailpit notification identity channel stream minio media
 .PHONY: nxl-media-up
 
 nxl-media-logs: ### follow media-svc logs
@@ -177,11 +177,21 @@ nxl-bench: ### transcode load test through the edge: make nxl-bench COUNTS="1 2 
 	COUNTS="$(or $(COUNTS),1 2 3)" bash scripts/bench-transcode.sh
 .PHONY: nxl-bench
 
-nxl-swag: ### regenerate Swagger specs of identity-svc, channel-svc, stream-svc, chat-svc and safety-svc (runs swag in Docker, no local Go needed)
-	docker run --rm -v "$(CURDIR):/src" -w /src golang:1.27-alpine3.23 sh -c 'for s in identity channel stream chat safety; do \
+nxl-swag: ### regenerate Swagger specs of identity-svc, channel-svc, stream-svc, chat-svc, safety-svc and notification-svc (runs swag in Docker, no local Go needed)
+	docker run --rm -v "$(CURDIR):/src" -w /src golang:1.27-alpine3.23 sh -c 'for s in identity channel stream chat safety notification; do \
 		(cd services/$$s && go tool swag init -q -g internal/controller/restapi/router.go -o docs \
 			--parseInternal --parseDependency --parseDepth 2 --useStructName) || exit 1; done'
 .PHONY: nxl-swag
+
+nxl-mailer-cutover: ### move the account e-mails to notification-svc: auth mailer on first, then identity-mailer off (GĐ5 TSD §9.2)
+	NOTIFICATION_AUTH_MAILER_ENABLED=true $(BASE_STACK) --profile nxl up -d --no-deps notification
+	IDENTITY_MAILER_ENABLED=false $(BASE_STACK) --profile nxl up -d --no-deps identity
+.PHONY: nxl-mailer-cutover
+
+nxl-mailer-rollback: ### give the account e-mails back to identity: identity-mailer on first, then the auth mailer off
+	IDENTITY_MAILER_ENABLED=true $(BASE_STACK) --profile nxl up -d --no-deps identity
+	NOTIFICATION_AUTH_MAILER_ENABLED=false $(BASE_STACK) --profile nxl up -d --no-deps notification
+.PHONY: nxl-mailer-rollback
 
 nxl-migrate-create: ### create a migration: make nxl-migrate-create SVC=chat NAME=add_x
 	@case " $(NXL_SERVICES) " in *" $(SVC) "*) ;; *) echo "SVC must be one of: $(NXL_SERVICES)"; exit 1;; esac
