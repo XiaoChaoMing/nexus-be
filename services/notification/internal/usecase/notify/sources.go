@@ -31,7 +31,7 @@ const ReasonCreated = "CREATED"
 const (
 	_linkStudio       = "/studio/stream"
 	_linkApply        = "/creator/apply"
-	_linkDashboard    = "/studio/dashboard"
+	_linkDashboard    = "/studio"
 	_mentionNotifyMax = 5
 )
 
