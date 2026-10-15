@@ -31,7 +31,7 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | channel-svc | 8094 | `http://localhost:8094/v1` | <http://localhost:8094/swagger/index.html> | GĐ1 · GĐ4 🔧 |
 | chat-svc (realtime gateway + chat), 2 instance | 8095 (`chat-1`), 8096 (`chat-2`) | `ws://localhost:8080/v1/ws` (qua cổng vào), `http://localhost:8095/v1` | <http://localhost:8095/swagger/index.html> | GĐ3 🔧 |
 | safety-svc | 8099 | `http://localhost:8099/v1` | <http://localhost:8099/swagger/index.html> | GĐ5 🔧 |
-| notification-svc | 8097 📋 | | 📋 | GĐ5 |
+| notification-svc | 8097 | `http://localhost:8097/v1` | <http://localhost:8097/swagger/index.html> | GĐ5 🔧 |
 | billing-svc | 8098 📋 | | 📋 | GĐ6 |
 | NATS JetStream | 4222 (client), 8222 (monitor) | `nats://guest:guest@localhost:4222` | — | ✅ |
 | Web người dùng `nexuslive-web` | 5173 | Vite proxy `/v1`, `/hls` → cổng vào | — | ✅ |
@@ -49,7 +49,7 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | `/v1/ws` | chat-svc (upstream `nxl_chat`: `chat-1`, `chat-2`) | WebSocket (`Upgrade`), `proxy_read_timeout 75s`, không rate limit theo request (GĐ3) |
 | `/v1/chat/*`, `/v1/channels/{id}/(chat-settings\|timeouts\|bans\|restrictions\|blocked-terms\|roles\|users)*` | chat-svc | Đặt trước route channel-svc (GĐ3; GĐ5 thêm hành động mod, từ khóa chặn, vai trò, thẻ người dùng) |
 | `/v1/me/channel-roles` | chat-svc | Exact match (GĐ5) |
-| `/v1/me/notification-settings`, `/v1/notifications*` | notification-svc :8097 | GĐ5 (phần B) |
+| `/v1/me/notification-settings`, `/v1/notifications*` | notification-svc :8097 | GĐ5 (`/v1/notifications/unsubscribe` không cần token); service dừng → `503 SERVICE_UNAVAILABLE` của cổng vào |
 | `/v1/reports` | safety-svc :8099 | Exact match (GĐ5) |
 | `/v1/admin/creator-applications*`, `GET /v1/admin/users/{id}` | identity-svc | GĐ5: `…/users/{id}/lock` không khớp, đi safety |
 | `/v1/admin/*` còn lại | safety-svc :8099 | Report, khóa / mở, kênh, stream, audit log, tra cứu (GĐ5) |
@@ -337,6 +337,47 @@ Sự kiện: nghe `user.*`, `channel.*`, `stream.*`, `vod.deleted` (bản sao), 
 `channel.role_changed`, `audit.recorded` (audit); phát `safety.user_actioned`, `safety.channel_actioned`,
 `safety.stream_takedown`, `safety.report_resolved` (outbox).
 
+## 6D. notification-svc — trung tâm thông báo, cài đặt, email (GĐ5 🔧)
+
+Cổng 8097, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (`notification_created_total{type,grouped}`,
+`notification_suppressed_total{type,reason}`, `notification_emails_total{template,status}`,
+`notification_email_send_seconds`, `notification_reads_total{action}`, `notification_event_lag_seconds{source}`). Hợp đồng
+đầy đủ: TSD GĐ5 §5.5, §5.8, §6.7–§6.8; câu chữ in-app dựng ở web theo `type` + `payload` (NXL-E §7.4).
+
+| Method | Path | Auth | Mô tả |
+| --- | --- | --- | --- |
+| GET | `/v1/notifications?unread=&cursor=&limit=` | B | `{items: Notification[], nextCursor}` — `updatedAt` mới nhất trước (mục gộp lên đầu); `limit` 1–50 (20); `unread = FORMAT`, `cursor = INVALID` |
+| GET | `/v1/notifications/unread-count` | B | `{count}` |
+| POST | `/v1/notifications/{id}/read` | B | `204`; đã đọc → `204`; của người khác / đã xóa / không có → `404` |
+| POST | `/v1/notifications/read-all` | B | `{before?}` (RFC 3339, mặc định `now`; chỉ mục `updatedAt ≤ before`) → `204`; `before = FORMAT` |
+| DELETE | `/v1/notifications/{id}` | B | Xóa mềm → `204` (đã xóa → `204`); của người khác → `404` |
+| GET · PUT | `/v1/me/notification-settings` | B | `{items: [{type, inApp, email, inAppLocked, emailLocked, emailAvailable}] (8 loại, thứ tự BR-E01), emailVerified}`; `PUT {items: [{type, inApp?, email?}]}` (1–8 dòng, chỉ dòng đổi) → bảng đầy đủ; tắt `SYSTEM` / `CREATOR_APPLICATION` hoặc bật email `NEW_FOLLOWER` → `400 details.<TYPE> = INVALID`; `type = ENUM`, `items = REQUIRED` |
+| POST | `/v1/notifications/unsubscribe` | — | `{token}` (từ liên kết `{WEB}/notifications/unsubscribe?token=…` trong email) → `{type}`; sai / sửa / loại không có email → `400 TOKEN_INVALID`; thiếu → `token = REQUIRED` |
+
+`Notification` = `{id, type, payload, link | null, groupCount, read, createdAt, updatedAt}`; `payload` theo loại:
+`CREATOR_LIVE {channel{id,handle,displayName,avatarUrl}, streamId, title}` · `STREAM_STARTING {channel, scheduleId,
+occurrenceAt, title}` · `SCHEDULE {channel, scheduleId, title, occurrenceAt, newOccurrenceAt, reason
+(CANCELLED|MOVED|SERIES_CHANGED|CREATED)}` · `MENTION {channel, streamId, lastSender{id,username,displayName}, excerpt}` ·
+`NEW_FOLLOWER {channelId, lastFollower{id,username,displayName}}` · `CREATOR_APPLICATION {applicationId, result, reason}` ·
+`REPORT_RESULT {reportId, targetType, result (RESOLVED|DISMISSED)}` · `SYSTEM {kind (CHANNEL_SUSPENDED|CHANNEL_RESTORED|
+STREAM_TAKEDOWN), channelId, reason, streamId?, title?}`.
+
+Realtime: chat-svc chuyển `notification.created.v1` thành frame `notification` (`data` = `Notification`, client upsert theo
+`id`) rồi `unread_count {count}` trên `user:{userId}`; `notification.unread_changed.v1` → `unread_count`. Chỉ người đang có
+kết nối nhận; người offline lấy qua REST.
+
+Quy tắc: cooldown `CREATOR_LIVE` 30 phút in-app / 12 giờ email mỗi (người nhận, kênh) (Redis `notify:live:*`); gộp
+`MENTION` theo buổi phát 5 phút, `NEW_FOLLOWER` theo kênh 60 phút; ≤ 10 email không bắt buộc / ngày theo múi giờ tài
+khoản; chỉ email tới địa chỉ đã xác minh (trừ `account_locked` và email xác thực); fan-out lô 500, unique
+`(user_id, source_event_id)`; email qua `email_outbox` + worker (thử lại 1 · 5 · 15 · 60 phút, tối đa 5 lần); lưu 90 ngày.
+
+**Email xác thực (chuyển mailer, TSD §9.2):** consumer `notification-auth-mailer` (DeliverNew) gửi `verify_email`,
+`reset_password`, `security_lock` ngay trong handler (không lưu outbox, không log token). Thứ tự chuyển: bật
+`NOTIFICATION_AUTH_MAILER_ENABLED=true` + khởi động lại notification **trước**, rồi `IDENTITY_MAILER_ENABLED=false` +
+khởi động lại identity (identity xóa durable `identity-mailer`) — `make nxl-mailer-cutover`; vài giây giữa hai bước có
+thể gửi trùng, không mất. Rollback: `make nxl-mailer-rollback` (identity bật lại trước, durable tạo lại DeliverNew). Compose
+và `.env.example` đã ở trạng thái sau chuyển giao; mặc định trong code: identity `true`, notification `false`.
+
 ## 7. Dịch vụ dự kiến
 
 Đường dẫn dưới đây là **bản nháp** để giữ chỗ và kiểm tra trùng lặp. Spec tương ứng chốt chi tiết trước khi làm (roadmap §4).
@@ -345,14 +386,6 @@ Sự kiện: nghe `user.*`, `channel.*`, `stream.*`, `vod.deleted` (bản sao), 
 
 Đã chạy ở GĐ4 (§6A). Không làm: `GET /v1/home` (trang chủ gọi API theo từng khối, G4-Q3), `GET /v1/search/trending`,
 `GET /v1/channels/recommended` (sidebar Guest dùng `GET /v1/streams/recommended`), follow danh mục.
-
-### 7.4 notification-svc (GĐ5, NXL-E)
-
-| Method | Path | Mô tả |
-| --- | --- | --- |
-| GET | `/v1/notifications?cursor=` | Notification center (E2) |
-| POST | `/v1/notifications/{id}/read` · `/v1/notifications/read-all` | Đánh dấu đã đọc |
-| GET / PUT | `/v1/me/notification-settings` | Cài đặt nhận thông báo |
 
 ### 7.5 billing-svc — subscription, thanh toán sandbox (GĐ6, NXL-H)
 
@@ -379,13 +412,13 @@ Sự kiện: nghe `user.*`, `channel.*`, `stream.*`, `vod.deleted` (bản sao), 
 
 | Subject (`nxl.` +) | Bên phát | Bên nhận | Payload chính | Trạng thái |
 | --- | --- | --- | --- | --- |
-| `user.registered.v1` | identity (outbox) | chat (bản sao `users`, GĐ3); (notification — GĐ5) | `userId, username, displayName, email` | ✅ phát |
-| `auth.email_requested.v1` | identity (outbox) | identity (`identity-mailer`, gửi SMTP); GĐ5: notification | `userId, email, purpose (VERIFY\|RESET), token, locale, username` — token gốc, không log | 🔧 GĐ1 |
+| `user.registered.v1` | identity (outbox) | chat (bản sao `users`, GĐ3); notification (bản sao, GĐ5) | `userId, username, displayName, email` | ✅ phát |
+| `auth.email_requested.v1` | identity (outbox) | notification (`notification-auth-mailer`, GĐ5); identity (`identity-mailer`, chỉ khi `IDENTITY_MAILER_ENABLED=true`) | `userId, email, purpose (VERIFY\|RESET\|SECURITY_LOCK), token, locale, username` — token gốc, không log | 🔧 GĐ1 · GĐ5 |
 | `user.email_verified.v1` | identity (outbox) | chat (GĐ3) | `userId` | 🔧 GĐ1 |
 | `user.profile_updated.v1` | identity (outbox) | chat (GĐ3); GĐ4: channel | `userId, displayName` | 🔧 GĐ1 |
-| `creator.application_submitted.v1` | identity (outbox) | — (GĐ5: notification) | `applicationId, userId` | 🔧 GĐ1 |
+| `creator.application_submitted.v1` | identity (outbox) | — | `applicationId, userId` | 🔧 GĐ1 |
 | `creator.approved.v1` | identity (outbox) | channel (tạo kênh) | `applicationId, userId, username, displayName` | 🔧 GĐ1 |
-| `creator.rejected.v1` | identity (outbox) | — (GĐ5: notification) | `applicationId, userId, reason` | 🔧 GĐ1 |
+| `creator.rejected.v1` | identity (outbox) | notification (`CREATOR_APPLICATION`, GĐ5) | `applicationId, userId, reason` | 🔧 GĐ1 |
 | `channel.created.v1` | channel (outbox) | stream (`creator_channels`), identity (`user_channels`), chat (`channels`: badge Streamer, quyền đổi chế độ, GĐ3) | `channelId, ownerId, handle, displayName` | 🔧 GĐ1 |
 | `ingest.started.v1` | media | stream | `streamId, channelId, renditions[], sourceWidth, sourceHeight, resumed` | ✅ |
 | `ingest.stopped.v1` | media | stream | `streamId, reason` (`publisher_disconnected` / `transcoder_failed` / `kicked` / `shutdown` / `recovered`) | ✅ |
@@ -405,7 +438,7 @@ Sự kiện: nghe `user.*`, `channel.*`, `stream.*`, `vod.deleted` (bản sao), 
 | `schedule.created/updated.v1` · `schedule.occurrence_upcoming/changed.v1` · `schedule.reminder_due.v1` | channel (outbox) | stream (dòng `SCHEDULED`), (GĐ5: notification) | TSD GĐ4 §5.5 | 🔧 GĐ4 |
 | `chat.message_sent.v1` · `chat.mention.v1` · `chat.mod_action.v1` | chat | notification, safety | | 📋 GĐ3 |
 | `safety.stream_takedown.v1` · `safety.user_actioned.v1` · `safety.report_resolved.v1` | safety | stream, identity, notification | | 📋 GĐ5 |
-| `notification.created.v1` | notification | chat (đẩy `user:{id}`) | | 📋 GĐ5 |
+| `notification.created.v1` · `notification.unread_changed.v1` | notification (outbox) | chat (đẩy `user:{id}` `notification` + `unread_count`) | TSD GĐ5 §5.9 (`unreadCount` sau thay đổi) | 🔧 GĐ5 |
 | `subscription.activated/renewed/expired/cancelled.v1` | billing (outbox) | chat, notification | | 📋 GĐ6 |
 
 Consumer bền hiện có:
@@ -416,6 +449,9 @@ Consumer bền hiện có:
   `stream.updated`, `stream.scheduled`, `stream.vod_ready`, `vod.updated`, `vod.deleted`; `chat-svc` thêm
   `channel.updated`, `follow.updated`.
 - GĐ1 🔧: `identity-svc` (`channel.created`), `identity-mailer` (`auth.email_requested`), `channel-svc` (`creator.approved`, `stream.started`, `stream.ended`).
+- GĐ5 🔧: `notification-replica` (DeliverAll: `user.*`, `channel.*`, `follow.*` → bản sao, kèm backfill một lần qua API
+  snapshot nội bộ), `notification-svc` (**DeliverNew**: nguồn thông báo TSD §3.2), `notification-auth-mailer` (**DeliverNew**:
+  `auth.email_requested`); `identity-mailer` bị xóa khi `IDENTITY_MAILER_ENABLED=false`, tạo lại với DeliverNew khi bật.
 
 Xem tồn đọng: `http://localhost:8222/jsz?consumers=1`.
 
@@ -436,6 +472,7 @@ Phá vỡ tương thích REST: xem §3.1.
 
 | Ngày | Thay đổi |
 | --- | --- |
+| 2026-10-15 | v1.7 — GĐ5 phần B: notification-svc (§6D: trung tâm thông báo, cài đặt, hủy nhận email, `user:` `notification` / `unread_count`), chuyển email xác thực từ identity (`IDENTITY_MAILER_ENABLED`, `make nxl-mailer-cutover`) |
 | 2026-10-15 | v1.6 — GĐ4 backend: channel-svc (follow, hồ sơ + ảnh, danh mục, tìm kiếm, lịch sử tìm kiếm, lịch phát, nhắc lịch, Studio kênh); stream-svc (lọc / sắp xếp danh sách, gợi ý, VOD theo danh mục và kênh, `SCHEDULED`/`CANCELLED`, Dashboard, Studio VOD, VOD ẩn); chat `sidebar:{userId}`; media xóa file VOD; Nginx tách route + `/media/`; sự kiện mới §8 |
 | 2026-10-14 | v1.4 — GĐ2 backend: phiên xem + cổng 18+ phía server, tiến độ xem theo tài khoản, continue-watching; Nginx chuyển `/v1/me/(watch-progress|continue-watching)` sang stream-svc, CORS thêm `X-NXL-Anon-Id` |
 | 2026-10-13 | v1.3 — GĐ1: toàn bộ endpoint identity của TSD GĐ1 §4.1 (cột Auth), header `X-NXL-Client`, rate limit / CORS / header bảo mật ở cổng vào (§1.1), channel-svc cổng 8094 (§6A, chat-svc dời 8095), stream-svc `NOT_CREATOR` + `channel`, 8 sự kiện mới + header `Nxl-Occurred-At`/`Nxl-Producer`; hai web dev 5173/5174; đơn Creator ở GĐ1 (errata E-14) |

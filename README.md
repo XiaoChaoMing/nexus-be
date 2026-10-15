@@ -12,11 +12,12 @@ web app in `../nexuslive-admin`.
 | `services/media` | RTMP ingest, ffmpeg ABR transcode (720p/480p/360p), HLS to MinIO, thumbnails, crash recovery | 1935 RTMP, 8091 |
 | `services/chat` | Realtime gateway `GET /v1/ws` (chat, stream status, viewer counts), live chat with modes and limits, history, emotes, moderation (delete, pin, timeout, ban, blocked terms, link blocking, Mod / VIP roles); two instances in compose (`chat-1`, `chat-2`) sharing Redis | 8095 (`chat-1`), 8096 (`chat-2`), 8085 internal |
 | `services/safety` | Reports with chat evidence, the admin report queue, admin actions (lock / unlock account, suspend / restore channel, take a stream down) applied by the owning services, admin lookups, append-only audit log | 8099 |
+| `services/notification` | Notification center and settings, realtime notifications through chat-svc (`user:{id}`), e-mails (outbox + worker with retries, daily cap, unsubscribe links) and the account e-mails (verification, password reset) since the GĐ5 mailer cutover | 8097 |
 
 Services share `pkg/` (event bus, transactional outbox, JWT, HTTP server and metrics, logger,
 Postgres, Redis) through `go.work`, and talk over NATS JetStream events and internal HTTP; chat-svc
-instances fan realtime events out to each other over core NATS. More services (notification,
-billing) join phase by phase — see `docs/product/roadmap.md`.
+instances fan realtime events out to each other over core NATS. More services (billing) join phase
+by phase — see `docs/product/roadmap.md`.
 
 ## Quick start
 
@@ -32,11 +33,11 @@ make nxl-up-all           # everything: infra, services, Nginx edge, Prometheus,
 | --- | --- |
 | http://localhost:8080 | Nginx edge — the API (`/v1/*`), the WebSocket gateway (`ws://localhost:8080/v1/ws`), HLS (`/hls/*`) and emotes (`/emotes/*`) for the browser; rate limits, CORS for the web and admin apps |
 | rtmp://localhost:1935/live | OBS server; the stream key comes from Studio (`POST /v1/studio/stream-key`) |
-| http://localhost:8090/swagger/index.html · http://localhost:8094/swagger/index.html · http://localhost:8092/swagger/index.html · http://localhost:8095/swagger/index.html · http://localhost:8099/swagger/index.html | Swagger of identity, channel, stream, chat and safety |
+| http://localhost:8090/swagger/index.html · http://localhost:8094/swagger/index.html · http://localhost:8092/swagger/index.html · http://localhost:8095/swagger/index.html · http://localhost:8099/swagger/index.html · http://localhost:8097/swagger/index.html | Swagger of identity, channel, stream, chat, safety and notification |
 | http://localhost:8091/dev/player | media-svc test player |
 | http://localhost:3000 | Grafana — dashboards "NexusLive — Livestream" and "NexusLive — Chat" (anonymous view, admin/admin) |
 | http://localhost:9090 · http://localhost:16686 | Prometheus · Jaeger |
-| http://localhost:8025 | Mailpit (every e-mail sent in dev: verification, password reset) |
+| http://localhost:8025 | Mailpit (every e-mail sent in dev: verification, password reset, notifications — all sent by notification-svc) |
 | http://localhost:5050 | pgAdmin (`make nxl-pgadmin`) |
 
 Then start the web client with `VITE_DEV_GATEWAY_URL=http://localhost:8080` (see its README) and
@@ -78,11 +79,12 @@ Prometheus, Grafana, Jaeger (`make nxl-obs-up`). `make nxl-down` stops everythin
 | `make nxl-lint` | golangci-lint on every Go module |
 | `make nxl-test` | unit tests of every module (`-race`; on Windows without gcc: `make nxl-test NXL_TEST_FLAGS=`) |
 | `make format` | gofumpt + gci + goimports |
-| `make nxl-swag` | regenerate Swagger of identity, channel, stream and chat (runs in Docker) |
+| `make nxl-swag` | regenerate Swagger of identity, channel, stream, chat, safety and notification (runs in Docker) |
 | `make nxl-channel-test` · `make nxl-stream-test` · `make nxl-chat-test` | one service's tests |
 | `make nxl-chat-up` | identity, channel, stream, Redis, `chat-1` and `chat-2` behind the edge |
 | `make nxl-promote-admin EMAIL=…` | give an existing account the ADMIN role |
 | `make nxl-migrate-create SVC=stream NAME=add_x` | new migration for one service |
+| `make nxl-mailer-cutover` · `make nxl-mailer-rollback` | move the account e-mails to notification-svc (auth mailer on first, then identity-mailer off) or back |
 | `make deps` | tidy and verify the root module |
 | `make help` | every target |
 
