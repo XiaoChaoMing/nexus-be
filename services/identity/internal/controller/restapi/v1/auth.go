@@ -100,7 +100,7 @@ func (r *V1) login(ctx *fiber.Ctx) error {
 //	@Param       X-NXL-Client header   string true "Calling app (CSRF guard)" Enums(web, admin)
 //	@Success     200          {object} response.Data[response.Session]
 //	@Failure     401          {object} response.Error "SESSION_EXPIRED"
-//	@Failure     403          {object} response.Error "FORBIDDEN (details.header = REQUIRED) / ACCOUNT_LOCKED"
+//	@Failure     403          {object} response.Error "FORBIDDEN (details.header = REQUIRED) / ACCOUNT_LOCKED (details.lockedUntil when the lock has an end)"
 //	@Router      /auth/refresh [post]
 func (r *V1) refresh(ctx *fiber.Ctx) error {
 	res, err := r.auth.Refresh(ctx.UserContext(), ctx.Cookies(RefreshCookie), clientInfo(ctx))

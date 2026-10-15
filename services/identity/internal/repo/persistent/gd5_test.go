@@ -100,8 +100,10 @@ func TestApplyUserAction(t *testing.T) { //nolint:paralleltest,funlen // shared 
 	assert.Equal(t, entity.LockKindAdmin, *got.LockKind)
 	assert.WithinDuration(t, until, *got.LockedUntil, time.Millisecond)
 
-	_, err = r.sessions.GetByTokenHash(ctx, hash("rt1"))
-	require.ErrorIs(t, err, entity.ErrSessionNotFound, "sessions ended")
+	ended, err := r.sessions.GetByTokenHash(ctx, hash("rt1"))
+	require.NoError(t, err, "sessions are kept so a refresh can answer ACCOUNT_LOCKED")
+	assert.False(t, ended.IsRevoked(), "not reuse detection")
+	assert.True(t, ended.IsExpired(time.Now()), "sessions ended")
 
 	// A password reset does not lift an admin lock.
 	reset := newToken(entity.TokenReset, now, 30*time.Minute)

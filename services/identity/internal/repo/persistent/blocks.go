@@ -174,9 +174,9 @@ func (r *ModerationRepo) ApplyUserAction(ctx context.Context, eventID string, e 
 	return changed, err
 }
 
-// lockUser sets an ADMIN lock (it replaces any lock, a newer one moves locked_until) and deletes the user's
-// sessions: deleted rather than revoked, so a refresh with an old token is a plain "session expired" and not
-// reuse detection.
+// lockUser sets an ADMIN lock (it replaces any lock, a newer one moves locked_until) and ends the user's
+// sessions by expiring them: not revoked, so a refresh with an old token is not reuse detection, and not
+// deleted, so that refresh still finds the account and answers ACCOUNT_LOCKED.
 func lockUser(ctx context.Context, tx pgx.Tx, e events.UserActioned) (bool, error) {
 	var id string
 
@@ -192,7 +192,9 @@ func lockUser(ctx context.Context, tx pgx.Tx, e events.UserActioned) (bool, erro
 		return false, fmt.Errorf("ModerationRepo - lock: %w", err)
 	}
 
-	if _, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, e.UserID); err != nil {
+	_, err = tx.Exec(ctx,
+		`UPDATE sessions SET expires_at = LEAST(expires_at, now()) WHERE user_id = $1 AND revoked_at IS NULL`, e.UserID)
+	if err != nil {
 		return false, fmt.Errorf("ModerationRepo - lock - sessions: %w", err)
 	}
 

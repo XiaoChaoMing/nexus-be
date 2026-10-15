@@ -479,7 +479,9 @@ func (r *SessionRepo) GetByTokenHash(ctx context.Context, hash string) (entity.S
 func (r *SessionRepo) Rotate(ctx context.Context, oldID string, next entity.Session) error {
 	return inTx(ctx, r.Pool, "SessionRepo - Rotate", func(tx pgx.Tx) error {
 		// The revoked_at IS NULL guard makes two concurrent refreshes with the same token race safely: only one wins.
-		tag, err := tx.Exec(ctx, `UPDATE sessions SET revoked_at = $2 WHERE id = $1 AND revoked_at IS NULL`, oldID, next.CreatedAt)
+		// The expires_at guard loses to an admin lock that expired the session after the caller read it.
+		tag, err := tx.Exec(ctx,
+			`UPDATE sessions SET revoked_at = $2 WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2`, oldID, next.CreatedAt)
 		if err != nil {
 			return fmt.Errorf("SessionRepo - Rotate - revoke: %w", err)
 		}

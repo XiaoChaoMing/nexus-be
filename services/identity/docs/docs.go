@@ -565,7 +565,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "FORBIDDEN (details.header = REQUIRED) / ACCOUNT_LOCKED",
+                        "description": "FORBIDDEN (details.header = REQUIRED) / ACCOUNT_LOCKED (details.lockedUntil when the lock has an end)",
                         "schema": {
                             "$ref": "#/definitions/Error"
                         }

@@ -277,7 +277,7 @@ func (uc *UseCase) Refresh(ctx context.Context, refreshToken string, client usec
 	}
 
 	if session.IsExpired(now) {
-		return usecase.AuthResult{}, entity.ErrSessionExpired
+		return usecase.AuthResult{}, uc.expiredSession(ctx, session.UserID, now)
 	}
 
 	user, err := uc.activeUser(ctx, session.UserID, now)
@@ -317,7 +317,34 @@ func (uc *UseCase) activeUser(ctx context.Context, userID string, now time.Time)
 		return entity.User{}, fmt.Errorf("AuthUseCase - Refresh - uc.sessions.RevokeAllForUser: %w", err)
 	}
 
-	return entity.User{}, entity.ErrSessionExpired
+	return entity.User{}, sessionEndError(user, now)
+}
+
+// expiredSession explains an expired session: an admin lock ends the sessions by expiring them, so the owner
+// of a locked account gets the lock (as on sign-in) instead of a plain "session expired".
+func (uc *UseCase) expiredSession(ctx context.Context, userID string, now time.Time) error {
+	user, err := uc.users.GetByID(ctx, userID)
+	if errors.Is(err, entity.ErrUserNotFound) {
+		return entity.ErrSessionExpired
+	}
+
+	if err != nil {
+		return fmt.Errorf("AuthUseCase - Refresh - expired - uc.users.GetByID: %w", err)
+	}
+
+	return sessionEndError(user, now)
+}
+
+// sessionEndError is ACCOUNT_LOCKED (with the end of a timed lock) for a locked account, else SESSION_EXPIRED.
+func sessionEndError(user entity.User, now time.Time) error {
+	switch {
+	case !user.CanSignIn() || !user.IsLocked(now):
+		return entity.ErrSessionExpired
+	case user.LockedUntil != nil:
+		return &entity.LockedError{Until: *user.LockedUntil}
+	default:
+		return entity.ErrAccountLocked
+	}
 }
 
 // Logout revokes the session of the given refresh token; unknown tokens are ignored.

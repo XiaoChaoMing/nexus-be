@@ -204,6 +204,90 @@ func TestRefresh_Rejects(t *testing.T) {
 	}
 }
 
+// lockAdmin mirrors ModerationRepo.lockUser: the account is locked and its sessions expire (not revoked).
+func (f *fixture) lockAdmin(userID string, until *time.Time, expireSessions bool) {
+	u := f.store.user(userID)
+	kind := entity.LockKindAdmin
+	u.Status, u.LockedUntil, u.LockKind = entity.UserLocked, until, &kind
+	f.store.setUser(u)
+
+	if !expireSessions {
+		return
+	}
+
+	f.store.mu.Lock()
+	defer f.store.mu.Unlock()
+
+	for id, x := range f.store.sessions {
+		if x.UserID == userID && x.RevokedAt == nil {
+			x.ExpiresAt = *f.clock
+			f.store.sessions[id] = x
+		}
+	}
+}
+
+func TestRefresh_LockedAccount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		timed          bool
+		expireSessions bool
+	}{
+		{name: "timed admin lock", timed: true, expireSessions: true},
+		{name: "permanent admin lock", expireSessions: true},
+		{name: "locked, session still open", timed: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFixture(t)
+			reg := f.register(t)
+
+			var until *time.Time
+
+			if tc.timed {
+				u := f.clock.Add(24 * time.Hour)
+				until = &u
+			}
+
+			f.lockAdmin(reg.User.ID, until, tc.expireSessions)
+
+			_, err := f.uc.Refresh(context.Background(), reg.RefreshToken, _client)
+			require.ErrorIs(t, err, entity.ErrAccountLocked)
+
+			var locked *entity.LockedError
+			if tc.timed {
+				require.ErrorAs(t, err, &locked)
+				assert.Equal(t, *until, locked.Until)
+			} else {
+				assert.NotErrorAs(t, err, &locked)
+			}
+
+			if !tc.expireSessions {
+				assert.Zero(t, f.sessions.activeFor(reg.User.ID), "an open session of a locked account is revoked")
+			}
+		})
+	}
+
+	t.Run("lock lifted, expired session", func(t *testing.T) {
+		t.Parallel()
+
+		f := newFixture(t)
+		reg := f.register(t)
+		f.lockAdmin(reg.User.ID, nil, true)
+
+		u := f.store.user(reg.User.ID)
+		u.Status, u.LockKind = entity.UserActive, nil
+		f.store.setUser(u)
+
+		_, err := f.uc.Refresh(context.Background(), reg.RefreshToken, _client)
+		require.ErrorIs(t, err, entity.ErrSessionExpired)
+	})
+}
+
 func TestLogout(t *testing.T) {
 	t.Parallel()
 
