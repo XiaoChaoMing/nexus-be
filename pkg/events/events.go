@@ -2,7 +2,10 @@
 // Payloads are JSON; the NATS message id is the event id.
 package events
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Event types.
 const (
@@ -45,6 +48,71 @@ const (
 	TypeScheduleOccurrenceUpcoming = "schedule.occurrence_upcoming.v1"
 	TypeScheduleOccurrenceChanged  = "schedule.occurrence_changed.v1"
 	TypeScheduleReminderDue        = "schedule.reminder_due.v1"
+	// Published by channel-svc (outbox) when safety suspends or restores a channel.
+	TypeChannelSuspended = "channel.suspended.v1"
+	TypeChannelRestored  = "channel.restored.v1"
+
+	// Published by chat-svc (outbox): moderation, chat modes, mentions, channel roles.
+	TypeChatModAction       = "chat.mod_action.v1"
+	TypeChatSettingsChanged = "chat.settings_changed.v1"
+	TypeChatMention         = "chat.mention.v1"
+	TypeChannelRoleChanged  = "channel.role_changed.v1"
+
+	// Published by identity-svc and chat-svc for actions that have no domain event; safety-svc stores them.
+	TypeAuditRecorded = "audit.recorded.v1"
+
+	// Published by safety-svc (outbox); the owning service applies the action.
+	TypeReportResolved  = "safety.report_resolved.v1"
+	TypeUserActioned    = "safety.user_actioned.v1"
+	TypeChannelActioned = "safety.channel_actioned.v1"
+	TypeStreamTakedown  = "safety.stream_takedown.v1"
+
+	// Published by identity-svc (outbox).
+	TypeUserLocked    = "user.locked.v1"
+	TypeUserUnlocked  = "user.unlocked.v1"
+	TypeUserBlocked   = "user.blocked.v1"
+	TypeUserUnblocked = "user.unblocked.v1"
+
+	// Published by notification-svc (outbox); chat-svc relays them on user:{userId}.
+	TypeNotificationCreated       = "notification.created.v1"
+	TypeNotificationUnreadChanged = "notification.unread_changed.v1"
+)
+
+// EndReasonAdminTakedown ends a stream an admin took down (stream.ended.v1 endReason).
+const EndReasonAdminTakedown = "admin_takedown"
+
+// Types of ChatModAction.
+const (
+	ModDelete    = "DELETE"
+	ModTimeout   = "TIMEOUT"
+	ModUntimeout = "UNTIMEOUT"
+	ModBan       = "BAN"
+	ModUnban     = "UNBAN"
+	ModPin       = "PIN"
+	ModUnpin     = "UNPIN"
+)
+
+// Actor roles of moderation and audit events.
+const (
+	ActorOwner     = "OWNER"
+	ActorModerator = "MODERATOR"
+	ActorAdmin     = "ADMIN"
+	ActorUser      = "USER"
+	ActorSystem    = "SYSTEM"
+)
+
+// Actions of UserActioned and ChannelActioned.
+const (
+	ActionLock    = "LOCK"
+	ActionUnlock  = "UNLOCK"
+	ActionSuspend = "SUSPEND"
+	ActionRestore = "RESTORE"
+)
+
+// Final statuses of ReportResolved.
+const (
+	ReportStatusResolved  = "RESOLVED"
+	ReportStatusDismissed = "DISMISSED"
 )
 
 // Notification levels of a follow (follows.notify_level).
@@ -203,18 +271,23 @@ type StreamPeakViewers struct {
 	PeakViewers int    `json:"peakViewers"`
 }
 
-// UserRegistered -.
+// UserRegistered -. Locale and Timezone are empty in events published before they existed: consumers use
+// "vi" and "Asia/Ho_Chi_Minh".
 type UserRegistered struct {
 	UserID      string `json:"userId"`
 	Username    string `json:"username"`
 	DisplayName string `json:"displayName"`
 	Email       string `json:"email"`
+	Locale      string `json:"locale"`
+	Timezone    string `json:"timezone"`
 }
 
 // Email purposes of EmailRequested.
 const (
 	EmailPurposeVerify = "VERIFY"
 	EmailPurposeReset  = "RESET"
+	// EmailPurposeSecurityLock tells the user their account was locked after failed sign-ins (Token is empty).
+	EmailPurposeSecurityLock = "SECURITY_LOCK"
 )
 
 // EmailRequested asks for a verification or password-reset e-mail. Token is the raw one-time token:
@@ -233,10 +306,13 @@ type UserEmailVerified struct {
 	UserID string `json:"userId"`
 }
 
-// UserProfileUpdated -.
+// UserProfileUpdated carries the current display name, locale and time zone (the last two are empty in
+// events published before they existed).
 type UserProfileUpdated struct {
 	UserID      string `json:"userId"`
 	DisplayName string `json:"displayName"`
+	Locale      string `json:"locale"`
+	Timezone    string `json:"timezone"`
 }
 
 // CreatorApplicationSubmitted -.
@@ -346,4 +422,160 @@ type ScheduleReminderDue struct {
 	Title        string    `json:"title"`
 	OccurrenceAt time.Time `json:"occurrenceAt"`
 	UserIDs      []string  `json:"userIds"`
+}
+
+// ChatModAction is one row of chat-svc's mod_actions; MessageBody is the original text of a deleted or
+// pinned message (audit only, never shown to viewers).
+type ChatModAction struct {
+	ActionID     string     `json:"actionId"`
+	ChannelID    string     `json:"channelId"`
+	StreamID     *string    `json:"streamId"`
+	ActorID      string     `json:"actorId"`
+	ActorRole    string     `json:"actorRole"`
+	Type         string     `json:"type"`
+	TargetUserID *string    `json:"targetUserId"`
+	MessageID    *string    `json:"messageId"`
+	MessageBody  *string    `json:"messageBody"`
+	Reason       *string    `json:"reason"`
+	ExpiresAt    *time.Time `json:"expiresAt"`
+	OccurredAt   time.Time  `json:"occurredAt"`
+}
+
+// ChatModes are a channel's chat modes in ChatSettingsChanged.
+type ChatModes struct {
+	SlowSec      int  `json:"slowSec"`
+	FollowersMin *int `json:"followersMin"`
+	SubsOnly     bool `json:"subsOnly"`
+	BlockLinks   bool `json:"blockLinks"`
+}
+
+// ChatSettingsChanged is published when a channel's chat modes change.
+type ChatSettingsChanged struct {
+	ChannelID string    `json:"channelId"`
+	ActorID   string    `json:"actorId"`
+	ActorRole string    `json:"actorRole"`
+	Before    ChatModes `json:"before"`
+	After     ChatModes `json:"after"`
+}
+
+// ChatMention lists the users a message mentions (at most 5, never the sender).
+type ChatMention struct {
+	MessageID        string   `json:"messageId"`
+	StreamID         string   `json:"streamId"`
+	ChannelID        string   `json:"channelId"`
+	SenderID         string   `json:"senderId"`
+	SenderUsername   string   `json:"senderUsername"`
+	MentionedUserIDs []string `json:"mentionedUserIds"`
+	// Excerpt is plain text, at most 100 characters.
+	Excerpt string `json:"excerpt"`
+}
+
+// ChannelRoleChanged is published when a moderator or VIP role is granted, changed (Role and PreviousRole
+// set) or revoked (Role nil).
+type ChannelRoleChanged struct {
+	ChannelID    string  `json:"channelId"`
+	UserID       string  `json:"userId"`
+	Role         *string `json:"role"`
+	PreviousRole *string `json:"previousRole"`
+	ActorID      string  `json:"actorId"`
+	ActorRole    string  `json:"actorRole"`
+}
+
+// AuditRecorded is an action to keep in the audit log that has no domain event of its own.
+type AuditRecorded struct {
+	ActorID      *string        `json:"actorId"`
+	ActorRole    string         `json:"actorRole"`
+	Action       string         `json:"action"`
+	ResourceType string         `json:"resourceType"`
+	ResourceID   *string        `json:"resourceId"`
+	Reason       *string        `json:"reason"`
+	Metadata     map[string]any `json:"metadata"`
+	RequestID    *string        `json:"requestId"`
+}
+
+// ReportResolved is published for every report an admin closes.
+type ReportResolved struct {
+	ReportID   string `json:"reportId"`
+	ReporterID string `json:"reporterId"`
+	TargetType string `json:"targetType"`
+	Status     string `json:"status"`
+}
+
+// UserActioned asks identity-svc to lock (LockedUntil nil = permanently) or unlock an account.
+type UserActioned struct {
+	ActionID    string     `json:"actionId"`
+	UserID      string     `json:"userId"`
+	Action      string     `json:"action"`
+	LockedUntil *time.Time `json:"lockedUntil"`
+	Reason      string     `json:"reason"`
+	AdminID     string     `json:"adminId"`
+}
+
+// ChannelActioned asks channel-svc to suspend or restore a channel.
+type ChannelActioned struct {
+	ActionID  string `json:"actionId"`
+	ChannelID string `json:"channelId"`
+	Action    string `json:"action"`
+	Reason    string `json:"reason"`
+	AdminID   string `json:"adminId"`
+}
+
+// StreamTakedown asks stream-svc to end a stream and delete its VOD.
+type StreamTakedown struct {
+	ActionID  string `json:"actionId"`
+	StreamID  string `json:"streamId"`
+	ChannelID string `json:"channelId"`
+	Title     string `json:"title"`
+	Reason    string `json:"reason"`
+	AdminID   string `json:"adminId"`
+}
+
+// UserLocked is published when an admin locks an account (LockedUntil nil = permanently); a temporary
+// lock after failed sign-ins is not announced.
+type UserLocked struct {
+	UserID      string     `json:"userId"`
+	LockedUntil *time.Time `json:"lockedUntil"`
+	Reason      string     `json:"reason"`
+	ActionID    *string    `json:"actionId"`
+}
+
+// UserUnlocked is published when an admin lifts a lock.
+type UserUnlocked struct {
+	UserID   string  `json:"userId"`
+	ActionID *string `json:"actionId"`
+}
+
+// UserBlocked is the payload of user.blocked.v1 and user.unblocked.v1.
+type UserBlocked struct {
+	BlockerID string `json:"blockerId"`
+	BlockedID string `json:"blockedId"`
+}
+
+// ChannelSuspended is the payload of channel.suspended.v1 and channel.restored.v1.
+type ChannelSuspended struct {
+	ChannelID string  `json:"channelId"`
+	OwnerID   string  `json:"ownerId"`
+	Reason    string  `json:"reason"`
+	ActionID  *string `json:"actionId"`
+}
+
+// NotificationCreated is published when a notification is created or grouped into an existing one;
+// UnreadCount is the recipient's unread count after the change.
+type NotificationCreated struct {
+	NotificationID string          `json:"notificationId"`
+	UserID         string          `json:"userId"`
+	Type           string          `json:"type"`
+	Payload        json.RawMessage `json:"payload"`
+	Link           *string         `json:"link"`
+	GroupCount     int             `json:"groupCount"`
+	Read           bool            `json:"read"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	UpdatedAt      time.Time       `json:"updatedAt"`
+	UnreadCount    int             `json:"unreadCount"`
+}
+
+// NotificationUnreadChanged is published when reading or deleting notifications changes the unread count.
+type NotificationUnreadChanged struct {
+	UserID      string `json:"userId"`
+	UnreadCount int    `json:"unreadCount"`
 }

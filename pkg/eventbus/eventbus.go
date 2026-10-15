@@ -142,27 +142,58 @@ type Handler func(ctx context.Context, e Event) error
 // ErrSkip acks an event the handler cannot ever process (bad payload): retrying would not help.
 var ErrSkip = errors.New("eventbus: skip event")
 
+// ConsumeOption changes the configuration of a durable consumer before it is created.
+type ConsumeOption func(*jetstream.ConsumerConfig)
+
+// DeliverNew makes a durable created for the first time start at the next message instead of the stream's
+// start. It has no effect on an existing durable (JetStream does not allow changing the deliver policy).
+func DeliverNew() ConsumeOption {
+	return func(c *jetstream.ConsumerConfig) { c.DeliverPolicy = jetstream.DeliverNewPolicy }
+}
+
 // Consume attaches a durable consumer that receives the given event types and runs h for each.
 // It returns a stop function.
-func (b *Bus) Consume(ctx context.Context, durable string, types []string, h Handler, onErr func(Event, error)) (func(), error) {
+func (b *Bus) Consume(ctx context.Context, durable string, types []string, h Handler, onErr func(Event, error),
+	opts ...ConsumeOption,
+) (func(), error) {
 	subjects := make([]string, len(types))
 	for i, t := range types {
 		subjects[i] = Subject(t)
 	}
 
-	cons, err := b.JS.CreateOrUpdateConsumer(ctx, StreamName, jetstream.ConsumerConfig{
+	cfg := jetstream.ConsumerConfig{
 		Durable:        durable,
 		FilterSubjects: subjects,
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		AckWait:        _ackWait,
 		MaxDeliver:     _maxDeliver,
 		DeliverPolicy:  jetstream.DeliverAllPolicy,
-	})
+	}
+
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	if err := b.keepDeliverPolicy(ctx, &cfg); err != nil {
+		return nil, err
+	}
+
+	cons, err := b.JS.CreateOrUpdateConsumer(ctx, StreamName, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("eventbus - CreateOrUpdateConsumer %s: %w", durable, err)
 	}
 
-	cc, err := cons.Consume(func(m jetstream.Msg) {
+	cc, err := cons.Consume(deliver(h, onErr))
+	if err != nil {
+		return nil, fmt.Errorf("eventbus - Consume %s: %w", durable, err)
+	}
+
+	return cc.Stop, nil
+}
+
+// deliver runs h for one message and acks, terminates (ErrSkip) or naks it.
+func deliver(h Handler, onErr func(Event, error)) jetstream.MessageHandler {
+	return func(m jetstream.Msg) {
 		hdr := m.Headers()
 		e := Event{
 			ID:       hdr.Get(jetstream.MsgIDHeader),
@@ -196,10 +227,36 @@ func (b *Bus) Consume(ctx context.Context, durable string, types []string, h Han
 
 			_ = m.NakWithDelay(_retryDelay) //nolint:errcheck // same
 		}
-	})
-	if err != nil {
-		return nil, fmt.Errorf("eventbus - Consume %s: %w", durable, err)
+	}
+}
+
+// keepDeliverPolicy reuses the deliver policy of an existing durable: an update that changes it is refused.
+func (b *Bus) keepDeliverPolicy(ctx context.Context, cfg *jetstream.ConsumerConfig) error {
+	if cfg.DeliverPolicy == jetstream.DeliverAllPolicy {
+		return nil
 	}
 
-	return cc.Stop, nil
+	cons, err := b.JS.Consumer(ctx, StreamName, cfg.Durable)
+	if errors.Is(err, jetstream.ErrConsumerNotFound) {
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("eventbus - Consumer %s: %w", cfg.Durable, err)
+	}
+
+	existing := cons.CachedInfo().Config
+	cfg.DeliverPolicy, cfg.OptStartSeq, cfg.OptStartTime = existing.DeliverPolicy, existing.OptStartSeq, existing.OptStartTime
+
+	return nil
+}
+
+// DeleteConsumer removes a durable; a durable that does not exist is not an error.
+func (b *Bus) DeleteConsumer(ctx context.Context, durable string) error {
+	err := b.JS.DeleteConsumer(ctx, StreamName, durable)
+	if err != nil && !errors.Is(err, jetstream.ErrConsumerNotFound) {
+		return fmt.Errorf("eventbus - DeleteConsumer %s: %w", durable, err)
+	}
+
+	return nil
 }
