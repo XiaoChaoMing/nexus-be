@@ -31,6 +31,9 @@ type (
 		From     string `env:"IDENTITY_MAIL_FROM" envDefault:"NexusLive <no-reply@nexuslive.dev>"`
 		// Links in e-mails point here: {WebBaseURL}/verify-email?token=..., {WebBaseURL}/reset-password?token=...
 		WebBaseURL string `env:"IDENTITY_WEB_BASE_URL" envDefault:"http://localhost:5173"`
+		// Enabled runs the identity-mailer consumer. Set false once notification-svc sends the account e-mails
+		// (NOTIFICATION_AUTH_MAILER_ENABLED=true first): the durable is then deleted at startup.
+		Enabled bool `env:"IDENTITY_MAILER_ENABLED" envDefault:"true"`
 	}
 
 	// Account -.

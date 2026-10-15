@@ -229,6 +229,18 @@ func startConsumers(ctx context.Context, cfg *config.Config, bus *eventbus.Bus, 
 		return nil, err
 	}
 
+	// Mailer cutover (GĐ5 TSD §9.2): notification-svc takes over first, then this consumer is switched off
+	// and its durable deleted; turned back on, it is recreated at the next message (no old e-mail resent).
+	if !cfg.Mail.Enabled {
+		if err := bus.DeleteConsumer(ctx, events.DurableMailer); err != nil {
+			l.Warn("identity - delete %s: %v", events.DurableMailer, err)
+		}
+
+		l.Info("identity - IDENTITY_MAILER_ENABLED=false: account e-mails are sent by notification-svc")
+
+		return stopChannels, nil
+	}
+
 	m, err := newMailer(cfg, l)
 	if err != nil {
 		stopChannels()
@@ -236,7 +248,8 @@ func startConsumers(ctx context.Context, cfg *config.Config, bus *eventbus.Bus, 
 		return nil, err
 	}
 
-	stopMailer, err := bus.Consume(ctx, events.DurableMailer, events.MailTypes(), events.MailHandler(m), onErr)
+	stopMailer, err := bus.Consume(ctx, events.DurableMailer, events.MailTypes(), events.MailHandler(m), onErr,
+		eventbus.DeliverNew())
 	if err != nil {
 		stopChannels()
 
