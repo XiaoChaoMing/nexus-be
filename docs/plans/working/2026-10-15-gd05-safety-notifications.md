@@ -2,7 +2,7 @@
 
 | Track | Trạng thái | Ngày |
 | --- | --- | --- |
-| Full (2 service mới safety + notification, migration, sự kiện mới, chuyển mailer, Nginx `secure_link`, cross-repo web + admin) | Draft — chờ duyệt §10 | 2026-10-15 |
+| Full (2 service mới safety + notification, migration, sự kiện mới, chuyển mailer, Nginx `secure_link`, cross-repo web + admin) | Approved 15/10 (G5-Q1…Q8 theo đề xuất; Q7: giữ Mailpit) | 2026-10-15 |
 
 Lịch lộ trình GĐ5: 11/01 → 22/01 (2 tuần), mốc **M4**. GĐ4 xong sớm ~11 tuần nên bắt đầu ngay được. Cơ sở dữ liệu
 `nxl_safety`, `nxl_notification` đã có migration từ GĐ0; chat-svc đã có bảng `mod_actions`, `blocked_terms`,
