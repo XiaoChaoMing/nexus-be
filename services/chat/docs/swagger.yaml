@@ -1,5 +1,20 @@
 basePath: /v1
 definitions:
+  ActorRef:
+    properties:
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+  AssignRole:
+    properties:
+      role:
+        description: Role is MODERATOR or VIP.
+        type: string
+      username:
+        type: string
+    type: object
   Author:
     properties:
       badges:
@@ -15,8 +30,45 @@ definitions:
       username:
         type: string
     type: object
+  Ban:
+    properties:
+      reason:
+        type: string
+    type: object
+  BlockedTerm:
+    properties:
+      term:
+        description: Term is 2–100 characters; it matches whole words, case and diacritics
+          ignored.
+        type: string
+    type: object
+  BlockedTermList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/BlockedTerm'
+        type: array
+      limit:
+        type: integer
+      nextCursor:
+        type: string
+    type: object
+  ChannelRole:
+    properties:
+      createdAt:
+        type: string
+      grantedBy:
+        $ref: '#/definitions/ActorRef'
+      role:
+        example: MODERATOR
+        type: string
+      user:
+        $ref: '#/definitions/UserRef'
+    type: object
   ChatSettings:
     properties:
+      blockLinks:
+        type: boolean
       followersMin:
         type: integer
       slowSec:
@@ -25,6 +77,21 @@ definitions:
         type: boolean
       updatedAt:
         type: string
+    type: object
+  Data-BlockedTerm:
+    properties:
+      data:
+        $ref: '#/definitions/BlockedTerm'
+    type: object
+  Data-ChannelRole:
+    properties:
+      data:
+        $ref: '#/definitions/ChannelRole'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_BlockedTermList:
+    properties:
+      data:
+        $ref: '#/definitions/BlockedTermList'
     type: object
   Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ChatSettings:
     properties:
@@ -40,6 +107,36 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/MessagePage'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ModChannelList:
+    properties:
+      data:
+        $ref: '#/definitions/ModChannelList'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Pinned:
+    properties:
+      data:
+        $ref: '#/definitions/Pinned'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Restriction:
+    properties:
+      data:
+        $ref: '#/definitions/Restriction'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_RestrictionPage:
+    properties:
+      data:
+        $ref: '#/definitions/RestrictionPage'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_RolePage:
+    properties:
+      data:
+        $ref: '#/definitions/RolePage'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_UserCard:
+    properties:
+      data:
+        $ref: '#/definitions/UserCard'
     type: object
   Emote:
     properties:
@@ -103,12 +200,17 @@ definitions:
         type: string
       createdAt:
         type: string
+      deleted:
+        description: Deleted messages keep their place with an empty body and no fragments.
+        type: boolean
       fragments:
         items:
           $ref: '#/definitions/Fragment'
         type: array
       id:
         type: string
+      pinned:
+        type: boolean
       streamId:
         type: string
       type:
@@ -125,8 +227,109 @@ definitions:
       nextCursor:
         type: string
     type: object
+  ModChannel:
+    properties:
+      channel:
+        $ref: '#/definitions/ModChannelRef'
+      role:
+        example: MODERATOR
+        type: string
+    type: object
+  ModChannelList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/ModChannel'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  ModChannelRef:
+    properties:
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      handle:
+        type: string
+      id:
+        type: string
+      isLive:
+        type: boolean
+    type: object
+  Pin:
+    properties:
+      messageId:
+        type: string
+    type: object
+  Pinned:
+    properties:
+      message:
+        $ref: '#/definitions/Message'
+    type: object
+  Restriction:
+    properties:
+      actor:
+        $ref: '#/definitions/ActorRef'
+      createdAt:
+        type: string
+      reason:
+        type: string
+      type:
+        example: TIMEOUT
+        type: string
+      until:
+        type: string
+      user:
+        $ref: '#/definitions/UserRef'
+    type: object
+  RestrictionPage:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Restriction'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  RestrictionState:
+    properties:
+      type:
+        type: string
+      until:
+        type: string
+    type: object
+  RolePage:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/ChannelRole'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  SetRole:
+    properties:
+      role:
+        type: string
+    type: object
+  Timeout:
+    properties:
+      durationSec:
+        description: DurationSec is 1 … 1209600 (14 days); the web offers 60, 600
+          and 3600.
+        type: integer
+      reason:
+        description: Reason is at most 500 characters (internal, never shown to the
+          user).
+        type: string
+    type: object
   UpdateChatSettings:
     properties:
+      blockLinks:
+        description: BlockLinks refuses messages with links (owner, moderators, admins
+          and VIPs exempt); absent = unchanged.
+        type: boolean
       followersMin:
         description: FollowersMin ∈ {null (off), 0, 10, 30, 60, 1440, 10080, 43200,
           129600} minutes.
@@ -137,14 +340,209 @@ definitions:
       subsOnly:
         type: boolean
     type: object
+  UserCard:
+    properties:
+      badges:
+        items:
+          type: string
+        type: array
+      createdAt:
+        type: string
+      followedAt:
+        type: string
+      restriction:
+        $ref: '#/definitions/RestrictionState'
+      role:
+        example: MODERATOR
+        type: string
+      user:
+        $ref: '#/definitions/UserRef'
+    type: object
+  UserRef:
+    properties:
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      id:
+        type: string
+      username:
+        type: string
+    type: object
 info:
   contact: {}
-  description: Chat history, emotes and chat modes. The realtime gateway (WebSocket
-    GET /v1/ws) is described in docs/plans/technical/2026-10-14-gd03-chat-realtime.md
+  description: Chat history, emotes, chat modes and moderation (delete, pin, timeout,
+    ban, blocked terms, moderator / VIP roles). The realtime gateway (WebSocket GET
+    /v1/ws) is described in docs/plans/technical/2026-10-14-gd03-chat-realtime.md
     §5.1. Get a token from identity-svc and paste "Bearer <accessToken>" into Authorize.
   title: NexusLive chat-svc API
   version: "1.0"
 paths:
+  /channels/{channelId}/bans/{userId}:
+    delete:
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Lift a ban
+      tags:
+      - moderation
+    put:
+      consumes:
+      - application/json
+      description: Like a timeout without end (CHAT_BANNED), for every stream of the
+        channel until unbanned.
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      - description: reason
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/Ban'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Restriction'
+        "400":
+          description: VALIDATION_FAILED (reason = LENGTH, userId = INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN (details.target = PROTECTED)
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Ban a user from the channel's chat
+      tags:
+      - moderation
+  /channels/{channelId}/blocked-terms:
+    get:
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_BlockedTermList'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Blocked terms of the channel
+      tags:
+      - moderation
+    post:
+      consumes:
+      - application/json
+      description: Matches whole words, ignoring case and diacritics ("spam" blocks
+        "SPẢM", not "spammer"). A term already blocked in another spelling answers
+        200 with it.
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: term
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/BlockedTerm'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: already blocked
+          schema:
+            $ref: '#/definitions/Data-BlockedTerm'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-BlockedTerm'
+        "400":
+          description: VALIDATION_FAILED (term = REQUIRED | LENGTH)
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: CONFLICT (details.limit = 100)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Block a term in the channel's chat
+      tags:
+      - moderation
+  /channels/{channelId}/blocked-terms/{termId}:
+    delete:
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: term id
+        in: path
+        name: termId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Unblock a term
+      tags:
+      - moderation
   /channels/{channelId}/chat-settings:
     get:
       parameters:
@@ -171,7 +569,8 @@ paths:
       consumes:
       - application/json
       description: Channel owner, its moderators and admins. Every open room of the
-        channel gets mode_change and a system message.
+        channel gets mode_change and a system message. blockLinks absent keeps the
+        current value.
       parameters:
       - description: channel id (uuid)
         in: path
@@ -208,6 +607,325 @@ paths:
       summary: Change the chat modes of a channel
       tags:
       - chat
+  /channels/{channelId}/restrictions:
+    get:
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: BAN | TIMEOUT
+        in: query
+        name: type
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 24
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_RestrictionPage'
+        "400":
+          description: VALIDATION_FAILED (type = ENUM, cursor = INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Bans and running timeouts of the channel
+      tags:
+      - moderation
+  /channels/{channelId}/roles:
+    get:
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: MODERATOR | VIP
+        in: query
+        name: role
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 24
+        description: 1–50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_RolePage'
+        "400":
+          description: VALIDATION_FAILED (role = ENUM)
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Moderators and VIPs of the channel (owner or admin)
+      tags:
+      - roles
+    post:
+      consumes:
+      - application/json
+      description: By username. 201 for a new role, 200 when it changed or was already
+        given. At most 50 users per role.
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: user and role
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/AssignRole'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-ChannelRole'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-ChannelRole'
+        "400":
+          description: VALIDATION_FAILED (username = REQUIRED | INVALID, role = ENUM)
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: CONFLICT (details.limit = 50)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Make a user moderator or VIP (owner or admin)
+      tags:
+      - roles
+  /channels/{channelId}/roles/{userId}:
+    delete:
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Remove a user's role (owner or admin)
+      tags:
+      - roles
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      - description: role
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/SetRole'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-ChannelRole'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-ChannelRole'
+        "400":
+          description: VALIDATION_FAILED (role = ENUM, userId = INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: CONFLICT (details.limit = 50)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Set a user's role by id (owner or admin)
+      tags:
+      - roles
+  /channels/{channelId}/timeouts/{userId}:
+    delete:
+      description: Viewers get `user_restored`. Nothing to lift is a no-op.
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Lift a timeout
+      tags:
+      - moderation
+    put:
+      consumes:
+      - application/json
+      description: Hides the user's messages in the open rooms (`user_cleared`), and
+        refuses their messages until `until` (CHAT_TIMED_OUT). A new timeout replaces
+        the running one.
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      - description: duration (1–1209600 s) and reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/Timeout'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Restriction'
+        "400":
+          description: VALIDATION_FAILED (durationSec = REQUIRED | MIN | MAX, reason
+            = LENGTH, userId = INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN (details.target = PROTECTED)
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE (the user is banned)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Time a user out in the channel
+      tags:
+      - moderation
+  /channels/{channelId}/users/{userId}/card:
+    get:
+      description: Badges, channel role, follow date; restriction only for the owner,
+        moderators and admins.
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_UserCard'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      summary: A user seen from the channel's chat
+      tags:
+      - moderation
   /chat/emotes:
     get:
       description: Global emotes; channelId is accepted and ignored until channel
@@ -264,6 +982,129 @@ paths:
       summary: Chat history of a stream, newest first
       tags:
       - chat
+  /chat/rooms/{streamId}/messages/{messageId}:
+    delete:
+      description: Channel owner, moderators and admins. Every viewer gets `delete
+        {messageId}` (and `unpin` when it was pinned). Deleting a deleted message
+        is a no-op.
+      parameters:
+      - description: stream id
+        in: path
+        name: streamId
+        required: true
+        type: string
+      - description: message id
+        in: path
+        name: messageId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: 'FORBIDDEN (details.target = PROTECTED: the owner''s or another
+            moderator''s message)'
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Delete a chat message (moderation)
+      tags:
+      - moderation
+  /chat/rooms/{streamId}/pin:
+    delete:
+      parameters:
+      - description: stream id
+        in: path
+        name: streamId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Unpin the room's message
+      tags:
+      - moderation
+    put:
+      consumes:
+      - application/json
+      description: Replaces the current pin; every viewer gets `pin {message}`.
+      parameters:
+      - description: stream id
+        in: path
+        name: streamId
+        required: true
+        type: string
+      - description: message to pin
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/Pin'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Pinned'
+        "400":
+          description: VALIDATION_FAILED (messageId = REQUIRED | INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE (system or deleted message), CHAT_READ_ONLY
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Pin a message (one per room)
+      tags:
+      - moderation
+  /me/channel-roles:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ModChannelList'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Channels the caller moderates (or is VIP of)
+      tags:
+      - roles
 securityDefinitions:
   BearerAuth:
     in: header

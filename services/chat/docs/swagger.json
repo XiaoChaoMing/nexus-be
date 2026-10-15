@@ -1,13 +1,268 @@
 {
     "swagger": "2.0",
     "info": {
-        "description": "Chat history, emotes and chat modes. The realtime gateway (WebSocket GET /v1/ws) is described in docs/plans/technical/2026-10-14-gd03-chat-realtime.md §5.1. Get a token from identity-svc and paste \"Bearer \u003caccessToken\u003e\" into Authorize.",
+        "description": "Chat history, emotes, chat modes and moderation (delete, pin, timeout, ban, blocked terms, moderator / VIP roles). The realtime gateway (WebSocket GET /v1/ws) is described in docs/plans/technical/2026-10-14-gd03-chat-realtime.md §5.1. Get a token from identity-svc and paste \"Bearer \u003caccessToken\u003e\" into Authorize.",
         "title": "NexusLive chat-svc API",
         "contact": {},
         "version": "1.0"
     },
     "basePath": "/v1",
     "paths": {
+        "/channels/{channelId}/bans/{userId}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Like a timeout without end (CHAT_BANNED), for every stream of the channel until unbanned.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Ban a user from the channel's chat",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "reason",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/Ban"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Restriction"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (reason = LENGTH, userId = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN (details.target = PROTECTED)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Lift a ban",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{channelId}/blocked-terms": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Blocked terms of the channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_BlockedTermList"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Matches whole words, ignoring case and diacritics (\"spam\" blocks \"SPẢM\", not \"spammer\"). A term already blocked in another spelling answers 200 with it.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Block a term in the channel's chat",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "term",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/BlockedTerm"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "already blocked",
+                        "schema": {
+                            "$ref": "#/definitions/Data-BlockedTerm"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-BlockedTerm"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (term = REQUIRED | LENGTH)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "CONFLICT (details.limit = 100)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{channelId}/blocked-terms/{termId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Unblock a term",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "term id",
+                        "name": "termId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
         "/channels/{channelId}/chat-settings": {
             "get": {
                 "produces": [
@@ -47,7 +302,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message.",
+                "description": "Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message. blockLinks absent keeps the current value.",
                 "consumes": [
                     "application/json"
                 ],
@@ -97,6 +352,492 @@
                     },
                     "403": {
                         "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{channelId}/restrictions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Bans and running timeouts of the channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "BAN | TIMEOUT",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 24,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_RestrictionPage"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (type = ENUM, cursor = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{channelId}/roles": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "roles"
+                ],
+                "summary": "Moderators and VIPs of the channel (owner or admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "MODERATOR | VIP",
+                        "name": "role",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 24,
+                        "description": "1–50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_RolePage"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (role = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "By username. 201 for a new role, 200 when it changed or was already given. At most 50 users per role.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "roles"
+                ],
+                "summary": "Make a user moderator or VIP (owner or admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "user and role",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/AssignRole"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-ChannelRole"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-ChannelRole"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (username = REQUIRED | INVALID, role = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "CONFLICT (details.limit = 50)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{channelId}/roles/{userId}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "roles"
+                ],
+                "summary": "Set a user's role by id (owner or admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "role",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SetRole"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-ChannelRole"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-ChannelRole"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (role = ENUM, userId = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "CONFLICT (details.limit = 50)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "roles"
+                ],
+                "summary": "Remove a user's role (owner or admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{channelId}/timeouts/{userId}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Hides the user's messages in the open rooms (`user_cleared`), and refuses their messages until `until` (CHAT_TIMED_OUT). A new timeout replaces the running one.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Time a user out in the channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "duration (1–1209600 s) and reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Timeout"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Restriction"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (durationSec = REQUIRED | MIN | MAX, reason = LENGTH, userId = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN (details.target = PROTECTED)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (the user is banned)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Viewers get `user_restored`. Nothing to lift is a no-op.",
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Lift a timeout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{channelId}/users/{userId}/card": {
+            "get": {
+                "description": "Badges, channel role, follow date; restriction only for the owner, moderators and admins.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "A user seen from the channel's chat",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_UserCard"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
                         "schema": {
                             "$ref": "#/definitions/Error"
                         }
@@ -185,9 +926,222 @@
                     }
                 }
             }
+        },
+        "/chat/rooms/{streamId}/messages/{messageId}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Channel owner, moderators and admins. Every viewer gets `delete {messageId}` (and `unpin` when it was pinned). Deleting a deleted message is a no-op.",
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Delete a chat message (moderation)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "stream id",
+                        "name": "streamId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "message id",
+                        "name": "messageId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN (details.target = PROTECTED: the owner's or another moderator's message)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/chat/rooms/{streamId}/pin": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the current pin; every viewer gets `pin {message}`.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Pin a message (one per room)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "stream id",
+                        "name": "streamId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "message to pin",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Pin"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Pinned"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (messageId = REQUIRED | INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (system or deleted message), CHAT_READ_ONLY",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "moderation"
+                ],
+                "summary": "Unpin the room's message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "stream id",
+                        "name": "streamId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/channel-roles": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "roles"
+                ],
+                "summary": "Channels the caller moderates (or is VIP of)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ModChannelList"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "ActorRef": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "AssignRole": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "description": "Role is MODERATOR or VIP.",
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "Author": {
             "type": "object",
             "properties": {
@@ -211,9 +1165,64 @@
                 }
             }
         },
+        "Ban": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "BlockedTerm": {
+            "type": "object",
+            "properties": {
+                "term": {
+                    "description": "Term is 2–100 characters; it matches whole words, case and diacritics ignored.",
+                    "type": "string"
+                }
+            }
+        },
+        "BlockedTermList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/BlockedTerm"
+                    }
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "ChannelRole": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "grantedBy": {
+                    "$ref": "#/definitions/ActorRef"
+                },
+                "role": {
+                    "type": "string",
+                    "example": "MODERATOR"
+                },
+                "user": {
+                    "$ref": "#/definitions/UserRef"
+                }
+            }
+        },
         "ChatSettings": {
             "type": "object",
             "properties": {
+                "blockLinks": {
+                    "type": "boolean"
+                },
                 "followersMin": {
                     "type": "integer"
                 },
@@ -225,6 +1234,30 @@
                 },
                 "updatedAt": {
                     "type": "string"
+                }
+            }
+        },
+        "Data-BlockedTerm": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/BlockedTerm"
+                }
+            }
+        },
+        "Data-ChannelRole": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ChannelRole"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_BlockedTermList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/BlockedTermList"
                 }
             }
         },
@@ -249,6 +1282,54 @@
             "properties": {
                 "data": {
                     "$ref": "#/definitions/MessagePage"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_ModChannelList": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/ModChannelList"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Pinned": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Pinned"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Restriction": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Restriction"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_RestrictionPage": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/RestrictionPage"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_RolePage": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/RolePage"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_UserCard": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/UserCard"
                 }
             }
         },
@@ -348,6 +1429,10 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "deleted": {
+                    "description": "Deleted messages keep their place with an empty body and no fragments.",
+                    "type": "boolean"
+                },
                 "fragments": {
                     "type": "array",
                     "items": {
@@ -356,6 +1441,9 @@
                 },
                 "id": {
                     "type": "string"
+                },
+                "pinned": {
+                    "type": "boolean"
                 },
                 "streamId": {
                     "type": "string"
@@ -382,9 +1470,159 @@
                 }
             }
         },
+        "ModChannel": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "$ref": "#/definitions/ModChannelRef"
+                },
+                "role": {
+                    "type": "string",
+                    "example": "MODERATOR"
+                }
+            }
+        },
+        "ModChannelList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ModChannel"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "ModChannelRef": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "isLive": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Pin": {
+            "type": "object",
+            "properties": {
+                "messageId": {
+                    "type": "string"
+                }
+            }
+        },
+        "Pinned": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "$ref": "#/definitions/Message"
+                }
+            }
+        },
+        "Restriction": {
+            "type": "object",
+            "properties": {
+                "actor": {
+                    "$ref": "#/definitions/ActorRef"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "TIMEOUT"
+                },
+                "until": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/UserRef"
+                }
+            }
+        },
+        "RestrictionPage": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Restriction"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "RestrictionState": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string"
+                },
+                "until": {
+                    "type": "string"
+                }
+            }
+        },
+        "RolePage": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/ChannelRole"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "SetRole": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "Timeout": {
+            "type": "object",
+            "properties": {
+                "durationSec": {
+                    "description": "DurationSec is 1 … 1209600 (14 days); the web offers 60, 600 and 3600.",
+                    "type": "integer"
+                },
+                "reason": {
+                    "description": "Reason is at most 500 characters (internal, never shown to the user).",
+                    "type": "string"
+                }
+            }
+        },
         "UpdateChatSettings": {
             "type": "object",
             "properties": {
+                "blockLinks": {
+                    "description": "BlockLinks refuses messages with links (owner, moderators, admins and VIPs exempt); absent = unchanged.",
+                    "type": "boolean"
+                },
                 "followersMin": {
                     "description": "FollowersMin ∈ {null (off), 0, 10, 30, 60, 1440, 10080, 43200, 129600} minutes.",
                     "type": "integer"
@@ -395,6 +1633,50 @@
                 },
                 "subsOnly": {
                     "type": "boolean"
+                }
+            }
+        },
+        "UserCard": {
+            "type": "object",
+            "properties": {
+                "badges": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "followedAt": {
+                    "type": "string"
+                },
+                "restriction": {
+                    "$ref": "#/definitions/RestrictionState"
+                },
+                "role": {
+                    "type": "string",
+                    "example": "MODERATOR"
+                },
+                "user": {
+                    "$ref": "#/definitions/UserRef"
+                }
+            }
+        },
+        "UserRef": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
                 }
             }
         }

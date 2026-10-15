@@ -329,7 +329,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Guests may call it; send X-NXL-Anon-Id when you have one. Mature streams return mature.required=true and no manifestUrl until called again with acknowledgeMature=true (signed-in viewers are remembered per channel). manifestUrl gains a signature in GĐ5.",
+                "description": "Guests may call it; send X-NXL-Anon-Id when you have one. Mature streams return mature.required=true and no manifestUrl until called again with acknowledgeMature=true (signed-in viewers are remembered per channel). With STREAM_HLS_SIGNING the manifestUrl is /hls/t/{expires}/{md5}/streams/{id}/master.m3u8, valid until expiresAt; a suspended channel answers 403 CHANNEL_SUSPENDED.",
                 "consumes": [
                     "application/json"
                 ],
@@ -378,6 +378,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "UNAUTHORIZED (token sent but invalid)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "CHANNEL_SUSPENDED",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -531,7 +537,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "NOT_CREATOR",
+                        "description": "NOT_CREATOR, CHANNEL_SUSPENDED",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -602,7 +608,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "NOT_CREATOR",
+                        "description": "NOT_CREATOR, CHANNEL_SUSPENDED",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -1020,6 +1026,12 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "UNAUTHORIZED (token sent but invalid)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "CHANNEL_SUSPENDED",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }

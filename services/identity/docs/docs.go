@@ -272,6 +272,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/users/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Status, lock (lockKind FAILED_LOGIN | ADMIN, lockedUntil null = permanent) and channel. An expired lock reads as ACTIVE.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Admin: one account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_AdminUser"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/.well-known/jwks.json": {
             "get": {
                 "description": "Public keys other services use to verify access tokens locally.",
@@ -872,6 +924,156 @@ const docTemplate = `{
                 }
             }
         },
+        "/me/blocks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Newest first. fields=ids returns only {userId} for every blocked account (at most 1000, one page): the web filters chat with it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Accounts the caller blocked",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ids",
+                        "name": "fields",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "1-50",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "fields=ids: response.BlockedIDs",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_BlockPage"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (fields = ENUM, limit = MAX, cursor = INVALID)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/blocks/{userId}": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Idempotent. The blocked user is not told; the web hides their chat messages and they cannot @mention-notify the caller.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Block an account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (userId = INVALID: yourself)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "CONFLICT (details.limit = 1000)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "summary": "Unblock an account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "user id",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND (malformed id)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
         "/me/password": {
             "post": {
                 "security": [
@@ -964,6 +1166,50 @@ const docTemplate = `{
                 }
             }
         },
+        "AdminUser": {
+            "type": "object",
+            "properties": {
+                "channelId": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "emailVerified": {
+                    "type": "boolean"
+                },
+                "globalRole": {
+                    "type": "string",
+                    "example": "USER"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "lockKind": {
+                    "description": "LockKind is FAILED_LOGIN or ADMIN while locked.",
+                    "type": "string"
+                },
+                "lockReason": {
+                    "type": "string"
+                },
+                "lockedUntil": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "ACTIVE"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "Applicant": {
             "type": "object",
             "properties": {
@@ -1035,6 +1281,31 @@ const docTemplate = `{
                 }
             }
         },
+        "Block": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/UserRef"
+                }
+            }
+        },
+        "BlockPage": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Block"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
         "ChangePassword": {
             "type": "object",
             "required": [
@@ -1059,6 +1330,14 @@ const docTemplate = `{
                 }
             }
         },
+        "Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_AdminUser": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/AdminUser"
+                }
+            }
+        },
         "Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Application": {
             "type": "object",
             "properties": {
@@ -1072,6 +1351,14 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/ApplicationPage"
+                }
+            }
+        },
+        "Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_BlockPage": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/BlockPage"
                 }
             }
         },
@@ -1400,6 +1687,23 @@ const docTemplate = `{
                 "timezone": {
                     "type": "string",
                     "example": "Asia/Ho_Chi_Minh"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "UserRef": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
                 },
                 "username": {
                     "type": "string"

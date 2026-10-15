@@ -27,6 +27,36 @@ definitions:
       user:
         $ref: '#/definitions/Applicant'
     type: object
+  AdminUser:
+    properties:
+      channelId:
+        type: string
+      createdAt:
+        type: string
+      displayName:
+        type: string
+      email:
+        type: string
+      emailVerified:
+        type: boolean
+      globalRole:
+        example: USER
+        type: string
+      id:
+        type: string
+      lockKind:
+        description: LockKind is FAILED_LOGIN or ADMIN while locked.
+        type: string
+      lockReason:
+        type: string
+      lockedUntil:
+        type: string
+      status:
+        example: ACTIVE
+        type: string
+      username:
+        type: string
+    type: object
   Applicant:
     properties:
       createdAt:
@@ -75,6 +105,22 @@ definitions:
         description: Null on the last page.
         type: string
     type: object
+  Block:
+    properties:
+      createdAt:
+        type: string
+      user:
+        $ref: '#/definitions/UserRef'
+    type: object
+  BlockPage:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Block'
+        type: array
+      nextCursor:
+        type: string
+    type: object
   ChangePassword:
     properties:
       currentPassword:
@@ -91,6 +137,11 @@ definitions:
       data:
         $ref: '#/definitions/AdminApplication'
     type: object
+  Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_AdminUser:
+    properties:
+      data:
+        $ref: '#/definitions/AdminUser'
+    type: object
   Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Application:
     properties:
       data:
@@ -100,6 +151,11 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/ApplicationPage'
+    type: object
+  Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_BlockPage:
+    properties:
+      data:
+        $ref: '#/definitions/BlockPage'
     type: object
   Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_Me:
     properties:
@@ -329,6 +385,17 @@ definitions:
       username:
         type: string
     type: object
+  UserRef:
+    properties:
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      id:
+        type: string
+      username:
+        type: string
+    type: object
   VerifyEmail:
     properties:
       token:
@@ -511,6 +578,40 @@ paths:
       security:
       - BearerAuth: []
       summary: Reject a creator application (admin)
+      tags:
+      - admin
+  /admin/users/{id}:
+    get:
+      description: Status, lock (lockKind FAILED_LOGIN | ADMIN, lockedUntil null =
+        permanent) and channel. An expired lock reads as ACTIVE.
+      parameters:
+      - description: user id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_AdminUser'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: 'Admin: one account'
       tags:
       - admin
   /auth/.well-known/jwks.json:
@@ -914,6 +1015,103 @@ paths:
       security:
       - BearerAuth: []
       summary: Update the account
+      tags:
+      - me
+  /me/blocks:
+    get:
+      description: 'Newest first. fields=ids returns only {userId} for every blocked
+        account (at most 1000, one page): the web filters chat with it.'
+      parameters:
+      - description: ids
+        in: query
+        name: fields
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - default: 20
+        description: 1-50
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 'fields=ids: response.BlockedIDs'
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_identity_internal_controller_restapi_v1_response_BlockPage'
+        "400":
+          description: VALIDATION_FAILED (fields = ENUM, limit = MAX, cursor = INVALID)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Accounts the caller blocked
+      tags:
+      - me
+  /me/blocks/{userId}:
+    delete:
+      parameters:
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND (malformed id)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Unblock an account
+      tags:
+      - me
+    put:
+      description: Idempotent. The blocked user is not told; the web hides their chat
+        messages and they cannot @mention-notify the caller.
+      parameters:
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: 'VALIDATION_FAILED (userId = INVALID: yourself)'
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: CONFLICT (details.limit = 1000)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Block an account
       tags:
       - me
   /me/password:
