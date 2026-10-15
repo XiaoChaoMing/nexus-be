@@ -30,6 +30,7 @@ type UseCase struct {
 	broker   repo.Broker
 	audience repo.AudienceStore
 	live     repo.LiveStore
+	locks    repo.LockStore
 	maxConns int
 	l        logger.Interface
 }
@@ -46,18 +47,21 @@ type Deps struct {
 	Broker   repo.Broker
 	Audience repo.AudienceStore
 	Live     repo.LiveStore
+	// Locks may be nil (no lock check).
+	Locks repo.LockStore
 }
 
 // New -.
 func New(d Deps, maxConnsPerUser int, l logger.Interface) *UseCase {
 	return &UseCase{
 		verifier: d.Verifier, chat: d.Chat, viewers: d.Viewers, seq: d.Seq, presence: d.Presence, broker: d.Broker,
-		audience: d.Audience, live: d.Live, maxConns: maxConnsPerUser, l: l,
+		audience: d.Audience, live: d.Live, locks: d.Locks, maxConns: maxConnsPerUser, l: l,
 	}
 }
 
-// Authorize -.
-func (uc *UseCase) Authorize(_ context.Context, token *string, anonID string) (entity.Principal, error) {
+// Authorize -. A locked account's still valid token is refused with entity.ErrAccountLocked (close 4003); when
+// Redis cannot tell, the token is accepted: the lock already closed every socket of the account.
+func (uc *UseCase) Authorize(ctx context.Context, token *string, anonID string) (entity.Principal, error) {
 	p := entity.Principal{}
 
 	// A malformed anonId is ignored: the guest is then counted per connection.
@@ -75,6 +79,17 @@ func (uc *UseCase) Authorize(_ context.Context, token *string, anonID string) (e
 	}
 
 	p.UserID, p.GlobalRole, p.ExpiresAt = claims.Subject, claims.Role, claims.ExpiresAt.Time
+
+	if uc.locks != nil {
+		locked, lerr := uc.locks.Locked(ctx, p.UserID)
+		if lerr != nil {
+			uc.l.Warn("gateway - lock check of %s: %v", p.UserID, lerr)
+		}
+
+		if locked {
+			return entity.Principal{}, entity.ErrAccountLocked
+		}
+	}
 
 	return p, nil
 }

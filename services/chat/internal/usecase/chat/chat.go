@@ -58,14 +58,26 @@ type Repos struct {
 	Audience repo.AudienceStore
 }
 
+// AutoModSource returns a channel's blocked terms in normalized form (cached by the moderation use case).
+type AutoModSource interface {
+	BlockedTerms(ctx context.Context, channelID string) ([]string, error)
+}
+
+// PinSource returns a room's pinned message for the snapshot.
+type PinSource interface {
+	Pinned(ctx context.Context, streamID string) (*entity.Message, error)
+}
+
 // UseCase implements usecase.Chat.
 type UseCase struct {
-	r   Repos
-	pub Publisher
-	obs usecase.Observer
-	cfg Config
-	l   logger.Interface
-	now func() time.Time
+	r       Repos
+	pub     Publisher
+	obs     usecase.Observer
+	automod AutoModSource
+	pins    PinSource
+	cfg     Config
+	l       logger.Interface
+	now     func() time.Time
 
 	emoteMu sync.Mutex
 	emotes  []entity.Emote
@@ -82,6 +94,12 @@ func WithObserver(o usecase.Observer) Option { return func(uc *UseCase) { uc.obs
 
 // WithClock -.
 func WithClock(now func() time.Time) Option { return func(uc *UseCase) { uc.now = now } }
+
+// WithAutoMod checks messages against the channel's blocked terms (and links, from the settings).
+func WithAutoMod(src AutoModSource) Option { return func(uc *UseCase) { uc.automod = src } }
+
+// WithPins adds the pinned message to the chat: snapshot.
+func WithPins(src PinSource) Option { return func(uc *UseCase) { uc.pins = src } }
 
 // New -.
 func New(r Repos, pub Publisher, cfg Config, l logger.Interface, opts ...Option) *UseCase {
@@ -130,7 +148,7 @@ func (uc *UseCase) send(ctx context.Context, p entity.Principal, streamID string
 	}
 
 	hash := bodyHash(body)
-	if lerr := uc.limit(ctx, p, sc, st, hash); lerr != nil {
+	if lerr := uc.limit(ctx, p, sc, st, body, hash); lerr != nil {
 		return entity.SendResult{}, lerr
 	}
 
@@ -306,8 +324,9 @@ func modes(s entity.ChatSettings, st entity.Standing) error {
 }
 
 // limit applies the rules that consume state, cheapest refusal first: duplicate body, rate limits per
-// user and per IP, then slow mode (its marker is set last so a refused message does not start it).
-func (uc *UseCase) limit(ctx context.Context, p entity.Principal, sc entity.SendContext, st entity.Standing, hash string) error {
+// user and per IP, auto-mod (a blocked message still costs its rate token, BR-F12), then slow mode (its
+// marker is set last so a refused message does not start it).
+func (uc *UseCase) limit(ctx context.Context, p entity.Principal, sc entity.SendContext, st entity.Standing, body, hash string) error {
 	last, err := uc.r.Guard.LastBodyHash(ctx, p.UserID, sc.Room.StreamID)
 	if err != nil {
 		return fmt.Errorf("ChatUseCase - limit - duplicate: %w", err)
@@ -321,7 +340,27 @@ func (uc *UseCase) limit(ctx context.Context, p entity.Principal, sc entity.Send
 		return rerr
 	}
 
+	if aerr := uc.autoMod(ctx, sc, st, body); aerr != nil {
+		return aerr
+	}
+
 	return uc.slow(ctx, p, sc, st)
+}
+
+// autoMod applies the channel's blocked terms and link blocking (BR-F09, BR-F10).
+func (uc *UseCase) autoMod(ctx context.Context, sc entity.SendContext, st entity.Standing, body string) error {
+	rules := entity.AutoModRules{BlockLinks: sc.Settings.BlockLinks}
+
+	if uc.automod != nil && !st.Privileged() {
+		terms, err := uc.automod.BlockedTerms(ctx, sc.Room.ChannelID)
+		if err != nil {
+			return fmt.Errorf("ChatUseCase - automod: %w", err)
+		}
+
+		rules.Terms = terms
+	}
+
+	return rules.Check(body, st)
 }
 
 func (uc *UseCase) rates(ctx context.Context, p entity.Principal, st entity.Standing) error {

@@ -3,6 +3,7 @@ package entity
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -98,10 +99,14 @@ func (u User) Name() string {
 	return u.Username
 }
 
-// Channel is chat-svc's copy of a channel's owner (channel.created.v1).
+// Channel is chat-svc's copy of a channel (channel.created / channel.updated). The names are empty for a
+// channel only known through the dev CLI.
 type Channel struct {
-	ID      string
-	OwnerID string
+	ID          string
+	OwnerID     string
+	Handle      string
+	DisplayName string
+	AvatarURL   *string
 }
 
 // Emote is a global (channel emotes come later) emote.
@@ -159,7 +164,46 @@ type Message struct {
 	Fragments   []Fragment `json:"fragments"`
 	Type        string     `json:"type"`
 	CreatedAt   time.Time  `json:"createdAt"`
+	Pinned      bool       `json:"pinned"`
+	Deleted     bool       `json:"deleted"`
 	ClientMsgID string     `json:"-"`
+}
+
+// Blanked hides the text of a deleted message (history, pins): moderators do not see it either.
+func (m Message) Blanked() Message {
+	if m.Deleted {
+		m.Body, m.Fragments = "", []Fragment{}
+	}
+
+	return m
+}
+
+// Mentioned returns the users the message mentions, in order of appearance, without the sender and at most
+// MentionNotifyMax.
+func (m Message) Mentioned() []string {
+	out := []string{}
+	seen := map[string]bool{m.User.ID: true}
+
+	for _, f := range m.Fragments {
+		if f.Type != FragmentMention || seen[f.UserID] || len(out) == MentionNotifyMax {
+			continue
+		}
+
+		seen[f.UserID] = true
+		out = append(out, f.UserID)
+	}
+
+	return out
+}
+
+// Excerpt is the message as plain text, at most MentionExcerptMax runes.
+func (m Message) Excerpt() string {
+	r := []rune(strings.Join(strings.Fields(m.Body), " "))
+	if len(r) > MentionExcerptMax {
+		r = r[:MentionExcerptMax]
+	}
+
+	return string(r)
 }
 
 // MentionsUser reports whether userID is mentioned in the message.
@@ -210,6 +254,15 @@ const (
 	EventChannelLive      = "channel_live"
 	EventChannelOffline   = "channel_offline"
 	EventViewerCountBatch = "viewer_count_batch"
+	// chat:{streamId} moderation (GĐ5).
+	EventDelete       = "delete"
+	EventUserCleared  = "user_cleared"
+	EventUserRestored = "user_restored"
+	EventPin          = "pin"
+	EventUnpin        = "unpin"
+	// user:{userId}: relayed from notification-svc.
+	EventNotification = "notification"
+	EventUnreadCount  = "unread_count"
 )
 
 // Stream statuses relayed on stream:{id}.

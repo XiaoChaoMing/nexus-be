@@ -20,6 +20,9 @@ const (
 	CodeSubsOnly         = "CHAT_SUBS_ONLY"
 	CodeTimedOut         = "CHAT_TIMED_OUT"
 	CodeBanned           = "CHAT_BANNED"
+	CodeContentBlocked   = "CHAT_CONTENT_BLOCKED"
+	CodeInvalidState     = "INVALID_STATE"
+	CodeConflict         = "CONFLICT"
 )
 
 func codeTable() []struct {
@@ -49,6 +52,12 @@ func codeTable() []struct {
 		{ErrSubsOnly, CodeSubsOnly},
 		{ErrTimedOut, CodeTimedOut},
 		{ErrBanned, CodeBanned},
+		{ErrProtectedTarget, CodeForbidden},
+		{ErrAccountLocked, CodeForbidden},
+		{ErrSelfTarget, CodeValidationFailed},
+		{ErrInvalidState, CodeInvalidState},
+		{ErrContentBlocked, CodeContentBlocked},
+		{ErrLimitReached, CodeConflict},
 	}
 }
 

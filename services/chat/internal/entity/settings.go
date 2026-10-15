@@ -24,6 +24,7 @@ type ChatSettings struct {
 	SlowSec      int
 	FollowersMin *int
 	SubsOnly     bool
+	BlockLinks   bool
 	UpdatedBy    *string
 	// UpdatedAt is nil for a channel that never saved settings (defaults).
 	UpdatedAt *time.Time
@@ -53,7 +54,7 @@ func (s ChatSettings) SameModes(o ChatSettings) bool {
 	sameFollowers := (s.FollowersMin == nil) == (o.FollowersMin == nil) &&
 		(s.FollowersMin == nil || *s.FollowersMin == *o.FollowersMin)
 
-	return s.SlowSec == o.SlowSec && s.SubsOnly == o.SubsOnly && sameFollowers
+	return s.SlowSec == o.SlowSec && s.SubsOnly == o.SubsOnly && s.BlockLinks == o.BlockLinks && sameFollowers
 }
 
 // Mode is the JSON form of the modes in snapshots and mode_change events.
@@ -61,9 +62,10 @@ type Mode struct {
 	SlowSec      int  `json:"slowSec"`
 	FollowersMin *int `json:"followersMin"`
 	SubsOnly     bool `json:"subsOnly"`
+	BlockLinks   bool `json:"blockLinks"`
 }
 
 // Mode -.
 func (s ChatSettings) Mode() Mode {
-	return Mode{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly}
+	return Mode{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks}
 }

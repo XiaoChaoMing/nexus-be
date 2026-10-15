@@ -20,6 +20,7 @@ const (
 const (
 	CloseServiceRestart = 1012
 	CloseUnauthorized   = 4001
+	CloseAccountLocked  = 4003
 	CloseAuthTimeout    = 4008
 	CloseTooMany        = 4029
 )

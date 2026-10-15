@@ -31,8 +31,8 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	t.Cleanup(pg.Close)
 
 	_, err = pg.Pool.Exec(context.Background(),
-		`TRUNCATE chat_messages, chat_rooms, chat_settings, channel_roles, mod_actions, users, channels, outbox,
-		 processed_events CASCADE`)
+		`TRUNCATE chat_messages, chat_rooms, chat_settings, channel_roles, mod_actions, blocked_terms, users, channels, outbox,
+		 processed_events, replica_backfills CASCADE`)
 	require.NoError(t, err)
 
 	return persistent.New(pg), pg
@@ -69,7 +69,7 @@ func TestRoomLifecycleAndSendContext(t *testing.T) { //nolint:paralleltest,funle
 	require.NoError(t, r.GrantRole(ctx, channel, user, entity.ChannelRoleVIP, owner))
 
 	ten := 10
-	_, err = r.SaveSettings(ctx, entity.ChatSettings{ChannelID: channel, SlowSec: 5, FollowersMin: &ten, SubsOnly: true, UpdatedBy: &owner})
+	_, err = r.SaveSettings(ctx, entity.ChatSettings{ChannelID: channel, SlowSec: 5, FollowersMin: &ten, SubsOnly: true, UpdatedBy: &owner}, nil)
 	require.NoError(t, err)
 
 	_, err = pg.Pool.Exec(ctx,
@@ -199,7 +199,7 @@ func TestSettingsAndEmotes(t *testing.T) { //nolint:paralleltest // shared datab
 	require.NoError(t, err)
 	require.Equal(t, entity.ChatSettings{ChannelID: channel}, s)
 
-	saved, err := r.SaveSettings(ctx, entity.ChatSettings{ChannelID: channel, SlowSec: 30})
+	saved, err := r.SaveSettings(ctx, entity.ChatSettings{ChannelID: channel, SlowSec: 30}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, saved.UpdatedAt)
 

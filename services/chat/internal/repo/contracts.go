@@ -5,6 +5,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
 )
 
@@ -25,10 +26,11 @@ type (
 
 	// MessageRepo owns chat_messages (partitioned by day).
 	MessageRepo interface {
-		// InsertMessage stores m and returns it with its id and creation time.
+		// InsertMessage stores m and returns it with its id and creation time; when m mentions other users it
+		// queues chat.mention.v1 in the same transaction.
 		InsertMessage(ctx context.Context, m entity.Message) (entity.Message, error)
-		// History returns up to limit messages older than before (a message id; nil = newest), newest first.
-		// Authors carry the user id and the names from the identity copy only.
+		// History returns up to limit messages older than before (a message id; nil = newest), newest first,
+		// deleted ones included (Deleted set). Authors carry the user id and the names from the identity copy only.
 		History(ctx context.Context, streamID string, before *string, limit int) ([]entity.Message, error)
 		// EnsurePartitions creates the daily partitions of the days [from, from+days) that are missing,
 		// moving rows of those days out of the DEFAULT partition; it returns the names created.
@@ -41,15 +43,73 @@ type (
 	SettingsRepo interface {
 		// Settings returns defaults (UpdatedAt nil) when the channel never saved any.
 		Settings(ctx context.Context, channelID string) (entity.ChatSettings, error)
-		SaveSettings(ctx context.Context, s entity.ChatSettings) (entity.ChatSettings, error)
+		// SaveSettings stores s and, when change is not nil, queues chat.settings_changed.v1 in the same transaction.
+		SaveSettings(ctx context.Context, s entity.ChatSettings, change *events.ChatSettingsChanged) (entity.ChatSettings, error)
 	}
 
 	// RoleRepo owns channel_roles.
 	RoleRepo interface {
 		// Roles returns the roles of the given users in the channel.
 		Roles(ctx context.Context, channelID string, userIDs []string) (map[string]entity.ChannelRole, error)
+		// GrantRole and RevokeRole are the dev CLI's: no limit, no event.
 		GrantRole(ctx context.Context, channelID, userID string, role entity.ChannelRole, grantedBy string) error
 		RevokeRole(ctx context.Context, channelID, userID string) error
+		// ListRoles returns the channel's grants, newest first (keyset after).
+		ListRoles(ctx context.Context, channelID string, role *entity.ChannelRole, after *Cursor, limit int) ([]entity.RoleGrant, error)
+		// Assign grants g.Role to g.User.ID under a lock on the channel row: entity.ErrLimitReached when maxPerRole
+		// users already have the role, entity.ErrNotFound for a channel without a copy. created is true for a
+		// new grant; a change of role queues channel.role_changed.v1, the same role changes nothing.
+		Assign(ctx context.Context, g entity.RoleGrant, maxPerRole int, actorRole entity.ActorRole) (entity.RoleGrant, bool, error)
+		// Revoke removes the user's role and queues channel.role_changed.v1; false when there was none.
+		Revoke(ctx context.Context, channelID, userID, actorID string, actorRole entity.ActorRole) (bool, error)
+		// RolesOfUser lists the user's roles in every channel.
+		RolesOfUser(ctx context.Context, userID string) ([]entity.RoleGrant, error)
+	}
+
+	// Cursor is the keyset position (created_at DESC, id DESC) of the moderation lists.
+	Cursor struct {
+		CreatedAt time.Time
+		ID        string
+	}
+
+	// ModerationRepo writes mod_actions. Every write stores the action and queues chat.mod_action.v1 in one
+	// transaction; an action that changes nothing writes nothing.
+	ModerationRepo interface {
+		// Message returns a message of the room whatever its state (Deleted set); entity.ErrNotFound when missing.
+		Message(ctx context.Context, streamID, messageID string) (entity.Message, error)
+		// DeleteMessage soft-deletes a.MessageID; deleted is false when it already was, wasPinned when it was pinned.
+		DeleteMessage(ctx context.Context, a entity.ModAction) (deleted, wasPinned bool, err error)
+		// Pin pins a.MessageID (unpinning the previous one) under a lock on the room: entity.ErrRoomReadOnly
+		// unless OPEN, entity.ErrInvalidState for a SYSTEM or deleted message, entity.ErrNotFound.
+		Pin(ctx context.Context, a entity.ModAction) (entity.Message, error)
+		// Unpin reports false when nothing was pinned.
+		Unpin(ctx context.Context, a entity.ModAction) (bool, error)
+		// Restrict writes a TIMEOUT or BAN under a lock on the channel row (entity.ErrInvalidState for a timeout
+		// of a banned user) and soft-deletes the target's messages in the channel's OPEN rooms. It returns those
+		// rooms and the ones whose pinned message it removed.
+		Restrict(ctx context.Context, a entity.ModAction) (openRooms, unpinned []string, err error)
+		// Lift writes UNTIMEOUT / UNBAN only when the matching restriction is in force; false = nothing to lift.
+		Lift(ctx context.Context, a entity.ModAction) (lifted bool, openRooms []string, err error)
+		// Restrictions lists the bans and running timeouts of the channel, newest first.
+		Restrictions(ctx context.Context, channelID string, t *entity.RestrictionType, after *Cursor, limit int) ([]entity.ActiveRestriction, error)
+		// Restriction returns the user's restriction in force, nil when none.
+		Restriction(ctx context.Context, channelID, userID string) (*entity.ActiveRestriction, error)
+		// Pinned returns the room's pinned message, nil when none.
+		Pinned(ctx context.Context, streamID string) (*entity.Message, error)
+		// Evidence returns up to limit messages, oldest first: messageID and the previous ones of its author, or
+		// userID's last ones. entity.ErrNotFound when the room or the message does not exist.
+		Evidence(ctx context.Context, streamID string, messageID, userID *string, limit int) ([]entity.EvidenceItem, error)
+	}
+
+	// TermRepo owns blocked_terms; changes queue audit.recorded.v1 in the same transaction.
+	TermRepo interface {
+		// Terms lists the channel's terms, newest first.
+		Terms(ctx context.Context, channelID string) ([]entity.BlockedTerm, error)
+		// AddTerm returns the existing term (created false) when its normalized form is already blocked;
+		// entity.ErrLimitReached at maxTerms.
+		AddTerm(ctx context.Context, t entity.BlockedTerm, maxTerms int, audit events.AuditRecorded) (entity.BlockedTerm, bool, error)
+		// RemoveTerm reports false when the term did not exist.
+		RemoveTerm(ctx context.Context, channelID, termID string, audit events.AuditRecorded) (bool, error)
 	}
 
 	// EmoteRepo -.
@@ -68,7 +128,28 @@ type (
 		MarkEmailVerified(ctx context.Context, eventID, userID string) error
 		// Channel returns entity.ErrNotFound for a channel never announced.
 		Channel(ctx context.Context, channelID string) (entity.Channel, error)
+		// UpsertChannel stores the owner and, when given, the names (empty keeps the stored ones).
 		UpsertChannel(ctx context.Context, eventID string, c entity.Channel) error
+		// ChannelInfo returns the known channels among ids.
+		ChannelInfo(ctx context.Context, ids []string) (map[string]entity.ChannelInfo, error)
+		SetChannelStatus(ctx context.Context, eventID, channelID string, s entity.ChannelStatus) error
+		// UpsertChannels stores a page of channel-svc's snapshot (backfill).
+		UpsertChannels(ctx context.Context, list []entity.ChannelInfo) error
+		BackfillDone(ctx context.Context, name string) (bool, error)
+		MarkBackfilled(ctx context.Context, name string) error
+	}
+
+	// LockStore remembers locked accounts (Redis chat:locked:{userId}) so their tokens cannot reconnect.
+	LockStore interface {
+		// Lock marks the user locked until the given time (nil = until unlocked).
+		Lock(ctx context.Context, userID string, until *time.Time) error
+		Unlock(ctx context.Context, userID string) error
+		Locked(ctx context.Context, userID string) (bool, error)
+	}
+
+	// ChannelSnapshot pages through channel-svc's channels (internal API, backfill only).
+	ChannelSnapshot interface {
+		Channels(ctx context.Context, after string, limit int) (list []entity.ChannelInfo, next string, err error)
 	}
 
 	// SeqStore numbers the events of each topic and keeps the resume buffer (Redis).
@@ -163,5 +244,9 @@ type (
 		Publish(ctx context.Context, topic string, payload []byte) error
 		// Subscribe calls fn for each payload published on topic until the returned stop is called.
 		Subscribe(topic string, fn func(payload []byte)) (func(), error)
+		// PublishControl asks every instance to apply c to its own connections.
+		PublishControl(ctx context.Context, c entity.Control) error
+		// SubscribeControl calls fn for each control order until the returned stop is called.
+		SubscribeControl(fn func(entity.Control)) (func(), error)
 	}
 )

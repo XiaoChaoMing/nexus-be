@@ -111,7 +111,9 @@ func (r *Repo) MarkEmailVerified(ctx context.Context, eventID, userID string) er
 func (r *Repo) Channel(ctx context.Context, channelID string) (entity.Channel, error) {
 	c := entity.Channel{ID: channelID}
 
-	err := r.Pool.QueryRow(ctx, `SELECT owner_id::text FROM channels WHERE channel_id = $1`, channelID).Scan(&c.OwnerID)
+	err := r.Pool.QueryRow(ctx,
+		`SELECT owner_id::text, COALESCE(handle, ''), COALESCE(display_name, ''), avatar_url FROM channels WHERE channel_id = $1`,
+		channelID).Scan(&c.OwnerID, &c.Handle, &c.DisplayName, &c.AvatarURL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entity.Channel{}, entity.ErrNotFound
 	}
@@ -127,12 +129,102 @@ func (r *Repo) Channel(ctx context.Context, channelID string) (entity.Channel, e
 func (r *Repo) UpsertChannel(ctx context.Context, eventID string, c entity.Channel) error {
 	return r.inEventTx(ctx, "Repo - UpsertChannel", eventID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx,
-			`INSERT INTO channels (channel_id, owner_id) VALUES ($1, $2)
-			 ON CONFLICT (channel_id) DO UPDATE SET owner_id = EXCLUDED.owner_id, updated_at = now()`, c.ID, c.OwnerID)
+			`INSERT INTO channels (channel_id, owner_id, handle, display_name, avatar_url) VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5)
+			 ON CONFLICT (channel_id) DO UPDATE SET owner_id = EXCLUDED.owner_id,
+			     handle = COALESCE(EXCLUDED.handle, channels.handle),
+			     display_name = COALESCE(EXCLUDED.display_name, channels.display_name),
+			     avatar_url = CASE WHEN EXCLUDED.handle IS NULL THEN channels.avatar_url ELSE EXCLUDED.avatar_url END,
+			     updated_at = now()`, c.ID, c.OwnerID, c.Handle, c.DisplayName, c.AvatarURL)
 		if err != nil {
 			return fmt.Errorf("Repo - UpsertChannel: %w", err)
 		}
 
 		return nil
 	})
+}
+
+// ChannelInfo -.
+func (r *Repo) ChannelInfo(ctx context.Context, ids []string) (map[string]entity.ChannelInfo, error) {
+	out := map[string]entity.ChannelInfo{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+
+	rows, err := r.Pool.Query(ctx,
+		`SELECT channel_id::text, owner_id::text, COALESCE(handle, ''), COALESCE(display_name, ''), avatar_url, status
+		 FROM channels WHERE channel_id = ANY($1::uuid[])`, ids)
+	if err != nil {
+		return nil, fmt.Errorf("Repo - ChannelInfo: %w", err)
+	}
+
+	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (entity.ChannelInfo, error) {
+		var (
+			c      entity.ChannelInfo
+			status string
+		)
+
+		err := row.Scan(&c.ID, &c.OwnerID, &c.Handle, &c.DisplayName, &c.AvatarURL, &status)
+		c.Status = entity.ChannelStatus(status)
+
+		return c, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Repo - ChannelInfo: %w", err)
+	}
+
+	for _, c := range list {
+		out[c.ID] = c
+	}
+
+	return out, nil
+}
+
+// SetChannelStatus does nothing for a channel the copy does not have.
+func (r *Repo) SetChannelStatus(ctx context.Context, eventID, channelID string, st entity.ChannelStatus) error {
+	return r.inEventTx(ctx, "Repo - SetChannelStatus", eventID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`UPDATE channels SET status = $2, updated_at = now() WHERE channel_id = $1`, channelID, string(st)); err != nil {
+			return fmt.Errorf("Repo - SetChannelStatus: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// UpsertChannels -.
+func (r *Repo) UpsertChannels(ctx context.Context, list []entity.ChannelInfo) error {
+	return r.inTx(ctx, "Repo - UpsertChannels", func(tx pgx.Tx) error {
+		for _, c := range list {
+			_, err := tx.Exec(ctx,
+				`INSERT INTO channels (channel_id, owner_id, handle, display_name, avatar_url, status) VALUES ($1, $2, $3, $4, $5, $6)
+				 ON CONFLICT (channel_id) DO UPDATE SET owner_id = EXCLUDED.owner_id, handle = EXCLUDED.handle,
+				     display_name = EXCLUDED.display_name, avatar_url = EXCLUDED.avatar_url, status = EXCLUDED.status,
+				     updated_at = now()`, c.ID, c.OwnerID, c.Handle, c.DisplayName, c.AvatarURL, string(c.Status))
+			if err != nil {
+				return fmt.Errorf("Repo - UpsertChannels: %w", err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// BackfillDone -.
+func (r *Repo) BackfillDone(ctx context.Context, name string) (bool, error) {
+	var done bool
+
+	if err := r.Pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM replica_backfills WHERE name = $1)`, name).Scan(&done); err != nil {
+		return false, fmt.Errorf("Repo - BackfillDone: %w", err)
+	}
+
+	return done, nil
+}
+
+// MarkBackfilled -.
+func (r *Repo) MarkBackfilled(ctx context.Context, name string) error {
+	if _, err := r.Pool.Exec(ctx, `INSERT INTO replica_backfills (name) VALUES ($1) ON CONFLICT DO NOTHING`, name); err != nil {
+		return fmt.Errorf("Repo - MarkBackfilled: %w", err)
+	}
+
+	return nil
 }

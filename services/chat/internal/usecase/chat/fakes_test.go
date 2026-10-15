@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/repo"
 )
@@ -32,6 +33,8 @@ type world struct {
 	slowUntil map[string]time.Time
 	published []published
 	openRooms []string
+
+	settingsEvents []events.ChatSettingsChanged
 }
 
 type published struct {
@@ -148,9 +151,13 @@ func (f fakeSettings) Settings(context.Context, string) (entity.ChatSettings, er
 	return f.w.settings, nil
 }
 
-func (f fakeSettings) SaveSettings(_ context.Context, s entity.ChatSettings) (entity.ChatSettings, error) {
+func (f fakeSettings) SaveSettings(_ context.Context, s entity.ChatSettings, change *events.ChatSettingsChanged) (entity.ChatSettings, error) {
 	f.w.mu.Lock()
 	defer f.w.mu.Unlock()
+
+	if change != nil {
+		f.w.settingsEvents = append(f.w.settingsEvents, *change)
+	}
 
 	at := f.w.now
 	s.UpdatedAt = &at

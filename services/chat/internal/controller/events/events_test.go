@@ -17,6 +17,7 @@ import (
 type rec struct {
 	usecase.Rooms
 	usecase.Grants
+	usecase.Safety
 	calls []string
 }
 
@@ -117,7 +118,7 @@ func TestHandler(t *testing.T) { //nolint:funlen // one table of event types
 			t.Parallel()
 
 			r := &rec{}
-			err := events.Handler(r, r)(context.Background(), eventbus.Event{ID: uuid.NewString(), Type: tc.typ, Payload: []byte(tc.payload)})
+			err := events.Handler(r, r, r)(context.Background(), eventbus.Event{ID: uuid.NewString(), Type: tc.typ, Payload: []byte(tc.payload)})
 
 			if tc.wantSkip {
 				require.ErrorIs(t, err, eventbus.ErrSkip)
@@ -141,8 +142,49 @@ func TestHandlerRejectsBadEventID(t *testing.T) {
 	t.Parallel()
 
 	r := &rec{}
-	err := events.Handler(r, r)(context.Background(), eventbus.Event{
+	err := events.Handler(r, r, r)(context.Background(), eventbus.Event{
 		ID: "x", Type: pkgevents.TypeStreamEnded, Payload: []byte(`{"streamId":"` + uuid.NewString() + `"}`),
 	})
+	require.ErrorIs(t, err, eventbus.ErrSkip)
+}
+
+func (r *rec) UserLocked(_ context.Context, e pkgevents.UserLocked) error {
+	r.calls = append(r.calls, "locked "+e.UserID)
+
+	return nil
+}
+
+func (r *rec) ChannelSuspended(_ context.Context, _ string, e pkgevents.ChannelSuspended) error {
+	r.calls = append(r.calls, "suspended "+e.ChannelID)
+
+	return nil
+}
+
+func (r *rec) RelayNotification(_ context.Context, e pkgevents.NotificationCreated) error {
+	r.calls = append(r.calls, "notification "+e.Type)
+
+	return nil
+}
+
+func TestSafetyEvents(t *testing.T) {
+	t.Parallel()
+
+	r := &rec{}
+	h := events.Handler(r, r, r)
+	ctx := context.Background()
+	user, ch, n := uuid.NewString(), uuid.NewString(), uuid.NewString()
+
+	require.NoError(t, h(ctx, eventbus.Event{ID: uuid.NewString(), Type: pkgevents.TypeUserLocked, Payload: []byte(`{"userId":"` + user + `"}`)}))
+	require.NoError(t, h(ctx, eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeChannelSuspended,
+		Payload: []byte(`{"channelId":"` + ch + `","ownerId":"` + user + `"}`),
+	}))
+	require.NoError(t, h(ctx, eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeNotificationCreated,
+		Payload: []byte(`{"notificationId":"` + n + `","userId":"` + user + `","type":"CREATOR_LIVE","unreadCount":3}`),
+	}))
+	require.Equal(t, []string{"locked " + user, "suspended " + ch, "notification CREATOR_LIVE"}, r.calls)
+
+	err := h(ctx, eventbus.Event{ID: uuid.NewString(), Type: pkgevents.TypeUserLocked, Payload: []byte(`{"userId":"x"}`)})
 	require.ErrorIs(t, err, eventbus.ErrSkip)
 }

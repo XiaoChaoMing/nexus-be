@@ -30,6 +30,9 @@ func ChatTopic(streamID string) Topic { return Topic{Kind: TopicChat, ID: stream
 // StreamTopic -.
 func StreamTopic(streamID string) Topic { return Topic{Kind: TopicStream, ID: streamID} }
 
+// UserTopic -.
+func UserTopic(userID string) Topic { return Topic{Kind: TopicUser, ID: userID} }
+
 // SidebarTopic -.
 func SidebarTopic(userID string) Topic { return Topic{Kind: TopicSidebar, ID: userID} }
 

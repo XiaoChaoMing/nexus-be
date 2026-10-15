@@ -16,18 +16,54 @@ import (
 )
 
 type routes struct {
-	chat usecase.Chat
-	l    logger.Interface
+	chat  usecase.Chat
+	mod   usecase.Moderation
+	roles usecase.Roles
+	l     logger.Interface
 }
 
-// NewRoutes registers /v1/chat/* and /v1/channels/{channelId}/chat-settings.
-func NewRoutes(group fiber.Router, chat usecase.Chat, auth fiber.Handler, l logger.Interface) {
-	r := &routes{chat: chat, l: l}
+// UseCases groups what the routes call.
+type UseCases struct {
+	Chat       usecase.Chat
+	Moderation usecase.Moderation
+	Roles      usecase.Roles
+}
+
+// Auth holds the two authentication middlewares: Required rejects guests, Optional identifies callers when a
+// token is sent.
+type Auth struct {
+	Required fiber.Handler
+	Optional fiber.Handler
+}
+
+// NewRoutes registers /v1/chat/*, the chat routes of /v1/channels/{channelId} and /v1/me/channel-roles.
+func NewRoutes(group fiber.Router, uc UseCases, auth Auth, l logger.Interface) {
+	r := &routes{chat: uc.Chat, mod: uc.Moderation, roles: uc.Roles, l: l}
 
 	group.Get("/chat/rooms/:streamId/messages", r.history)
+	group.Delete("/chat/rooms/:streamId/messages/:messageId", auth.Required, r.deleteMessage)
+	group.Put("/chat/rooms/:streamId/pin", auth.Required, r.pin)
+	group.Delete("/chat/rooms/:streamId/pin", auth.Required, r.unpin)
 	group.Get("/chat/emotes", r.emotes)
-	group.Get("/channels/:channelId/chat-settings", r.settings)
-	group.Put("/channels/:channelId/chat-settings", auth, r.updateSettings)
+
+	ch := group.Group("/channels/:channelId")
+	ch.Get("/chat-settings", r.settings)
+	ch.Put("/chat-settings", auth.Required, r.updateSettings)
+	ch.Put("/timeouts/:userId", auth.Required, r.timeout)
+	ch.Delete("/timeouts/:userId", auth.Required, r.untimeout)
+	ch.Put("/bans/:userId", auth.Required, r.ban)
+	ch.Delete("/bans/:userId", auth.Required, r.unban)
+	ch.Get("/restrictions", auth.Required, r.restrictions)
+	ch.Get("/users/:userId/card", auth.Optional, r.card)
+	ch.Get("/blocked-terms", auth.Required, r.terms)
+	ch.Post("/blocked-terms", auth.Required, r.addTerm)
+	ch.Delete("/blocked-terms/:termId", auth.Required, r.removeTerm)
+	ch.Get("/roles", auth.Required, r.listRoles)
+	ch.Post("/roles", auth.Required, r.assignRole)
+	ch.Put("/roles/:userId", auth.Required, r.setRole)
+	ch.Delete("/roles/:userId", auth.Required, r.revokeRole)
+
+	group.Get("/me/channel-roles", auth.Required, r.myChannelRoles)
 }
 
 func errorJSON(ctx *fiber.Ctx, status int, code, message string, details map[string]string) error {
@@ -49,6 +85,10 @@ func statusOf(code string) int {
 		return http.StatusForbidden
 	case entity.CodeNotFound:
 		return http.StatusNotFound
+	case entity.CodeInvalidState, entity.CodeConflict, entity.CodeChatReadOnly:
+		return http.StatusConflict
+	case entity.CodeContentBlocked:
+		return http.StatusUnprocessableEntity
 	default:
 		return http.StatusInternalServerError
 	}
@@ -178,7 +218,7 @@ func (r *routes) settings(ctx *fiber.Ctx) error {
 // updateSettings godoc
 //
 //	@Summary     Change the chat modes of a channel
-//	@Description Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message.
+//	@Description Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message. blockLinks absent keeps the current value.
 //	@Tags        chat
 //	@Accept      json
 //	@Produce     json
@@ -212,8 +252,16 @@ func (r *routes) updateSettings(ctx *fiber.Ctx) error {
 
 	p := entity.Principal{UserID: userID, GlobalRole: middleware.Role(ctx), IP: ctx.IP()}
 
+	blockLinks := false
+
+	if body.BlockLinks != nil {
+		blockLinks = *body.BlockLinks
+	} else if cur, cerr := r.chat.Settings(ctx.UserContext(), channelID); cerr == nil {
+		blockLinks = cur.BlockLinks
+	}
+
 	s, err := r.chat.UpdateSettings(ctx.UserContext(), p, entity.ChatSettings{
-		ChannelID: channelID, SlowSec: body.SlowSec, FollowersMin: body.FollowersMin, SubsOnly: body.SubsOnly,
+		ChannelID: channelID, SlowSec: body.SlowSec, FollowersMin: body.FollowersMin, SubsOnly: body.SubsOnly, BlockLinks: blockLinks,
 	})
 	if err != nil {
 		return r.fail(ctx, "updateSettings", err)
@@ -223,7 +271,7 @@ func (r *routes) updateSettings(ctx *fiber.Ctx) error {
 }
 
 func settingsOf(s entity.ChatSettings) response.ChatSettings {
-	out := response.ChatSettings{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly}
+	out := response.ChatSettings{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks}
 
 	if s.UpdatedAt != nil {
 		t := s.UpdatedAt.UTC()
@@ -260,5 +308,7 @@ func messageOf(m entity.Message) response.Message {
 		Fragments: frags,
 		Type:      m.Type,
 		CreatedAt: m.CreatedAt.UTC(),
+		Pinned:    m.Pinned,
+		Deleted:   m.Deleted,
 	}
 }

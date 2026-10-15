@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
 )
 
@@ -28,12 +29,37 @@ func (r *Repo) InsertMessage(ctx context.Context, m entity.Message) (entity.Mess
 		return entity.Message{}, fmt.Errorf("Repo - InsertMessage - fragments: %w", err)
 	}
 
-	err = r.Pool.QueryRow(ctx,
-		`INSERT INTO chat_messages (stream_id, user_id, client_msg_id, body, fragments, type)
-		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text, created_at`,
-		m.StreamID, m.User.ID, m.ClientMsgID, m.Body, frags, m.Type).Scan(&m.ID, &m.CreatedAt)
+	const q = `INSERT INTO chat_messages (stream_id, user_id, client_msg_id, body, fragments, type)
+	           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text, created_at`
+
+	mentioned := m.Mentioned()
+	if len(mentioned) == 0 {
+		if err = r.Pool.QueryRow(ctx, q, m.StreamID, m.User.ID, m.ClientMsgID, m.Body, frags, m.Type).Scan(&m.ID, &m.CreatedAt); err != nil {
+			return entity.Message{}, fmt.Errorf("Repo - InsertMessage: %w", err)
+		}
+
+		m.CreatedAt = m.CreatedAt.UTC()
+
+		return m, nil
+	}
+
+	err = r.inTx(ctx, "Repo - InsertMessage", func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, q, m.StreamID, m.User.ID, m.ClientMsgID, m.Body, frags, m.Type).Scan(&m.ID, &m.CreatedAt); err != nil {
+			return fmt.Errorf("Repo - InsertMessage: %w", err)
+		}
+
+		var channelID string
+		if err := tx.QueryRow(ctx, `SELECT channel_id::text FROM chat_rooms WHERE stream_id = $1`, m.StreamID).Scan(&channelID); err != nil {
+			return fmt.Errorf("Repo - InsertMessage - room: %w", err)
+		}
+
+		return addOutbox(ctx, tx, m.StreamID, events.TypeChatMention, events.ChatMention{
+			MessageID: m.ID, StreamID: m.StreamID, ChannelID: channelID, SenderID: m.User.ID, SenderUsername: m.User.Username,
+			MentionedUserIDs: mentioned, Excerpt: m.Excerpt(),
+		})
+	})
 	if err != nil {
-		return entity.Message{}, fmt.Errorf("Repo - InsertMessage: %w", err)
+		return entity.Message{}, err
 	}
 
 	m.CreatedAt = m.CreatedAt.UTC()
@@ -43,10 +69,9 @@ func (r *Repo) InsertMessage(ctx context.Context, m entity.Message) (entity.Mess
 
 // History -.
 func (r *Repo) History(ctx context.Context, streamID string, before *string, limit int) ([]entity.Message, error) {
-	q := `SELECT m.id::text, m.stream_id::text, m.user_id::text, m.body, m.fragments, m.type, m.created_at,
-	             COALESCE(u.username, ''), COALESCE(NULLIF(u.display_name, ''), u.username, '')
+	q := `SELECT ` + _messageCols + `
 	      FROM chat_messages m LEFT JOIN users u ON u.id = m.user_id
-	      WHERE m.stream_id = $1 AND m.deleted_at IS NULL`
+	      WHERE m.stream_id = $1`
 	args := []any{streamID, limit}
 
 	if before != nil {
@@ -71,6 +96,10 @@ func (r *Repo) History(ctx context.Context, streamID string, before *string, lim
 	return out, nil
 }
 
+// _messageCols is read by scanMessage (alias m, LEFT JOIN users u).
+const _messageCols = `m.id::text, m.stream_id::text, m.user_id::text, m.body, m.fragments, m.type, m.created_at,
+	COALESCE(u.username, ''), COALESCE(NULLIF(u.display_name, ''), u.username, ''), m.pinned, m.deleted_at IS NOT NULL`
+
 func scanMessage(row pgx.CollectableRow) (entity.Message, error) {
 	var (
 		m     entity.Message
@@ -78,7 +107,7 @@ func scanMessage(row pgx.CollectableRow) (entity.Message, error) {
 	)
 
 	if err := row.Scan(&m.ID, &m.StreamID, &m.User.ID, &m.Body, &frags, &m.Type, &m.CreatedAt,
-		&m.User.Username, &m.User.DisplayName); err != nil {
+		&m.User.Username, &m.User.DisplayName, &m.Pinned, &m.Deleted); err != nil {
 		return entity.Message{}, fmt.Errorf("scan message: %w", err)
 	}
 

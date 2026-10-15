@@ -167,3 +167,24 @@ func TestSidebar(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []entity.SidebarCount{{ChannelID: "ch-live", StreamID: "s1", Count: 12}}, items)
 }
+
+type locks struct{ locked bool }
+
+func (l locks) Locked(context.Context, string) (bool, error) { return l.locked, nil }
+func (locks) Lock(context.Context, string, *time.Time) error { return nil }
+func (locks) Unlock(context.Context, string) error           { return nil }
+
+func TestAuthorizeLockedAccount(t *testing.T) {
+	t.Parallel()
+
+	good := "good"
+
+	locked := gateway.New(gateway.Deps{Verifier: verifier{}, Locks: locks{locked: true}}, 1, logger.New("error"))
+	_, err := locked.Authorize(context.Background(), &good, "")
+	require.ErrorIs(t, err, entity.ErrAccountLocked, "a valid token of a locked account is refused (close 4003)")
+
+	open := gateway.New(gateway.Deps{Verifier: verifier{}, Locks: locks{}}, 1, logger.New("error"))
+	p, err := open.Authorize(context.Background(), &good, "")
+	require.NoError(t, err)
+	require.Equal(t, userID, p.UserID)
+}

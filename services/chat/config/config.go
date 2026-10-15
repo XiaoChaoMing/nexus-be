@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -34,9 +35,14 @@ type (
 		Env  string `env:"NXL_ENV"       envDefault:"dev"`
 	}
 
-	// HTTP serves the WebSocket gateway and the REST API on one port.
+	// HTTP serves the WebSocket gateway and the REST API on one port; the internal API (report evidence for
+	// safety-svc) listens on InternalPort, reachable only inside the Docker network.
 	HTTP struct {
-		Port string `env:"CHAT_HTTP_PORT" envDefault:"8095"`
+		Port           string `env:"CHAT_HTTP_PORT"      envDefault:"8095"`
+		InternalPort   string `env:"CHAT_INTERNAL_PORT"  envDefault:"8085"`
+		InternalSecret string `env:"NXL_INTERNAL_SECRET"`
+		// ChannelInternalURL is channel-svc's internal API: the one-off backfill of the channel copy.
+		ChannelInternalURL string `env:"CHAT_CHANNEL_INTERNAL_URL" envDefault:"http://localhost:8088"`
 	}
 
 	// Log -.
@@ -98,14 +104,30 @@ type (
 		PartitionTick       time.Duration `env:"CHAT_PARTITION_TICK"         envDefault:"1h"`
 		// SidebarBatchInterval paces viewer_count_batch on sidebar:{userId} (RT_BATCH_MS); 0 turns it off.
 		SidebarBatchInterval time.Duration `env:"CHAT_SIDEBAR_BATCH_INTERVAL" envDefault:"5s"`
+		// TimeoutMax is the longest timeout a moderator may give (14 days).
+		TimeoutMax time.Duration `env:"CHAT_TIMEOUT_MAX" envDefault:"336h"`
 	}
 )
+
+// ErrInternalSecretRequired -.
+var ErrInternalSecretRequired = errors.New("NXL_INTERNAL_SECRET is required outside dev")
+
+// _devInternalSecret keeps `make nxl-up` working without an .env; refused outside dev.
+const _devInternalSecret = "dev-internal-secret" //nolint:gosec // dev-only default, refused outside dev
 
 // NewConfig returns app config.
 func NewConfig() (*Config, error) {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("config error: %w", err)
+	}
+
+	if cfg.HTTP.InternalSecret == "" {
+		if cfg.App.Env != "dev" {
+			return nil, fmt.Errorf("config error: %w", ErrInternalSecretRequired)
+		}
+
+		cfg.HTTP.InternalSecret = _devInternalSecret
 	}
 
 	return cfg, nil

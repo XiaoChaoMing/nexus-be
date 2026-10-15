@@ -31,12 +31,18 @@ var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeUserRegistered, events.TypeUserProfileUpdated, events.TypeUserEmailVerified,
 	events.TypeChannelCreated, events.TypeChannelUpdated, events.TypeFollowCreated, events.TypeFollowUpdated,
 	events.TypeFollowDeleted,
+	events.TypeUserLocked, events.TypeUserUnlocked, events.TypeChannelSuspended, events.TypeChannelRestored,
+	events.TypeNotificationCreated, events.TypeNotificationUnreadChanged,
 }
 
-// Handler routes one event to the rooms or grants use case.
-func Handler(rooms usecase.Rooms, grants usecase.Grants) eventbus.Handler {
+// Handler routes one event to the rooms, grants or safety use case.
+func Handler(rooms usecase.Rooms, grants usecase.Grants, safety usecase.Safety) eventbus.Handler {
 	handlers := streamHandlers(rooms)
 	for t, h := range copyHandlers(rooms, grants) {
+		handlers[t] = h
+	}
+
+	for t, h := range safetyHandlers(safety) {
 		handlers[t] = h
 	}
 
@@ -123,12 +129,11 @@ func copyHandlers(rooms usecase.Rooms, grants usecase.Grants) map[string]eventbu
 			}),
 		events.TypeChannelCreated: handle(func(p events.ChannelCreated) []string { return []string{p.ChannelID, p.OwnerID} },
 			func(ctx context.Context, id string, p events.ChannelCreated) error {
-				return rooms.ChannelCreated(ctx, id, entity.Channel{ID: p.ChannelID, OwnerID: p.OwnerID})
+				return rooms.ChannelCreated(ctx, id, channelOf(p.ChannelID, p.OwnerID, p.Handle, p.DisplayName, nil))
 			}),
-		// Only the owner matters here (chat modes and the broadcaster badge); names come from the identity copy.
 		events.TypeChannelUpdated: handle(func(p events.ChannelUpdated) []string { return []string{p.ChannelID, p.OwnerID} },
 			func(ctx context.Context, id string, p events.ChannelUpdated) error {
-				return rooms.ChannelCreated(ctx, id, entity.Channel{ID: p.ChannelID, OwnerID: p.OwnerID})
+				return rooms.ChannelCreated(ctx, id, channelOf(p.ChannelID, p.OwnerID, p.Handle, p.DisplayName, p.AvatarURL))
 			}),
 		events.TypeFollowCreated: handle(func(p events.FollowCreated) []string { return []string{p.UserID, p.ChannelID} },
 			func(ctx context.Context, _ string, p events.FollowCreated) error {
@@ -157,6 +162,40 @@ func copyHandlers(rooms usecase.Rooms, grants usecase.Grants) map[string]eventbu
 		events.TypeFollowDeleted: handle(func(p events.FollowDeleted) []string { return []string{p.UserID, p.ChannelID} },
 			func(ctx context.Context, _ string, p events.FollowDeleted) error {
 				return grants.Unfollow(ctx, p.ChannelID, p.UserID)
+			}),
+	}
+}
+
+// channelOf drops names that do not fit chat.channels (the owner still matters).
+func channelOf(id, owner, handle, name string, avatar *string) entity.Channel {
+	if utf8.RuneCountInString(handle) > _maxUsername || utf8.RuneCountInString(name) > _maxDisplayName {
+		handle, name = "", ""
+	}
+
+	return entity.Channel{ID: id, OwnerID: owner, Handle: handle, DisplayName: name, AvatarURL: avatar}
+}
+
+func safetyHandlers(safety usecase.Safety) map[string]eventbus.Handler {
+	return map[string]eventbus.Handler{
+		events.TypeUserLocked: handle(func(p events.UserLocked) []string { return []string{p.UserID} },
+			func(ctx context.Context, _ string, p events.UserLocked) error { return safety.UserLocked(ctx, p) }),
+		events.TypeUserUnlocked: handle(func(p events.UserUnlocked) []string { return []string{p.UserID} },
+			func(ctx context.Context, _ string, p events.UserUnlocked) error { return safety.UserUnlocked(ctx, p) }),
+		events.TypeChannelSuspended: handle(func(p events.ChannelSuspended) []string { return []string{p.ChannelID} },
+			func(ctx context.Context, id string, p events.ChannelSuspended) error {
+				return safety.ChannelSuspended(ctx, id, p)
+			}),
+		events.TypeChannelRestored: handle(func(p events.ChannelSuspended) []string { return []string{p.ChannelID} },
+			func(ctx context.Context, id string, p events.ChannelSuspended) error {
+				return safety.ChannelRestored(ctx, id, p)
+			}),
+		events.TypeNotificationCreated: handle(func(p events.NotificationCreated) []string { return []string{p.UserID, p.NotificationID} },
+			func(ctx context.Context, _ string, p events.NotificationCreated) error {
+				return safety.RelayNotification(ctx, p)
+			}),
+		events.TypeNotificationUnreadChanged: handle(func(p events.NotificationUnreadChanged) []string { return []string{p.UserID} },
+			func(ctx context.Context, _ string, p events.NotificationUnreadChanged) error {
+				return safety.RelayUnread(ctx, p)
 			}),
 	}
 }

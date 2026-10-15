@@ -426,3 +426,76 @@ func TestHistoryAndSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, emotes, 1)
 }
+
+type terms []string
+
+func (t terms) BlockedTerms(context.Context, string) ([]string, error) { return t, nil }
+
+func TestSendAutoMod(t *testing.T) {
+	t.Parallel()
+
+	vip := "0199d4a2-0000-7000-8000-000000000005"
+	mod := "0199d4a2-0000-7000-8000-000000000006"
+
+	tests := []struct {
+		name   string
+		sender string
+		body   string
+		reason string
+	}{
+		{name: "blocked term", sender: viewer, body: "SPẢM nè", reason: entity.BlockReasonTerm},
+		{name: "link", sender: viewer, body: "xem tại abc.xyz", reason: entity.BlockReasonLink},
+		{name: "vip link", sender: vip, body: "xem tại abc.xyz"},
+		{name: "vip term", sender: vip, body: "spam", reason: entity.BlockReasonTerm},
+		{name: "moderator", sender: mod, body: "spam abc.xyz"},
+		{name: "owner", sender: owner, body: "spam abc.xyz"},
+		{name: "clean", sender: viewer, body: "spammer hello"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := newWorld()
+			w.ownerID = owner
+			w.settings.BlockLinks = true
+			w.roles[vip] = entity.ChannelRoleVIP
+			w.roles[mod] = entity.ChannelRoleModerator
+			uc := chat.New(chat.Repos{
+				Rooms: fakeRooms{w: w}, Messages: fakeMessages{w: w}, Settings: fakeSettings{w: w}, Roles: fakeRoles{w: w},
+				Emotes: fakeEmotes{}, Users: fakeUsers{w: w}, Guard: fakeGuard{w: w}, Audience: fakeAudience{w: w},
+			}, fakePub{w: w}, defaultConfig(), logger.New("error"), chat.WithClock(w.clock), chat.WithAutoMod(terms{"spam"}))
+
+			_, err := uc.Send(context.Background(), user(tc.sender), streamID, msg(tc.body))
+			if tc.reason == "" {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, entity.ErrContentBlocked)
+			require.Equal(t, map[string]string{"reason": tc.reason}, entity.DetailsOf(err))
+			require.Empty(t, w.inserted)
+			require.Equal(t, 1, w.buckets["chat:rate:"+tc.sender], "a blocked message still costs its rate token")
+		})
+	}
+}
+
+func TestUpdateSettingsQueuesChange(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld()
+	w.ownerID = owner
+	uc, _ := newUC(w, defaultConfig())
+
+	_, err := uc.UpdateSettings(context.Background(), user(owner), entity.ChatSettings{ChannelID: channelID, BlockLinks: true})
+	require.NoError(t, err)
+	require.Len(t, w.settingsEvents, 1)
+	require.Equal(t, "OWNER", w.settingsEvents[0].ActorRole)
+	require.True(t, w.settingsEvents[0].After.BlockLinks)
+	require.False(t, w.settingsEvents[0].Before.BlockLinks)
+
+	_, err = uc.UpdateSettings(context.Background(), user(owner), entity.ChatSettings{ChannelID: channelID, BlockLinks: true})
+	require.NoError(t, err)
+	require.Len(t, w.settingsEvents, 1, "no change, no event")
+}

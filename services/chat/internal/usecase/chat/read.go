@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase"
 )
@@ -44,6 +45,10 @@ func (uc *UseCase) History(ctx context.Context, streamID string, before *string,
 	}
 
 	uc.decorate(ctx, sc, msgs)
+
+	for i := range msgs {
+		msgs[i] = msgs[i].Blanked()
+	}
 
 	return msgs, next, nil
 }
@@ -122,7 +127,8 @@ func (uc *UseCase) UpdateSettings(ctx context.Context, p entity.Principal, s ent
 		return entity.ChatSettings{}, err
 	}
 
-	if err := uc.canManage(ctx, p, s.ChannelID); err != nil {
+	role, err := uc.canManage(ctx, p, s.ChannelID)
+	if err != nil {
 		return entity.ChatSettings{}, err
 	}
 
@@ -133,7 +139,15 @@ func (uc *UseCase) UpdateSettings(ctx context.Context, p entity.Principal, s ent
 
 	s.UpdatedBy = &p.UserID
 
-	saved, err := uc.r.Settings.SaveSettings(ctx, s)
+	var change *events.ChatSettingsChanged
+
+	if !old.SameModes(s) {
+		change = &events.ChatSettingsChanged{
+			ChannelID: s.ChannelID, ActorID: p.UserID, ActorRole: string(role), Before: modesOf(old), After: modesOf(s),
+		}
+	}
+
+	saved, err := uc.r.Settings.SaveSettings(ctx, s, change)
 	if err != nil {
 		return entity.ChatSettings{}, fmt.Errorf("ChatUseCase - UpdateSettings: %w", err)
 	}
@@ -147,30 +161,33 @@ func (uc *UseCase) UpdateSettings(ctx context.Context, p entity.Principal, s ent
 	return saved, nil
 }
 
-func (uc *UseCase) canManage(ctx context.Context, p entity.Principal, channelID string) error {
-	if p.IsAdmin() {
-		return nil
-	}
-
+// canManage returns the caller's actor role in the channel: owner, admin or moderator.
+func (uc *UseCase) canManage(ctx context.Context, p entity.Principal, channelID string) (entity.ActorRole, error) {
 	ch, err := uc.r.Users.Channel(ctx, channelID)
 
 	switch {
 	case err == nil && ch.OwnerID == p.UserID:
-		return nil
+		return entity.ActorOwner, nil
 	case err != nil && !errors.Is(err, entity.ErrNotFound):
-		return fmt.Errorf("ChatUseCase - canManage - channel: %w", err)
+		return "", fmt.Errorf("ChatUseCase - canManage - channel: %w", err)
+	case p.IsAdmin():
+		return entity.ActorAdmin, nil
 	}
 
 	roles, err := uc.r.Roles.Roles(ctx, channelID, []string{p.UserID})
 	if err != nil {
-		return fmt.Errorf("ChatUseCase - canManage - roles: %w", err)
+		return "", fmt.Errorf("ChatUseCase - canManage - roles: %w", err)
 	}
 
 	if roles[p.UserID] == entity.ChannelRoleModerator {
-		return nil
+		return entity.ActorModerator, nil
 	}
 
-	return entity.ErrForbidden
+	return "", entity.ErrForbidden
+}
+
+func modesOf(s entity.ChatSettings) events.ChatModes {
+	return events.ChatModes{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks}
 }
 
 type systemPayload struct {
@@ -258,6 +275,8 @@ func (uc *UseCase) Snapshot(ctx context.Context, p entity.Principal, streamID st
 	}
 
 	snap := usecase.ChatSnapshot{Room: usecase.RoomSnapshot{Status: sc.Room.Status, Mode: sc.Settings.Mode()}, Me: me(p, st)}
+	snap.Me.Restriction = sc.Restriction.Current(uc.now())
+	snap.Room.Pinned = uc.pinned(ctx, streamID)
 
 	if err = uc.admit(p, sc, st); err != nil {
 		snap.Me.Reason = reasonOf(err)
@@ -284,12 +303,28 @@ func (uc *UseCase) Snapshot(ctx context.Context, p entity.Principal, streamID st
 	return snap, nil
 }
 
+// pinned degrades to no pin when it cannot be read: the snapshot stays usable.
+func (uc *UseCase) pinned(ctx context.Context, streamID string) *entity.Message {
+	if uc.pins == nil {
+		return nil
+	}
+
+	m, err := uc.pins.Pinned(ctx, streamID)
+	if err != nil {
+		uc.l.Warn("chat - pinned of %s: %v", streamID, err)
+
+		return nil
+	}
+
+	return m
+}
+
 func me(p entity.Principal, st entity.Standing) usecase.MeSnapshot {
 	if p.Guest() {
 		return usecase.MeSnapshot{Role: "GUEST", Badges: []string{}, Reason: reasonOf(entity.ErrUnauthenticated)}
 	}
 
-	return usecase.MeSnapshot{Role: st.Role(), Badges: st.Badges(), Color: entity.ColorOf(p.UserID)}
+	return usecase.MeSnapshot{Role: st.Role(), Badges: st.Badges(), Color: entity.ColorOf(p.UserID), CanModerate: st.Privileged()}
 }
 
 func reasonOf(err error) *string {

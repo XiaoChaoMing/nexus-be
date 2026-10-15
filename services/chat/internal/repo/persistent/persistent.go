@@ -15,7 +15,10 @@ import (
 	"github.com/minhnn/nexuslive-be/services/chat/internal/repo"
 )
 
-const _consumer = "chat-svc"
+const (
+	_consumer         = "chat-svc"
+	_aggregateChannel = "channel"
+)
 
 // Repo implements the PostgreSQL contracts of repo.
 type Repo struct {
@@ -78,25 +81,24 @@ func (r *Repo) inEventTx(ctx context.Context, op, eventID string, fn func(tx pgx
 // ---- rooms ---------------------------------------------------------------------------------------
 
 // _sendContextSQL reads the room with its channel's owner and settings and, for $2 (NULL for guests),
-// the user's role, profile, active ban (latest BAN/UNBAN) and timeout (not lifted by a later UNBAN).
+// the user's role, profile and restriction: the latest of BAN / UNBAN / TIMEOUT / UNTIMEOUT decides (a new
+// timeout replaces a longer one, UNTIMEOUT lifts it, BAN outlasts timeouts until UNBAN).
 const _sendContextSQL = `WITH me AS (SELECT NULLIF($2, '')::uuid AS id)
 	SELECT r.channel_id::text, r.status, c.owner_id::text,
-	       s.slow_sec, s.followers_min, s.subs_only, s.updated_at,
+	       s.slow_sec, s.followers_min, s.subs_only, s.block_links, s.updated_at,
 	       cr.role, u.username, u.display_name, u.email_verified,
-	       COALESCE((SELECT a.type = 'BAN' FROM mod_actions a
-	                 WHERE a.channel_id = r.channel_id AND a.target_user_id = me.id AND a.type IN ('BAN', 'UNBAN')
-	                 ORDER BY a.created_at DESC LIMIT 1), false),
-	       (SELECT max(a.expires_at) FROM mod_actions a
-	        WHERE a.channel_id = r.channel_id AND a.target_user_id = me.id AND a.type = 'TIMEOUT'
-	          AND a.expires_at > now()
-	          AND a.created_at > COALESCE((SELECT max(b.created_at) FROM mod_actions b
-	                                       WHERE b.channel_id = r.channel_id AND b.target_user_id = me.id
-	                                         AND b.type = 'UNBAN'), '-infinity'))
+	       COALESCE(last.type = 'BAN', false),
+	       CASE WHEN last.type = 'TIMEOUT' AND last.expires_at > now() THEN last.expires_at END
 	FROM chat_rooms r CROSS JOIN me
 	LEFT JOIN channels c ON c.channel_id = r.channel_id
 	LEFT JOIN chat_settings s ON s.channel_id = r.channel_id
 	LEFT JOIN channel_roles cr ON cr.channel_id = r.channel_id AND cr.user_id = me.id
 	LEFT JOIN users u ON u.id = me.id
+	LEFT JOIN LATERAL (
+		SELECT a.type, a.expires_at FROM mod_actions a
+		WHERE a.channel_id = r.channel_id AND a.target_user_id = me.id
+		  AND a.type IN ('BAN', 'UNBAN', 'TIMEOUT', 'UNTIMEOUT')
+		ORDER BY a.created_at DESC, a.id DESC LIMIT 1) last ON true
 	WHERE r.stream_id = $1`
 
 // sendContextRow holds the nullable columns of _sendContextSQL.
@@ -104,7 +106,7 @@ type sendContextRow struct {
 	status                string
 	owner, role           *string
 	slow                  *int
-	subsOnly              *bool
+	subsOnly, blockLinks  *bool
 	settingsAt            *time.Time
 	username, displayName *string
 	verified              *bool
@@ -118,7 +120,7 @@ func (r *Repo) SendContext(ctx context.Context, streamID, userID string) (entity
 	)
 
 	err := r.Pool.QueryRow(ctx, _sendContextSQL, streamID, userID).
-		Scan(&sc.Room.ChannelID, &row.status, &row.owner, &row.slow, &sc.Settings.FollowersMin, &row.subsOnly, &row.settingsAt,
+		Scan(&sc.Room.ChannelID, &row.status, &row.owner, &row.slow, &sc.Settings.FollowersMin, &row.subsOnly, &row.blockLinks, &row.settingsAt,
 			&row.role, &row.username, &row.displayName, &row.verified, &sc.Restriction.Banned, &sc.Restriction.TimedOutUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entity.SendContext{}, entity.ErrNotFound
@@ -132,6 +134,7 @@ func (r *Repo) SendContext(ctx context.Context, streamID, userID string) (entity
 	sc.Settings.ChannelID, sc.Settings.UpdatedAt = sc.Room.ChannelID, row.settingsAt
 	sc.Settings.SlowSec = derefOr(row.slow, 0)
 	sc.Settings.SubsOnly = derefOr(row.subsOnly, false)
+	sc.Settings.BlockLinks = derefOr(row.blockLinks, false)
 	sc.OwnerID = derefOr(row.owner, "")
 
 	if row.role != nil {
@@ -193,14 +196,18 @@ func (r *Repo) CloseRoom(ctx context.Context, streamID string, peakViewers int) 
 }
 
 func addOutbox(ctx context.Context, tx pgx.Tx, aggregateID, eventType string, payload any) error {
+	return addOutboxAs(ctx, tx, "chat_room", aggregateID, eventType, payload)
+}
+
+func addOutboxAs(ctx context.Context, tx pgx.Tx, aggregateType, aggregateID, eventType string, payload any) error {
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("outbox marshal: %w", err)
 	}
 
 	_, err = tx.Exec(ctx,
-		`INSERT INTO outbox (aggregate_type, aggregate_id, event_type, payload) VALUES ('chat_room', $1, $2, $3)`,
-		aggregateID, eventType, b)
+		`INSERT INTO outbox (aggregate_type, aggregate_id, event_type, payload) VALUES ($1, $2, $3, $4)`,
+		aggregateType, aggregateID, eventType, b)
 	if err != nil {
 		return fmt.Errorf("outbox insert: %w", err)
 	}
@@ -233,8 +240,8 @@ func (r *Repo) Settings(ctx context.Context, channelID string) (entity.ChatSetti
 	var at time.Time
 
 	err := r.Pool.QueryRow(ctx,
-		`SELECT slow_sec, followers_min, subs_only, updated_by::text, updated_at FROM chat_settings WHERE channel_id = $1`,
-		channelID).Scan(&s.SlowSec, &s.FollowersMin, &s.SubsOnly, &s.UpdatedBy, &at)
+		`SELECT slow_sec, followers_min, subs_only, block_links, updated_by::text, updated_at FROM chat_settings WHERE channel_id = $1`,
+		channelID).Scan(&s.SlowSec, &s.FollowersMin, &s.SubsOnly, &s.BlockLinks, &s.UpdatedBy, &at)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, nil
 	}
@@ -249,19 +256,30 @@ func (r *Repo) Settings(ctx context.Context, channelID string) (entity.ChatSetti
 }
 
 // SaveSettings -.
-func (r *Repo) SaveSettings(ctx context.Context, s entity.ChatSettings) (entity.ChatSettings, error) {
+func (r *Repo) SaveSettings(ctx context.Context, s entity.ChatSettings, change *events.ChatSettingsChanged) (entity.ChatSettings, error) {
 	var at time.Time
 
-	err := r.Pool.QueryRow(ctx,
-		`INSERT INTO chat_settings (channel_id, slow_sec, followers_min, subs_only, updated_by, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, now())
-		 ON CONFLICT (channel_id) DO UPDATE
-		 SET slow_sec = EXCLUDED.slow_sec, followers_min = EXCLUDED.followers_min, subs_only = EXCLUDED.subs_only,
-		     updated_by = EXCLUDED.updated_by, updated_at = now()
-		 RETURNING updated_at`,
-		s.ChannelID, s.SlowSec, s.FollowersMin, s.SubsOnly, s.UpdatedBy).Scan(&at)
+	err := r.inTx(ctx, "Repo - SaveSettings", func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`INSERT INTO chat_settings (channel_id, slow_sec, followers_min, subs_only, block_links, updated_by, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, now())
+			 ON CONFLICT (channel_id) DO UPDATE
+			 SET slow_sec = EXCLUDED.slow_sec, followers_min = EXCLUDED.followers_min, subs_only = EXCLUDED.subs_only,
+			     block_links = EXCLUDED.block_links, updated_by = EXCLUDED.updated_by, updated_at = now()
+			 RETURNING updated_at`,
+			s.ChannelID, s.SlowSec, s.FollowersMin, s.SubsOnly, s.BlockLinks, s.UpdatedBy).Scan(&at)
+		if err != nil {
+			return fmt.Errorf("Repo - SaveSettings: %w", err)
+		}
+
+		if change == nil {
+			return nil
+		}
+
+		return addOutboxAs(ctx, tx, _aggregateChannel, s.ChannelID, events.TypeChatSettingsChanged, change)
+	})
 	if err != nil {
-		return entity.ChatSettings{}, fmt.Errorf("Repo - SaveSettings: %w", err)
+		return entity.ChatSettings{}, err
 	}
 
 	s.UpdatedAt = &at

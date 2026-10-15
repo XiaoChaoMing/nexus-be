@@ -21,15 +21,20 @@ import (
 	"github.com/minhnn/nexuslive-be/pkg/redis"
 	"github.com/minhnn/nexuslive-be/services/chat/config"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/controller/events"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/controller/internalapi"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/controller/restapi"
+	v1 "github.com/minhnn/nexuslive-be/services/chat/internal/controller/restapi/v1"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/controller/ws"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/metrics"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/repo/broker"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/repo/persistent"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/repo/realtime"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/repo/snapshot"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/chat"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/fanout"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/gateway"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/moderation"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/rooms"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/viewers"
 )
@@ -38,13 +43,16 @@ const (
 	_connectTimeout  = 60 * time.Second
 	_shutdownTimeout = 8 * time.Second
 	_instanceIDBytes = 4
+	// _backfillRetry is how often a failed backfill of the channel copy is tried again.
+	_backfillRetry = time.Minute
 )
 
 type useCases struct {
-	chat    *chat.UseCase
-	viewers *viewers.UseCase
-	gateway *gateway.UseCase
-	rooms   *rooms.UseCase
+	chat       *chat.UseCase
+	viewers    *viewers.UseCase
+	gateway    *gateway.UseCase
+	rooms      *rooms.UseCase
+	moderation *moderation.UseCase
 }
 
 // Run creates objects via constructors.
@@ -81,11 +89,13 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	defer rdb.Close()
 
 	m := metrics.New()
-	uc := wire(cfg, pg, rdb, broker.New(bus.NC), m, l)
+	br := broker.New(bus.NC)
+	uc := wire(cfg, pg, rdb, br, m, l)
 
 	go outbox.New(pg.Pool, bus, l).Run(ctx)
+	go backfill(ctx, uc.rooms, l)
 
-	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc.rooms, uc.rooms), func(e eventbus.Event, herr error) {
+	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc.rooms, uc.rooms, uc.rooms), func(e eventbus.Event, herr error) {
 		l.Warn("chat - event %s %s: %v", e.Type, e.ID, herr)
 	})
 	if err != nil {
@@ -111,7 +121,8 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	server := httpserver.New(l, httpserver.Port(cfg.HTTP.Port))
 	// Before the routes, so every request is counted (GET /metrics included).
 	server.App.Use(httpmetrics.New(m.Registerer()))
-	restapi.NewRouter(server.App, uc.chat, jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l, cfg.Swagger.Enabled)
+	restapi.NewRouter(server.App, v1.UseCases{Chat: uc.chat, Moderation: uc.moderation, Roles: uc.moderation},
+		jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l, cfg.Swagger.Enabled)
 	server.App.Get("/metrics", adaptor.HTTPHandler(m.Handler()))
 
 	hub := ws.NewHub(uc.gateway, uc.chat, ws.Options{
@@ -129,9 +140,24 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 
 	go hub.RunSidebarBatch(ctx, cfg.Chat.SidebarBatchInterval)
 
-	server.Start()
+	// Every instance closes its own sockets of a locked account (the event reaches one instance only).
+	stopControl, err := br.SubscribeControl(func(c entity.Control) {
+		if n := hub.CloseUser(c.UserID, c.Code, c.Reason); n > 0 {
+			l.Info("chat - closed %d connection(s) of %s (%d)", n, c.UserID, c.Code)
+		}
+	})
+	if err != nil {
+		l.Fatal("chat - Run - control: %v", err)
+	}
+	defer stopControl()
 
-	l.Info("chat - Run - :%s (WebSocket /v1/ws + REST), disabled=%t", cfg.HTTP.Port, cfg.Chat.Disabled)
+	internal := httpserver.New(l, httpserver.Port(cfg.HTTP.InternalPort))
+	internalapi.NewRouter(internal.App, uc.moderation, cfg.HTTP.InternalSecret, l)
+
+	server.Start()
+	internal.Start()
+
+	l.Info("chat - Run - :%s (WebSocket /v1/ws + REST), internal :%s, disabled=%t", cfg.HTTP.Port, cfg.HTTP.InternalPort, cfg.Chat.Disabled)
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
@@ -141,6 +167,8 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 		l.Info("chat - Run - signal: %s", s.String())
 	case err = <-server.Notify():
 		l.Error("chat - Run - server: %v", err)
+	case err = <-internal.Notify():
+		l.Error("chat - Run - internal server: %v", err)
 	}
 
 	// Sockets first (1012: clients reconnect to the other instance), then the HTTP server.
@@ -152,6 +180,28 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	if err = server.Shutdown(); err != nil {
 		l.Error("chat - Run - shutdown: %v", err)
 	}
+
+	if err = internal.Shutdown(); err != nil {
+		l.Error("chat - Run - internal shutdown: %v", err)
+	}
+}
+
+// backfill copies channel-svc's channels once, retrying until it succeeds or the service stops.
+func backfill(ctx context.Context, r *rooms.UseCase, l logger.Interface) {
+	for {
+		err := r.BackfillChannels(ctx)
+		if err == nil {
+			return
+		}
+
+		l.Warn("chat - channel backfill (retry in %s): %v", _backfillRetry, err)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(_backfillRetry):
+		}
+	}
 }
 
 func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *broker.Broker, m *metrics.Metrics, l logger.Interface) useCases {
@@ -160,6 +210,10 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 		ResumeBuffer: cfg.WS.ResumeBuffer, ResumeTTL: cfg.WS.ResumeTTL, DuplicateWindow: cfg.Chat.DuplicateWindow,
 	})
 	pub := fanout.New(rt, br, l)
+
+	modUC := moderation.New(moderation.Repos{
+		Rooms: store, Mod: store, Terms: store, Roles: store, Users: store, Audience: rt, Live: rt,
+	}, pub, moderation.Config{TimeoutMax: cfg.Chat.TimeoutMax}, l)
 
 	chatUC := chat.New(chat.Repos{
 		Rooms: store, Messages: store, Settings: store, Roles: store, Emotes: store, Users: store, Guard: rt, Audience: rt,
@@ -172,7 +226,7 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 		HistoryDefault:      cfg.Chat.HistoryOnJoin,
 		Disabled:            cfg.Chat.Disabled,
 		RequireVerified:     cfg.Chat.RequireVerified,
-	}, l, chat.WithObserver(m))
+	}, l, chat.WithObserver(m), chat.WithAutoMod(modUC), chat.WithPins(modUC))
 
 	viewersUC := viewers.New(rt, pub, instanceID(), cfg.Chat.ViewerInterval, l)
 
@@ -181,11 +235,13 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 		viewers: viewersUC,
 		gateway: gateway.New(gateway.Deps{
 			Verifier: jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer),
-			Chat:     chatUC, Viewers: viewersUC, Seq: rt, Presence: rt, Broker: br, Audience: rt, Live: rt,
+			Chat:     chatUC, Viewers: viewersUC, Seq: rt, Presence: rt, Broker: br, Audience: rt, Live: rt, Locks: rt,
 		}, cfg.WS.MaxConnPerUser, l),
 		rooms: rooms.New(rooms.Repos{
 			Rooms: store, Messages: store, Users: store, Roles: store, Audience: rt, Presence: rt, Live: rt,
+			Locks: rt, Broker: br, Snapshot: snapshot.New(cfg.HTTP.ChannelInternalURL, cfg.HTTP.InternalSecret),
 		}, pub, cfg.Chat.Retention, l),
+		moderation: modUC,
 	}
 }
 

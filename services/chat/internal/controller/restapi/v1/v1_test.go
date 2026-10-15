@@ -82,7 +82,7 @@ func newApp(c usecase.Chat) *fiber.App {
 		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": fiber.Map{"code": "UNAUTHORIZED"}})
 	}
 
-	v1.NewRoutes(app.Group("/v1"), c, auth, logger.New("error"))
+	v1.NewRoutes(app.Group("/v1"), v1.UseCases{Chat: c}, v1.Auth{Required: auth, Optional: auth}, logger.New("error"))
 
 	return app
 }
@@ -162,7 +162,7 @@ func TestSettingsRoutes(t *testing.T) {
 
 	status, body := do(t, app, http.MethodGet, path, "", "")
 	require.Equal(t, http.StatusOK, status)
-	require.Equal(t, map[string]any{"slowSec": float64(5), "followersMin": nil, "subsOnly": false, "updatedAt": nil}, body["data"])
+	require.Equal(t, map[string]any{"slowSec": float64(5), "followersMin": nil, "subsOnly": false, "blockLinks": false, "updatedAt": nil}, body["data"])
 
 	status, _ = do(t, app, http.MethodGet, "/v1/channels/0199d4a2-0000-7000-8000-0000000000ff/chat-settings", "", "")
 	require.Equal(t, http.StatusNotFound, status)
@@ -201,7 +201,7 @@ func TestSettingsRoutes(t *testing.T) {
 			continue
 		}
 
-		require.Equal(t, map[string]any{"slowSec": float64(10), "followersMin": float64(0), "subsOnly": true, "updatedAt": "2026-10-14T12:00:00Z"}, body["data"])
+		require.Equal(t, map[string]any{"slowSec": float64(10), "followersMin": float64(0), "subsOnly": true, "blockLinks": false, "updatedAt": "2026-10-14T12:00:00Z"}, body["data"])
 	}
 
 	require.Equal(t, "owner", c.updatedBy)

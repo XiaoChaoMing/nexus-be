@@ -237,6 +237,12 @@ func (cl *client) onAuth(f inFrame) {
 	defer cancel()
 
 	p, err := cl.h.gw.Authorize(ctx, f.Token, f.AnonID)
+	if errors.Is(err, entity.ErrAccountLocked) {
+		cl.closeWith(CloseAccountLocked, "account_locked")
+
+		return
+	}
+
 	if err != nil {
 		cl.closeWith(CloseUnauthorized, "invalid token")
 

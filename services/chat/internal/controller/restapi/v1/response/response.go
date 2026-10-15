@@ -53,6 +53,9 @@ type Message struct {
 	Fragments []Fragment `json:"fragments"`
 	Type      string     `json:"type"`
 	CreatedAt time.Time  `json:"createdAt"`
+	Pinned    bool       `json:"pinned"`
+	// Deleted messages keep their place with an empty body and no fragments.
+	Deleted bool `json:"deleted"`
 }
 
 // MessagePage is newest first; nextCursor (a message id) is null on the last page.
@@ -80,5 +83,107 @@ type ChatSettings struct {
 	SlowSec      int        `json:"slowSec"`
 	FollowersMin *int       `json:"followersMin"`
 	SubsOnly     bool       `json:"subsOnly"`
+	BlockLinks   bool       `json:"blockLinks"`
 	UpdatedAt    *time.Time `json:"updatedAt"`
+}
+
+// UserRef -. AvatarURL is always null: accounts have no picture yet.
+type UserRef struct {
+	ID          string  `json:"id"`
+	Username    string  `json:"username"`
+	DisplayName string  `json:"displayName"`
+	AvatarURL   *string `json:"avatarUrl"`
+}
+
+// ActorRef -.
+type ActorRef struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+}
+
+// Restriction is a ban (until null) or a running timeout.
+type Restriction struct {
+	User      UserRef    `json:"user"`
+	Type      string     `json:"type" example:"TIMEOUT"`
+	Until     *time.Time `json:"until"`
+	Actor     ActorRef   `json:"actor"`
+	Reason    *string    `json:"reason"`
+	CreatedAt time.Time  `json:"createdAt"`
+}
+
+// RestrictionPage is newest first.
+type RestrictionPage struct {
+	Items      []Restriction `json:"items"`
+	NextCursor *string       `json:"nextCursor"`
+}
+
+// RestrictionState -.
+type RestrictionState struct {
+	Type  string     `json:"type"`
+	Until *time.Time `json:"until"`
+}
+
+// UserCard is a user seen from a channel's chat; restriction is null for callers who cannot moderate.
+type UserCard struct {
+	User        UserRef           `json:"user"`
+	CreatedAt   *time.Time        `json:"createdAt"`
+	Badges      []string          `json:"badges"`
+	Role        *string           `json:"role" example:"MODERATOR"`
+	FollowedAt  *time.Time        `json:"followedAt"`
+	Restriction *RestrictionState `json:"restriction"`
+}
+
+// BlockedTerm -. Term is what the moderator typed.
+type BlockedTerm struct {
+	ID        string    `json:"id"`
+	Term      string    `json:"term"`
+	CreatedBy ActorRef  `json:"createdBy"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// BlockedTermList is newest first, in one page.
+type BlockedTermList struct {
+	Items      []BlockedTerm `json:"items"`
+	NextCursor *string       `json:"nextCursor"`
+	Limit      int           `json:"limit"`
+}
+
+// ChannelRole -.
+type ChannelRole struct {
+	User      UserRef   `json:"user"`
+	Role      string    `json:"role" example:"MODERATOR"`
+	GrantedBy ActorRef  `json:"grantedBy"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// RolePage is newest first.
+type RolePage struct {
+	Items      []ChannelRole `json:"items"`
+	NextCursor *string       `json:"nextCursor"`
+}
+
+// ModChannelRef -.
+type ModChannelRef struct {
+	ID          string  `json:"id"`
+	Handle      string  `json:"handle"`
+	DisplayName string  `json:"displayName"`
+	AvatarURL   *string `json:"avatarUrl"`
+	IsLive      bool    `json:"isLive"`
+}
+
+// ModChannel is a channel the caller moderates (or is VIP of).
+type ModChannel struct {
+	Channel ModChannelRef `json:"channel"`
+	Role    string        `json:"role" example:"MODERATOR"`
+}
+
+// ModChannelList is live channels first, then by name, in one page.
+type ModChannelList struct {
+	Items      []ModChannel `json:"items"`
+	NextCursor *string      `json:"nextCursor"`
+}
+
+// Pinned -.
+type Pinned struct {
+	Message Message `json:"message"`
 }

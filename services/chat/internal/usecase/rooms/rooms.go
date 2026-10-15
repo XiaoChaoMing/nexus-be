@@ -34,6 +34,9 @@ type Repos struct {
 	Audience repo.AudienceStore
 	Presence repo.PresenceStore
 	Live     repo.LiveStore
+	Locks    repo.LockStore
+	Broker   repo.Broker
+	Snapshot repo.ChannelSnapshot
 }
 
 // UseCase implements usecase.Rooms and usecase.Grants.

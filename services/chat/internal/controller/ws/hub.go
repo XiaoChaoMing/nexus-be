@@ -252,6 +252,27 @@ func (h *Hub) Shutdown(ctx context.Context) {
 	h.cancel()
 }
 
+// CloseUser closes every connection of the user on this instance (account locked: 4003).
+func (h *Hub) CloseUser(userID string, code int, reason string) int {
+	h.mu.Lock()
+
+	targets := []*client{}
+
+	for cl := range h.clients {
+		if cl.principal().UserID == userID {
+			targets = append(targets, cl)
+		}
+	}
+
+	h.mu.Unlock()
+
+	for _, cl := range targets {
+		cl.closeWith(code, reason)
+	}
+
+	return len(targets)
+}
+
 // Connections is the number of open connections (tests, logs).
 func (h *Hub) Connections() int {
 	h.mu.Lock()

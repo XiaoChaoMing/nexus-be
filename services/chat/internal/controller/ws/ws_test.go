@@ -89,6 +89,10 @@ func (fakeGateway) Authorize(_ context.Context, token *string, anonID string) (e
 		return entity.Principal{AnonID: anonID}, nil
 	}
 
+	if *token == "locked" {
+		return entity.Principal{}, entity.ErrAccountLocked
+	}
+
 	id, ok := strings.CutPrefix(*token, "good-")
 	if !ok {
 		return entity.Principal{}, errBadToken
@@ -528,4 +532,26 @@ func TestSidebarBatch(t *testing.T) {
 	require.Equal(t, "viewer_count_batch", ev["type"])
 	require.NotContains(t, ev, "seq", "local to the socket")
 	require.Equal(t, map[string]any{"items": []any{map[string]any{"channelId": userA, "streamId": streamID, "count": float64(7)}}}, ev["data"])
+}
+
+func TestLockedAccountCloses4003(t *testing.T) {
+	t.Parallel()
+
+	s := start(t, nil)
+
+	c := dial(t, s, nil)
+	c.send(map[string]any{"op": "auth", "token": "locked"})
+	require.Equal(t, ws.CloseAccountLocked, c.closed(), "a locked account cannot reconnect")
+
+	a, b, other := dial(t, s, nil), dial(t, s, nil), dial(t, s, nil)
+	a.auth("good-u1")
+	b.auth("good-u1")
+	other.auth("good-u2")
+
+	require.Equal(t, 2, s.hub.CloseUser("u1", ws.CloseAccountLocked, "account_locked"))
+	require.Equal(t, ws.CloseAccountLocked, a.closed())
+	require.Equal(t, ws.CloseAccountLocked, b.closed())
+
+	other.send(map[string]any{"op": "ping"})
+	require.Equal(t, "pong", other.next()["op"], "other users stay connected")
 }

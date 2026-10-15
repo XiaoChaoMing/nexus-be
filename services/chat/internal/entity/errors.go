@@ -44,7 +44,31 @@ var (
 	ErrTooManySubscriptions = errors.New("too many subscriptions")
 	// ErrTooManyConnections: WS_MAX_CONN_PER_USER reached.
 	ErrTooManyConnections = errors.New("too many connections")
+	// ErrProtectedTarget: the target is the channel owner or a moderator (details.target = PROTECTED).
+	ErrProtectedTarget = errors.New("target is the owner or a moderator")
+	// ErrSelfTarget: a moderator acting on themselves (details.userId = INVALID).
+	ErrSelfTarget = errors.New("target is the caller")
+	// ErrInvalidState: the action does not apply to the current state (timeout while banned, pin a deleted message).
+	ErrInvalidState = errors.New("invalid state")
+	// ErrContentBlocked: a blocked term or a link (details.reason = TERM | LINK).
+	ErrContentBlocked = errors.New("content blocked")
+	// ErrLimitReached: 100 blocked terms or 50 users of one role (details.limit).
+	ErrLimitReached = errors.New("limit reached")
+	// ErrAccountLocked: the account is locked; its connections are closed with 4003.
+	ErrAccountLocked = errors.New("account locked")
 )
+
+// DetailInvalid and DetailProtected are detail values of GĐ5 errors.
+const (
+	DetailInvalid   = "INVALID"
+	DetailProtected = "PROTECTED"
+)
+
+// Protected rejects an action on the channel owner or a moderator.
+func Protected() error { return Reject(ErrProtectedTarget, "target", DetailProtected) }
+
+// SelfTarget rejects an action on oneself.
+func SelfTarget() error { return Reject(ErrSelfTarget, "userId", DetailInvalid) }
 
 // RejectError adds machine-readable details (NXL-00 §4 `details`) to a sentinel.
 type RejectError struct {
