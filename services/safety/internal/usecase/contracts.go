@@ -41,6 +41,8 @@ type (
 	AuditQuery struct {
 		repo.AuditFilter
 
+		// Actor is a username (an optional leading @ is ignored), used when ActorID is not set.
+		Actor  string
 		Cursor string
 		Limit  int
 	}

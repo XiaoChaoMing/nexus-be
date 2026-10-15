@@ -68,25 +68,31 @@ type AdminReport struct {
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
-// EvidenceItem is a chat message captured when the report was filed.
+// EvidenceItem is a chat message captured when the report was filed; username / displayName come from the
+// user copy (null when the copy does not have the author).
 type EvidenceItem struct {
-	MessageID string          `json:"messageId"`
-	UserID    string          `json:"userId"`
-	Body      string          `json:"body"`
-	Fragments json.RawMessage `json:"fragments" swaggertype:"array,object"`
-	CreatedAt time.Time       `json:"createdAt"`
-	Deleted   bool            `json:"deleted"`
+	MessageID   string          `json:"messageId"`
+	UserID      string          `json:"userId"`
+	Username    *string         `json:"username"`
+	DisplayName *string         `json:"displayName"`
+	Body        string          `json:"body"`
+	Fragments   json.RawMessage `json:"fragments" swaggertype:"array,object"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	Deleted     bool            `json:"deleted"`
 }
 
-// AdminAction -.
+// AdminAction is an admin action, or a chat timeout / ban of the reported user (CHAT_* types, read from the
+// audit log): admin is then the moderator, actorRole OWNER, MODERATOR or ADMIN and channelId the channel.
 type AdminAction struct {
 	ID         string     `json:"id"`
-	Type       string     `json:"type" enums:"LOCK_USER,UNLOCK_USER,SUSPEND_CHANNEL,RESTORE_CHANNEL,TAKEDOWN_STREAM"`
+	Type       string     `json:"type" enums:"LOCK_USER,UNLOCK_USER,SUSPEND_CHANNEL,RESTORE_CHANNEL,TAKEDOWN_STREAM,CHAT_TIMEOUT,CHAT_UNTIMEOUT,CHAT_BAN,CHAT_UNBAN"`
 	TargetType string     `json:"targetType" enums:"USER,CHANNEL,STREAM"`
 	TargetID   string     `json:"targetId"`
 	Reason     string     `json:"reason"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
 	Admin      Ref        `json:"admin"`
+	ActorRole  string     `json:"actorRole" enums:"ADMIN,OWNER,MODERATOR"`
+	ChannelID  *string    `json:"channelId"`
 	ReportID   *string    `json:"reportId"`
 	CreatedAt  time.Time  `json:"createdAt"`
 }
@@ -95,8 +101,10 @@ type AdminAction struct {
 type AdminReportDetail struct {
 	AdminReport
 
-	Note           *string        `json:"note"`
-	StreamID       *string        `json:"streamId"`
+	Note     *string `json:"note"`
+	StreamID *string `json:"streamId"`
+	// ChannelID is the reported channel, or the channel of the reported stream / of the room of the report.
+	ChannelID      *string        `json:"channelId"`
 	Evidence       []EvidenceItem `json:"evidence"`
 	EvidenceStatus string         `json:"evidenceStatus" enums:"CAPTURED,NONE,UNAVAILABLE"`
 	ResolvedBy     *Ref           `json:"resolvedBy"`
@@ -243,22 +251,28 @@ func reportDetail(d entity.ReportDetail) AdminReportDetail {
 			frags = json.RawMessage("[]")
 		}
 
-		ev = append(ev, EvidenceItem{
+		item := EvidenceItem{
 			MessageID: e.MessageID, UserID: e.UserID, Body: e.Body, Fragments: frags,
 			CreatedAt: e.CreatedAt, Deleted: e.Deleted,
-		})
+		}
+
+		if u, ok := d.Authors[e.UserID]; ok {
+			item.Username, item.DisplayName = &u.Username, &u.DisplayName
+		}
+
+		ev = append(ev, item)
 	}
 
 	actions := make([]AdminAction, 0, len(d.Actions))
 	for _, a := range d.Actions {
 		actions = append(actions, AdminAction{
-			ID: a.ID, Type: a.Type, TargetType: a.TargetType, TargetID: a.TargetID,
-			Reason: a.Reason, ExpiresAt: a.ExpiresAt, Admin: refOf(a.Admin), ReportID: a.ReportID, CreatedAt: a.CreatedAt,
+			ID: a.ID, Type: a.Type, TargetType: a.TargetType, TargetID: a.TargetID, Reason: a.Reason, ExpiresAt: a.ExpiresAt,
+			Admin: refOf(a.Admin), ActorRole: a.ActorRole, ChannelID: a.ChannelID, ReportID: a.ReportID, CreatedAt: a.CreatedAt,
 		})
 	}
 
 	return AdminReportDetail{
-		AdminReport: adminReport(d.ReportView), Note: d.Note, StreamID: d.StreamID, Evidence: ev,
+		AdminReport: adminReport(d.ReportView), Note: d.Note, StreamID: d.StreamID, ChannelID: d.ChannelID, Evidence: ev,
 		EvidenceStatus: d.EvidenceStatus, ResolvedBy: refPtr(d.ResolvedBy), ResolvedAt: d.ResolvedAt,
 		ResolutionNote: d.ResolutionNote, RelatedReports: adminReports(d.Related), Actions: actions,
 	}

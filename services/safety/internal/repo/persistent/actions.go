@@ -140,6 +140,27 @@ func (r Audit) Insert(ctx context.Context, e entity.AuditEntry, promote *string)
 
 // List is the audit log, newest first.
 func (r Audit) List(ctx context.Context, f repo.AuditFilter, after *repo.TimeCursor, limit int) ([]entity.AuditEntry, error) {
+	w := auditWhere(f)
+	if after != nil {
+		w.add("(created_at, id) < (?, ?)", after.At, after.ID)
+	}
+
+	rows, err := r.Pool.Query(ctx, `SELECT id::text, actor_id::text, action, resource_type, resource_id::text, metadata,
+		source_service, source_event_id::text, created_at FROM audit_logs`+w.sql()+
+		` ORDER BY created_at DESC, id DESC LIMIT `+w.arg(limit), w.args...)
+	if err != nil {
+		return nil, fmt.Errorf("AuditRepo - List: %w", err)
+	}
+
+	out, err := pgx.CollectRows(rows, scanAudit)
+	if err != nil {
+		return nil, fmt.Errorf("AuditRepo - List - scan: %w", err)
+	}
+
+	return out, nil
+}
+
+func auditWhere(f repo.AuditFilter) *where {
 	w := &where{}
 	if f.ActorID != nil {
 		w.add("actor_id = ?", *f.ActorID)
@@ -147,6 +168,10 @@ func (r Audit) List(ctx context.Context, f repo.AuditFilter, after *repo.TimeCur
 
 	if f.Action != nil {
 		w.add("action = ?", *f.Action)
+	}
+
+	if len(f.Actions) > 0 {
+		w.add("action = ANY(?)", f.Actions)
 	}
 
 	if f.ResourceType != nil {
@@ -165,23 +190,7 @@ func (r Audit) List(ctx context.Context, f repo.AuditFilter, after *repo.TimeCur
 		w.add("created_at < ?", *f.To)
 	}
 
-	if after != nil {
-		w.add("(created_at, id) < (?, ?)", after.At, after.ID)
-	}
-
-	rows, err := r.Pool.Query(ctx, `SELECT id::text, actor_id::text, action, resource_type, resource_id::text, metadata,
-		source_service, source_event_id::text, created_at FROM audit_logs`+w.sql()+
-		` ORDER BY created_at DESC, id DESC LIMIT `+w.arg(limit), w.args...)
-	if err != nil {
-		return nil, fmt.Errorf("AuditRepo - List: %w", err)
-	}
-
-	out, err := pgx.CollectRows(rows, scanAudit)
-	if err != nil {
-		return nil, fmt.Errorf("AuditRepo - List - scan: %w", err)
-	}
-
-	return out, nil
+	return w
 }
 
 func scanAudit(row pgx.CollectableRow) (entity.AuditEntry, error) {

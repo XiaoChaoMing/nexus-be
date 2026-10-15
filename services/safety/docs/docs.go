@@ -39,6 +39,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "username (leading @ optional), used when actorId is absent; unknown → empty page",
+                        "name": "actor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "e.g. USER_LOCKED, CHAT_BAN",
                         "name": "action",
                         "in": "query"
@@ -1040,8 +1046,19 @@ const docTemplate = `{
         "AdminAction": {
             "type": "object",
             "properties": {
+                "actorRole": {
+                    "type": "string",
+                    "enum": [
+                        "ADMIN",
+                        "OWNER",
+                        "MODERATOR"
+                    ]
+                },
                 "admin": {
                     "$ref": "#/definitions/Ref"
+                },
+                "channelId": {
+                    "type": "string"
                 },
                 "createdAt": {
                     "type": "string"
@@ -1076,7 +1093,11 @@ const docTemplate = `{
                         "UNLOCK_USER",
                         "SUSPEND_CHANNEL",
                         "RESTORE_CHANNEL",
-                        "TAKEDOWN_STREAM"
+                        "TAKEDOWN_STREAM",
+                        "CHAT_TIMEOUT",
+                        "CHAT_UNTIMEOUT",
+                        "CHAT_BAN",
+                        "CHAT_UNBAN"
                     ]
                 }
             }
@@ -1172,6 +1193,10 @@ const docTemplate = `{
                 },
                 "assignedTo": {
                     "$ref": "#/definitions/Ref"
+                },
+                "channelId": {
+                    "description": "ChannelID is the reported channel, or the channel of the reported stream / of the room of the report.",
+                    "type": "string"
                 },
                 "createdAt": {
                     "type": "string"
@@ -1470,6 +1495,9 @@ const docTemplate = `{
                 "deleted": {
                     "type": "boolean"
                 },
+                "displayName": {
+                    "type": "string"
+                },
                 "fragments": {
                     "type": "array",
                     "items": {
@@ -1480,6 +1508,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "userId": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }

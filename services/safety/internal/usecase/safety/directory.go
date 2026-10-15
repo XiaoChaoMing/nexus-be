@@ -110,7 +110,12 @@ func (a AuditLog) List(ctx context.Context, q usecase.AuditQuery) (usecase.Page[
 
 	limit := limitOf(q.Limit)
 
-	rows, err := a.uc.r.Audit.List(ctx, q.AuditFilter, after, limit+1)
+	f, found, err := a.actorFilter(ctx, q)
+	if err != nil || !found {
+		return usecase.Page[entity.AuditEntry]{Items: []entity.AuditEntry{}}, err
+	}
+
+	rows, err := a.uc.r.Audit.List(ctx, f, after, limit+1)
 	if err != nil {
 		return usecase.Page[entity.AuditEntry]{}, fmt.Errorf("audit - List: %w", err)
 	}
@@ -132,6 +137,29 @@ func (a AuditLog) List(ctx context.Context, q usecase.AuditQuery) (usecase.Page[
 	}
 
 	return p, nil
+}
+
+// actorFilter turns the actor username into ActorID; found is false when no user copy has that exact name.
+func (a AuditLog) actorFilter(ctx context.Context, q usecase.AuditQuery) (repo.AuditFilter, bool, error) {
+	name := strings.TrimPrefix(strings.TrimSpace(q.Actor), "@")
+	if q.ActorID != nil || name == "" {
+		return q.AuditFilter, true, nil
+	}
+
+	// Prefix search ordered by lower(username): an exact match comes first.
+	users, err := a.uc.r.Replica.SearchUsers(ctx, name, nil, nil, 1)
+	if err != nil {
+		return repo.AuditFilter{}, false, fmt.Errorf("audit - List - actor: %w", err)
+	}
+
+	if len(users) == 0 || !strings.EqualFold(users[0].Username, name) {
+		return repo.AuditFilter{}, false, nil
+	}
+
+	f := q.AuditFilter
+	f.ActorID = &users[0].ID
+
+	return f, true, nil
 }
 
 func auditDetails(q usecase.AuditQuery) []string {

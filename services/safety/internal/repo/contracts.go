@@ -30,8 +30,10 @@ type (
 
 	// AuditFilter -.
 	AuditFilter struct {
-		ActorID      *string
-		Action       *string
+		ActorID *string
+		Action  *string
+		// Actions keeps the rows whose action is one of these (with Action, both apply).
+		Actions      []string
 		ResourceType *string
 		ResourceID   *string
 		From, To     *time.Time

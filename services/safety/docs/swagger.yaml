@@ -14,8 +14,16 @@ definitions:
     type: object
   AdminAction:
     properties:
+      actorRole:
+        enum:
+        - ADMIN
+        - OWNER
+        - MODERATOR
+        type: string
       admin:
         $ref: '#/definitions/Ref'
+      channelId:
+        type: string
       createdAt:
         type: string
       expiresAt:
@@ -41,6 +49,10 @@ definitions:
         - SUSPEND_CHANNEL
         - RESTORE_CHANNEL
         - TAKEDOWN_STREAM
+        - CHAT_TIMEOUT
+        - CHAT_UNTIMEOUT
+        - CHAT_BAN
+        - CHAT_UNBAN
         type: string
     type: object
   AdminChannel:
@@ -106,6 +118,10 @@ definitions:
         type: array
       assignedTo:
         $ref: '#/definitions/Ref'
+      channelId:
+        description: ChannelID is the reported channel, or the channel of the reported
+          stream / of the room of the report.
+        type: string
       createdAt:
         type: string
       evidence:
@@ -302,6 +318,8 @@ definitions:
         type: string
       deleted:
         type: boolean
+      displayName:
+        type: string
       fragments:
         items:
           type: object
@@ -309,6 +327,8 @@ definitions:
       messageId:
         type: string
       userId:
+        type: string
+      username:
         type: string
     type: object
   LockRequest:
@@ -444,6 +464,11 @@ paths:
       - description: user id
         in: query
         name: actorId
+        type: string
+      - description: username (leading @ optional), used when actorId is absent; unknown
+          → empty page
+        in: query
+        name: actor
         type: string
       - description: e.g. USER_LOCKED, CHAT_BAN
         in: query

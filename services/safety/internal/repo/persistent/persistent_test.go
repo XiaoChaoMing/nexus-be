@@ -179,6 +179,11 @@ func TestActionsAndAudit(t *testing.T) { //nolint:paralleltest // shared databas
 	require.Len(t, rows, 2)
 	require.Equal(t, id, rows[1].Metadata["actionId"])
 
+	rows, err = audit.List(ctx, repo.AuditFilter{ResourceID: &user, Actions: []string{"ADMIN_PROMOTED", "CHAT_BAN"}}, nil, 10)
+	require.NoError(t, err)
+	require.Len(t, rows, 1, "one of the actions")
+	require.Equal(t, "ADMIN_PROMOTED", rows[0].Action)
+
 	u, err := r.User(ctx, user)
 	require.NoError(t, err)
 	require.Equal(t, entity.RoleAdmin, u.GlobalRole)

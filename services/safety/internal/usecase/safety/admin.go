@@ -3,6 +3,7 @@ package safety
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/minhnn/nexuslive-be/services/safety/internal/entity"
@@ -93,9 +94,9 @@ func (uc *UseCase) Get(ctx context.Context, id string) (entity.ReportDetail, err
 		return entity.ReportDetail{}, fmt.Errorf("adminreports - Get - related: %w", err)
 	}
 
-	actions, err := uc.r.Actions.ForReport(ctx, r, _relatedMax)
+	actions, err := uc.history(ctx, r)
 	if err != nil {
-		return entity.ReportDetail{}, fmt.Errorf("adminreports - Get - actions: %w", err)
+		return entity.ReportDetail{}, err
 	}
 
 	views, err := uc.views(ctx, append([]entity.Report{r}, related...))
@@ -103,21 +104,135 @@ func (uc *UseCase) Get(ctx context.Context, id string) (entity.ReportDetail, err
 		return entity.ReportDetail{}, err
 	}
 
-	ids := repo.LookupIDs{}
-	for _, a := range actions {
-		ids.Users = append(ids.Users, a.AdminID)
-	}
-
-	l, err := uc.r.Replica.Lookup(ctx, ids)
+	l, err := uc.r.Replica.Lookup(ctx, detailIDs(r, actions))
 	if err != nil {
-		return entity.ReportDetail{}, fmt.Errorf("adminreports - Get - admins: %w", err)
+		return entity.ReportDetail{}, fmt.Errorf("adminreports - Get - lookup: %w", err)
 	}
 
 	for i := range actions {
 		actions[i].Admin = ref(l, actions[i].AdminID)
 	}
 
-	return entity.ReportDetail{ReportView: views[0], Related: views[1:], Actions: actions}, nil
+	authors := map[string]entity.UserCopy{}
+
+	for _, e := range r.Evidence {
+		if u, ok := l.Users[e.UserID]; ok {
+			authors[e.UserID] = u
+		}
+	}
+
+	return entity.ReportDetail{
+		ReportView: views[0], Related: views[1:], Actions: actions, ChannelID: reportChannel(l, r), Authors: authors,
+	}, nil
+}
+
+// history merges the admin actions on the target with the chat timeouts and bans of the user behind it (from
+// the audit log), newest first, at most _relatedMax.
+func (uc *UseCase) history(ctx context.Context, r entity.Report) ([]entity.AdminAction, error) {
+	actions, err := uc.r.Actions.ForReport(ctx, r, _relatedMax)
+	if err != nil {
+		return nil, fmt.Errorf("adminreports - Get - actions: %w", err)
+	}
+
+	for i := range actions {
+		actions[i].ActorRole = entity.RoleAdmin
+	}
+
+	if r.TargetUserID == nil {
+		return actions, nil
+	}
+
+	user := entity.TargetUser
+
+	chat, err := uc.r.Audit.List(ctx, repo.AuditFilter{
+		ResourceType: &user, ResourceID: r.TargetUserID, Actions: entity.ChatRestrictionActions(),
+	}, nil, _relatedMax)
+	if err != nil {
+		return nil, fmt.Errorf("adminreports - Get - chat actions: %w", err)
+	}
+
+	for _, e := range chat {
+		actions = append(actions, chatAction(e))
+	}
+
+	slices.SortStableFunc(actions, func(a, b entity.AdminAction) int { return b.CreatedAt.Compare(a.CreatedAt) })
+
+	return actions[:min(len(actions), _relatedMax)], nil
+}
+
+// chatAction reads a chat restriction from its audit row (chat.mod_action.v1 metadata).
+func chatAction(e entity.AuditEntry) entity.AdminAction {
+	a := entity.AdminAction{ID: e.ID, ActorRole: e.ActorRole, Type: e.Action, TargetType: e.ResourceType, CreatedAt: e.CreatedAt}
+
+	if e.ActorID != nil {
+		a.AdminID = *e.ActorID
+	}
+
+	if e.ResourceID != nil {
+		a.TargetID = *e.ResourceID
+	}
+
+	if e.Reason != nil {
+		a.Reason = *e.Reason
+	}
+
+	if c, ok := e.Metadata["channelId"].(string); ok {
+		a.ChannelID = &c
+	}
+
+	if s, ok := e.Metadata["expiresAt"].(string); ok {
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			a.ExpiresAt = &t
+		}
+	}
+
+	return a
+}
+
+// detailIDs are the actors of the history, the evidence authors and the stream of the report.
+func detailIDs(r entity.Report, actions []entity.AdminAction) repo.LookupIDs {
+	ids := repo.LookupIDs{}
+
+	for _, a := range actions {
+		if a.AdminID != "" {
+			ids.Users = append(ids.Users, a.AdminID)
+		}
+	}
+
+	for _, e := range r.Evidence {
+		ids.Users = append(ids.Users, e.UserID)
+	}
+
+	if r.TargetType == entity.TargetStream {
+		ids.Streams = append(ids.Streams, r.TargetID)
+	} else if r.StreamID != nil {
+		ids.Streams = append(ids.Streams, *r.StreamID)
+	}
+
+	return ids
+}
+
+// reportChannel is the reported channel, or the channel of the reported stream / of the room of the report.
+func reportChannel(l repo.Lookup, r entity.Report) *string {
+	streamID := r.StreamID
+
+	switch r.TargetType {
+	case entity.TargetChannel:
+		return &r.TargetID
+	case entity.TargetStream:
+		streamID = &r.TargetID
+	}
+
+	if streamID == nil {
+		return nil
+	}
+
+	s, ok := l.Streams[*streamID]
+	if !ok || s.ChannelID == "" {
+		return nil
+	}
+
+	return &s.ChannelID
 }
 
 // Claim -.

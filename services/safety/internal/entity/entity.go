@@ -162,18 +162,39 @@ type ReportView struct {
 type ReportDetail struct {
 	ReportView
 	Related []ReportView
+	// Actions are the admin actions on the target and the chat restrictions of the user behind it.
 	Actions []AdminAction
+	// ChannelID is the channel the report is about: the channel itself, or the channel of the stream or room.
+	ChannelID *string
+	// Authors are the evidence authors found in the user copy, by id.
+	Authors map[string]UserCopy
 }
 
-// AdminAction is one row of admin_actions.
+// Chat restrictions shown in a report's history (audit actions of chat.mod_action.v1).
+const (
+	ActionChatTimeout   = "CHAT_TIMEOUT"
+	ActionChatUntimeout = "CHAT_UNTIMEOUT"
+	ActionChatBan       = "CHAT_BAN"
+	ActionChatUnban     = "CHAT_UNBAN"
+)
+
+// ChatRestrictionActions lists the audit actions of chat timeouts and bans.
+func ChatRestrictionActions() []string {
+	return []string{ActionChatTimeout, ActionChatUntimeout, ActionChatBan, ActionChatUnban}
+}
+
+// AdminAction is one row of admin_actions, or a chat restriction read from the audit log (AdminID is then the
+// moderator, ChannelID the channel and ActorRole OWNER, MODERATOR or ADMIN).
 type AdminAction struct {
 	ID         string
 	AdminID    string
 	Admin      Ref
+	ActorRole  string
 	ReportID   *string
 	Type       string
 	TargetType string
 	TargetID   string
+	ChannelID  *string
 	Reason     string
 	ExpiresAt  *time.Time
 	CreatedAt  time.Time

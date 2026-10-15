@@ -256,6 +256,7 @@ func (r *routes) channel(ctx *fiber.Ctx) error {
 //	@Produce     json
 //	@Security    BearerAuth
 //	@Param       actorId      query    string false "user id"
+//	@Param       actor        query    string false "username (leading @ optional), used when actorId is absent; unknown → empty page"
 //	@Param       action       query    string false "e.g. USER_LOCKED, CHAT_BAN"
 //	@Param       resourceType query    string false "USER, CHANNEL, STREAM, MESSAGE, REPORT, CREATOR_APPLICATION"
 //	@Param       resourceId   query    string false "uuid"
@@ -295,6 +296,7 @@ func (r *routes) auditLog(ctx *fiber.Ctx) error {
 			ActorID: optional(ctx, "actorId"), Action: optional(ctx, "action"), ResourceType: optional(ctx, "resourceType"),
 			ResourceID: optional(ctx, "resourceId"), From: from, To: to,
 		},
+		Actor:  ctx.Query("actor"),
 		Cursor: cur, Limit: limit,
 	})
 	if err != nil {
