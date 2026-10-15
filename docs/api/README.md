@@ -30,7 +30,7 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | media-svc | 1935 (RTMP), 8091 (HTTP) | `rtmp://localhost:1935/live`, `http://localhost:8091` | — | GĐ2 ✅ |
 | channel-svc | 8094 | `http://localhost:8094/v1` | <http://localhost:8094/swagger/index.html> | GĐ1 · GĐ4 🔧 |
 | chat-svc (realtime gateway + chat), 2 instance | 8095 (`chat-1`), 8096 (`chat-2`) | `ws://localhost:8080/v1/ws` (qua cổng vào), `http://localhost:8095/v1` | <http://localhost:8095/swagger/index.html> | GĐ3 🔧 |
-| safety-svc | 8099 📋 | | 📋 | GĐ5 |
+| safety-svc | 8099 | `http://localhost:8099/v1` | <http://localhost:8099/swagger/index.html> | GĐ5 🔧 |
 | notification-svc | 8097 📋 | | 📋 | GĐ5 |
 | billing-svc | 8098 📋 | | 📋 | GĐ6 |
 | NATS JetStream | 4222 (client), 8222 (monitor) | `nats://guest:guest@localhost:4222` | — | ✅ |
@@ -47,7 +47,12 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | --- | --- | --- |
 | `/v1/auth/{login,register,password/forgot,password/reset,verify-email,verify-email/resend}` | identity-svc :8090 | Vùng rate limit chặt (§1.1) |
 | `/v1/ws` | chat-svc (upstream `nxl_chat`: `chat-1`, `chat-2`) | WebSocket (`Upgrade`), `proxy_read_timeout 75s`, không rate limit theo request (GĐ3) |
-| `/v1/chat/*`, `/v1/channels/{id}/chat-settings` | chat-svc | Đặt trước route channel-svc (GĐ3) |
+| `/v1/chat/*`, `/v1/channels/{id}/(chat-settings\|timeouts\|bans\|restrictions\|blocked-terms\|roles\|users)*` | chat-svc | Đặt trước route channel-svc (GĐ3; GĐ5 thêm hành động mod, từ khóa chặn, vai trò, thẻ người dùng) |
+| `/v1/me/channel-roles` | chat-svc | Exact match (GĐ5) |
+| `/v1/me/notification-settings`, `/v1/notifications*` | notification-svc :8097 | GĐ5 (phần B) |
+| `/v1/reports` | safety-svc :8099 | Exact match (GĐ5) |
+| `/v1/admin/creator-applications*`, `GET /v1/admin/users/{id}` | identity-svc | GĐ5: `…/users/{id}/lock` không khớp, đi safety |
+| `/v1/admin/*` còn lại | safety-svc :8099 | Report, khóa / mở, kênh, stream, audit log, tra cứu (GĐ5) |
 | `/emotes/*` | file tĩnh `deploy/emotes/*.webp` | `Cache-Control: public, max-age=604800` (GĐ3) |
 | `/v1/channels/{id}/vods` | stream-svc :8092 | Trước route channel-svc (GĐ4) |
 | `/v1/channels/*` | channel-svc :8094 | GĐ1; GĐ4: follow, lịch của kênh |
@@ -57,12 +62,13 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | `/v1/studio/channel*`, `/v1/studio/schedules*` | channel-svc | Trước route Studio của stream-svc (GĐ4) |
 | `/v1/categories*`, `/v1/search*`, `/v1/schedules*` | channel-svc | GĐ4 |
 | `/v1/studio/*` còn lại, `/v1/streams/*`, `/v1/vods/*` | stream-svc :8092 | |
-| `/v1/*` còn lại | identity-svc :8090 | Gồm `/v1/auth/*`, `/v1/me*`, `/v1/creator-applications*`, `/v1/admin/*` |
-| `/hls/*` | MinIO, bucket `nxl-media` | Chỉ `GET`/`HEAD`; `.m3u8` có `Cache-Control: no-cache`; không rate limit |
+| `/v1/*` còn lại | identity-svc :8090 | Gồm `/v1/auth/*`, `/v1/me*` (cả `/v1/me/blocks*`), `/v1/creator-applications*` |
+| `/hls/t/{expires}/{md5}/streams/{id}/*` | MinIO, bucket `nxl-media` | URL có chữ ký (`secure_link`, GĐ5): `md5 = base64url(MD5("{expires}streams/{id}/ {NXL_HLS_SECRET}"))`; sai / hết hạn → `403`; `.m3u8` `no-cache`, `.ts` `private, max-age=3600` |
+| `/hls/*` | MinIO, bucket `nxl-media` | Chỉ `GET`/`HEAD`; `.jpg` công khai; `.m3u8` / `.ts` chỉ khi `NXL_HLS_ALLOW_UNSIGNED=1` (mặc định), ngược lại `403`; không rate limit |
 | `/media/*` | MinIO, bucket `nxl-public` | Ảnh đại diện, ảnh bìa, ảnh danh mục; chỉ `GET`/`HEAD`, `Cache-Control: public, max-age=86400` (GĐ4) |
 | `/internal/*`, `/metrics`, `/swagger`, còn lại | — | `404 NOT_FOUND` |
 
-Lỗi do chính cổng vào sinh ra dùng cùng envelope: `503 SERVICE_UNAVAILABLE` (service không phản hồi), `413 PAYLOAD_TOO_LARGE` (body > 1 MB), `429 RATE_LIMITED`, `403 FORBIDDEN`, `404 NOT_FOUND`. Mỗi response có `X-Request-Id` (lấy từ request nếu client gửi). URL HLS có chữ ký: GĐ5/GĐ7.
+Lỗi do chính cổng vào sinh ra dùng cùng envelope: `503 SERVICE_UNAVAILABLE` (service không phản hồi), `413 PAYLOAD_TOO_LARGE` (body > 1 MB), `429 RATE_LIMITED`, `403 FORBIDDEN`, `404 NOT_FOUND`. Mỗi response có `X-Request-Id` (lấy từ request nếu client gửi). URL HLS có chữ ký: GĐ5 (bật bằng `STREAM_HLS_SIGNING=true` rồi `NXL_HLS_ALLOW_UNSIGNED=0`, TSD GĐ5 §9.3).
 
 ### 1.1 Rate limit, CORS, header bảo mật (GĐ1 🔧)
 
@@ -189,7 +195,9 @@ Auth: `—` không cần · `Bearer` · `cookie+H` = cookie `nxl_rt` + header `X
 | POST | `/v1/admin/creator-applications/{id}/approve` | Admin | → `creator.approved.v1` → channel-svc tạo kênh; `INVALID_STATE`, `FORBIDDEN` (tự duyệt) | 🔧 GĐ1 |
 | POST | `/v1/admin/creator-applications/{id}/reject` | Admin | `{reason}` 10–500 ký tự; `INVALID_STATE` | 🔧 GĐ1 |
 | GET | `/metrics` (không có tiền tố `/v1`, không qua cổng vào) | — | Prometheus: `http_requests_total`, `http_request_duration_seconds`, Go/process | ✅ GĐ0 |
-| POST / DELETE | `/v1/me/blocks/{userId}` | Bearer | Block người dùng (F3) | 📋 GĐ5 |
+| GET | `/v1/me/blocks?fields=ids&cursor=&limit=` | Bearer | `{items: [{user, createdAt}], nextCursor}`; `fields=ids` → `{ids[]}` (tối đa 1.000) | GĐ5 🔧 |
+| PUT · DELETE | `/v1/me/blocks/{userId}` | Bearer | Block (`204`, lặp lại → `204`) / bỏ block; chính mình → `userId = INVALID`; quá 1.000 → `409 CONFLICT details.limit` | GĐ5 🔧 |
+| GET | `/v1/admin/users/{id}` | Admin | `AdminUser {…, status, lockedUntil, lockKind (FAILED_LOGIN\|ADMIN), lockReason, channelId}` | GĐ5 🔧 |
 
 Mã lỗi: `VALIDATION_FAILED`, `USERNAME_TAKEN`, `EMAIL_TAKEN`, `INVALID_CREDENTIALS`, `ACCOUNT_LOCKED`, `SESSION_EXPIRED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `CONFLICT`, `RATE_LIMITED`, `TOKEN_INVALID`, `WRONG_PASSWORD`, `EMAIL_NOT_VERIFIED`, `APPLICATION_PENDING`, `ALREADY_CREATOR`, `UNDERAGE`, `INVALID_STATE`, `INTERNAL_ERROR` (NXL-00 §5).
 
@@ -213,7 +221,7 @@ Mã lỗi: `VALIDATION_FAILED`, `USERNAME_TAKEN`, `EMAIL_TAKEN`, `INVALID_CREDEN
 | GET | `/v1/vods?category=&cursor=&limit=` · `/v1/vods/recommended?limit=` | — | VOD `READY` + `PUBLIC` còn hạn, mới nhất trước; recommended bỏ 18+, không phân trang | GĐ4 🔧 |
 | GET | `/v1/channels/{id}/vods?cursor=&limit=` | — | Tab Video của kênh; kênh lạ → `404` | GĐ4 🔧 |
 | GET | `/v1/vods/{id}` | — / Bearer | VOD đang READY và còn hạn; GĐ2: có token → `viewer.positionSec`; GĐ4 thêm `visibility`, `isMature`, `category`; VOD `HIDDEN` → `404` trừ chủ kênh (kể cả `/playback`) | ✅ · GĐ4 🔧 |
-| POST | `/v1/streams/{id}/playback` · `/v1/vods/{id}/playback` | — / Bearer | Mở phiên xem: `{acknowledgeMature?}`, header `X-NXL-Anon-Id` (Guest) → `{sessionId, manifestUrl, expiresAt, anonId?, mature{required, acknowledged}}`; 18+ chưa xác nhận → ba trường đầu `null`; tài khoản xác nhận một lần/kênh (TSD GĐ2 §4). Chữ ký URL ở GĐ5 | GĐ2 🔧 (chữ ký 📋 GĐ5) |
+| POST | `/v1/streams/{id}/playback` · `/v1/vods/{id}/playback` | — / Bearer | Mở phiên xem: `{acknowledgeMature?}`, header `X-NXL-Anon-Id` (Guest) → `{sessionId, manifestUrl, expiresAt, anonId?, mature{required, acknowledged}}`; 18+ chưa xác nhận → ba trường đầu `null`; tài khoản xác nhận một lần/kênh (TSD GĐ2 §4). GĐ5: khi `STREAM_HLS_SIGNING=true`, `manifestUrl` = `/hls/t/{expires}/{md5}/streams/{id}/master.m3u8` (hạn = `expiresAt`, 4 h), DTO công khai trả `manifestUrl = ""`; kênh bị khóa → `403 CHANNEL_SUSPENDED` | GĐ2 · GĐ5 🔧 |
 | PUT | `/v1/me/watch-progress/{vodId}` | Bearer | `{positionSec, keepFurther?}` → `204`; `VALIDATION_FAILED` (`positionSec: REQUIRED/RANGE`), `NOT_FOUND` (A5, UC-A07) | GĐ2 🔧 |
 | GET | `/v1/me/continue-watching?limit=` | Bearer | VOD xem dở (≥ 5 s, chưa tới 10 s cuối, còn hạn), mới nhất trước: `{items: [{vod, positionSec, updatedAt}]}` (C2) | GĐ2 🔧 |
 | GET | `/v1/studio/vods?visibility=&status=&cursor=&limit=` | Creator | VOD `READY` + `EXPIRED` của kênh (gồm ẩn): `StudioVod {id, streamId, title, durationSec, thumbnailUrl, manifestUrl, status, visibility, category, createdAt, expiresAt}` | GĐ4 🔧 |
@@ -294,40 +302,49 @@ Hợp đồng đầy đủ (khung WebSocket, snapshot, sự kiện, khóa Redis)
 | GET | `/v1/chat/emotes?channelId=` | — | Emote toàn cầu `{items: [{id, code, imageUrl, animated, scope}]}` (`channelId` bỏ qua tới GĐ6) | GĐ3 🔧 |
 | GET | `/v1/channels/{channelId}/chat-settings` | — | `{slowSec, followersMin, subsOnly, updatedAt}`; kênh chưa biết → `404` | GĐ3 🔧 |
 | PUT | `/v1/channels/{channelId}/chat-settings` | Bearer (chủ kênh, Mod, Admin) | Đổi chế độ; mọi phòng đang mở của kênh nhận `mode_change` + `system`. `VALIDATION_FAILED` (`ENUM`), `FORBIDDEN`, `UNAUTHORIZED` | GĐ3 🔧 |
+| DELETE | `/v1/chat/rooms/{streamId}/messages/{messageId}` | Bearer (chủ kênh, Mod, Admin) | Xóa tin → `chat:` nhận `message_deleted`; `FORBIDDEN` (`details.target = PROTECTED`) | GĐ5 🔧 |
+| PUT · DELETE | `/v1/chat/rooms/{streamId}/pin` | Bearer (mod) | Ghim `{messageId}` / bỏ ghim; tin `SYSTEM` / đã xóa → `409 INVALID_STATE`; phòng `READ_ONLY` → `409 CHAT_READ_ONLY` | GĐ5 🔧 |
+| PUT · DELETE | `/v1/channels/{channelId}/timeouts/{userId}` · `/bans/{userId}` | Bearer (mod) | `{durationSec, reason?}` / `{reason?}`; chính mình → `userId = INVALID`; chủ kênh / Mod (người làm không phải Admin) → `403 FORBIDDEN details.target = PROTECTED` | GĐ5 🔧 |
+| GET | `/v1/channels/{channelId}/restrictions?type=&cursor=&limit=` | Bearer (mod) | `{items: Restriction[], nextCursor}` | GĐ5 🔧 |
+| GET | `/v1/channels/{channelId}/users/{userId}/card` | — / Bearer | `UserCard` (`restriction` chỉ cho người có quyền mod) | GĐ5 🔧 |
+| GET · POST · DELETE | `/v1/channels/{channelId}/blocked-terms[/{termId}]` | Bearer (mod) | ≤ 100 từ (`409 CONFLICT details.limit`); tin vi phạm → frame `error` `CHAT_CONTENT_BLOCKED details.reason = TERM\|LINK` (Mod miễn trừ) | GĐ5 🔧 |
+| GET · POST · PUT · DELETE | `/v1/channels/{channelId}/roles[/{userId}]` | Bearer (chủ kênh; Admin) | Gán / gỡ `MODERATOR` / `VIP` (≤ 50 mỗi vai trò) | GĐ5 🔧 |
+| GET | `/v1/me/channel-roles` | Bearer | `{items: ModChannel[]}` — kênh mình là Mod / VIP | GĐ5 🔧 |
 | GET | `/metrics` (không qua cổng vào) | — | `chat_ws_connections`, `chat_ws_subscriptions`, `chat_messages_sent_total`, `chat_events_delivered_total`, `chat_fanout_latency_seconds`, `chat_send_rejects_total{code}`, `chat_ws_resyncs_total`, `http_*` | GĐ3 🔧 |
 
 Mã lỗi (REST và frame `error`): `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `RATE_LIMITED`, `EMAIL_NOT_VERIFIED`, `CHAT_CLOSED`, `CHAT_READ_ONLY`, `CHAT_DISABLED`, `CHAT_DUPLICATE`, `CHAT_SLOW_MODE`, `CHAT_FOLLOWERS_ONLY`, `CHAT_SUBS_ONLY`, `CHAT_TIMED_OUT`, `CHAT_BANNED`, `INTERNAL_ERROR`. `details` là chuỗi (`retryAfterSec: "5"`).
 
 **Ngoài REST:** `chat dev-grant follow|sub|mod|vip|owner --channel <id> --user <id> [--minutes N] [--tier N] [--revoke]` (`make nxl-chat-dev-grant`, chỉ `NXL_ENV=dev`) ghi dữ liệu demo cho Followers-only / Subs-only / Mod / VIP.
 
+## 6C. safety-svc — báo cáo, quản trị, audit log (GĐ5 🔧)
+
+Cổng 8099, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (`safety_reports_total{target_type,reason}`). Hợp đồng
+đầy đủ: TSD `docs/plans/technical/2026-10-15-gd05-safety-notifications.md` §5.4. Auth: `B` Bearer · `A` Bearer có
+`role = ADMIN` (khác → `403 FORBIDDEN`). Thành công bọc trong `{data}` như các service khác.
+
+| Method | Path | Auth | Mô tả |
+| --- | --- | --- | --- |
+| POST | `/v1/reports` | B | `{targetType: USER\|CHANNEL\|STREAM\|MESSAGE, targetId, reason, note?, streamId?}` → `201 {id, status, createdAt}`; report mở trùng → `200` cùng `id`; > 10/giờ → `429 RATE_LIMITED details.retryAfterSec` + `Retry-After`; chính mình → `targetId = INVALID`; `MESSAGE` cần `streamId`, bằng chứng ≤ 10 tin (chat chậm > 300 ms → `evidenceStatus = UNAVAILABLE`) |
+| GET | `/v1/admin/reports?status=&targetType=&reason=&cursor=&limit=` · `/open-count` · `/{id}` | A | Hàng đợi cũ nhất trước (`status` CSV, mặc định `OPEN,IN_REVIEW`); `{open, inReview}`; `AdminReportDetail` (bằng chứng, report liên quan ≤ 20, hành động ≤ 20) |
+| POST | `/v1/admin/reports/{id}/claim` · `/resolve` | A | Nhận (`IN_REVIEW`, nhận lại được); `{status: RESOLVED\|DISMISSED, note 10–500, applyToSameTarget?}` → `{report, closedCount}`; đã đóng → `409 INVALID_STATE` |
+| POST | `/v1/admin/users/{id}/lock` · `/unlock` | A | `{durationHours: 24\|168\|720\|null, reason 10–500, reportId?}` → `202 {actionId}`; identity áp dụng (≤ 2 s, socket đóng `4003`); Admin khác → `403`, chính mình → `userId = INVALID` |
+| GET | `/v1/admin/users?q=&status=` · `/v1/admin/channels?q=&status=` · `/v1/admin/channels/{id}` | A | Tra cứu trên bản sao (UUID → id; còn lại tiền tố username / handle, tên kênh chứa `q`) |
+| POST | `/v1/admin/channels/{id}/suspend` · `/restore` | A | `{reason, reportId?}` → `202`; channel-svc khóa kênh, stream-svc kết thúc buổi phát + hủy lịch, chat đóng phòng |
+| POST | `/v1/admin/streams/{id}/takedown` | A | `202`; đang phát → kết thúc `admin_takedown`; đã kết thúc còn VOD → VOD bị xóa; `SCHEDULED` / `CANCELLED` / hết VOD → `409 INVALID_STATE` |
+| GET | `/v1/admin/audit-log?actorId=&action=&resourceType=&resourceId=&from=&to=&cursor=&limit=` | A | Mới nhất trước; chỉ thêm (trigger chặn sửa / xóa) |
+
+Sự kiện: nghe `user.*`, `channel.*`, `stream.*`, `vod.deleted` (bản sao), `chat.mod_action`, `chat.settings_changed`,
+`channel.role_changed`, `audit.recorded` (audit); phát `safety.user_actioned`, `safety.channel_actioned`,
+`safety.stream_takedown`, `safety.report_resolved` (outbox).
+
 ## 7. Dịch vụ dự kiến
 
 Đường dẫn dưới đây là **bản nháp** để giữ chỗ và kiểm tra trùng lặp. Spec tương ứng chốt chi tiết trước khi làm (roadmap §4).
-
-### 7.1 chat-svc — phần còn dự kiến (GĐ5)
-
-Phần đã chạy ở GĐ3: §6B. Còn lại:
-
-| Method | Path | Mô tả |
-| --- | --- | --- |
-| POST | `/v1/streams/{id}/chat/messages/{msgId}/delete` · `/pin` | Hành động mod (F1) |
-| POST / DELETE | `/v1/channels/{id}/bans/{userId}` · `/timeouts/{userId}` | Ban, timeout (F1) |
-| GET / PUT / DELETE | `/v1/channels/{id}/roles/{userId}` | Gán Mod/VIP (G2 Community) |
 
 ### 7.2 channel-svc
 
 Đã chạy ở GĐ4 (§6A). Không làm: `GET /v1/home` (trang chủ gọi API theo từng khối, G4-Q3), `GET /v1/search/trending`,
 `GET /v1/channels/recommended` (sidebar Guest dùng `GET /v1/streams/recommended`), follow danh mục.
-
-### 7.3 safety-svc — báo cáo và quản trị (GĐ5, NXL-F)
-
-| Method | Path | Mô tả |
-| --- | --- | --- |
-| POST | `/v1/reports` | Báo cáo stream / tin nhắn / kênh (F3) |
-| GET | `/v1/admin/reports?status=` | Hàng đợi báo cáo (Admin) |
-| POST | `/v1/admin/reports/{id}/resolve` | Xử lý báo cáo |
-| POST | `/v1/admin/users/{id}/lock` · `/v1/admin/streams/{id}/takedown` | Khóa tài khoản, gỡ stream (F4) |
-| GET | `/v1/admin/audit-log` | Nhật ký thao tác Admin |
 
 ### 7.4 notification-svc (GĐ5, NXL-E)
 

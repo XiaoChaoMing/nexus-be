@@ -1,5 +1,5 @@
 # NexusLive dev stack (docs/plans/technical/2026-10-13-gd00-infra.md §4.4, GĐ1: 2026-10-13-gd01-identity-web-shell.md).
-# Profiles: (none) = infrastructure · nxl = services (identity, channel, stream, media, chat-1/chat-2) + Nginx edge ·
+# Profiles: (none) = infrastructure · nxl = services (identity, channel, stream, media, chat-1/chat-2, safety) + Nginx edge ·
 # obs = Prometheus, Grafana, Jaeger.
 #   make nxl-infra-up · make nxl-up-all (everything) · make nxl-down
 # Dev accounts (NXL_ENV=dev): admin@nexuslive.dev and creator@nexuslive.dev, password IDENTITY_DEV_SEED_PASSWORD.
@@ -42,6 +42,11 @@ x-chat: &x-chat
     CHAT_SIDEBAR_BATCH_INTERVAL: "${CHAT_SIDEBAR_BATCH_INTERVAL:-5s}"
     CHAT_DISABLED: "${CHAT_DISABLED:-false}"
     CHAT_REQUIRE_VERIFIED_EMAIL: "${CHAT_REQUIRE_VERIFIED_EMAIL:-false}"
+    # Internal API (report evidence for safety-svc, reached through the shared alias "chat"); not published.
+    CHAT_INTERNAL_PORT: "8085"
+    NXL_INTERNAL_SECRET: "${NXL_INTERNAL_SECRET:-dev-internal-secret}"
+    # One-off backfill of the channel copy (handle, name, avatar, status).
+    CHAT_CHANNEL_INTERNAL_URL: "http://channel:8088"
   # Open sockets are closed with 1012 on SIGTERM before the process exits.
   stop_grace_period: 15s
   depends_on:
@@ -137,6 +142,9 @@ services:
       # Links in e-mails point at the web app.
       IDENTITY_WEB_BASE_URL: "${NXL_WEB_ORIGIN:-http://localhost:5173}"
       IDENTITY_DEV_SEED_PASSWORD: "${IDENTITY_DEV_SEED_PASSWORD:-nexuslive123}"
+      # Internal snapshot API (users, blocks) for the backfills of safety-svc / notification-svc; not published.
+      IDENTITY_INTERNAL_PORT: "8089"
+      NXL_INTERNAL_SECRET: "${NXL_INTERNAL_SECRET:-dev-internal-secret}"
     ports:
       - "8090:8090"
     depends_on:
@@ -174,6 +182,9 @@ services:
       CHANNEL_S3_SECRET_KEY: "minioadmin123"
       CHANNEL_PUBLIC_BUCKET: "nxl-public"
       CHANNEL_SCHEDULE_TICK: "${CHANNEL_SCHEDULE_TICK:-1m}"
+      # Internal snapshot API (channels, follows) for the backfills; not published.
+      CHANNEL_INTERNAL_PORT: "8088"
+      NXL_INTERNAL_SECRET: "${NXL_INTERNAL_SECRET:-dev-internal-secret}"
     ports:
       - "8094:8094"
     depends_on:
@@ -214,6 +225,9 @@ services:
       # Go Live attaches to a scheduled broadcast from 30 min early to 60 min late; later it is cancelled.
       STREAM_SCHEDULE_EARLY_START: "${STREAM_SCHEDULE_EARLY_START:-30m}"
       STREAM_SCHEDULE_LATE_GRACE: "${STREAM_SCHEDULE_LATE_GRACE:-60m}"
+      # Signed playback URLs /hls/t/... (GĐ5 TSD §6.9, §9.3); the secret is the edge's NXL_HLS_SECRET.
+      STREAM_HLS_SIGNING: "${STREAM_HLS_SIGNING:-false}"
+      STREAM_HLS_SECRET: "${NXL_HLS_SECRET:-dev-hls-secret-0123456789abcdef0123456789abcdef}"
     ports:
       - "8092:8092"   # public API (8093 internal API stays inside the Docker network)
     depends_on:
@@ -237,6 +251,7 @@ services:
       app_network:
         aliases:
           - chat-1.lvh.me
+          - chat
 
   chat-2:
     <<: *x-chat
@@ -247,6 +262,45 @@ services:
       app_network:
         aliases:
           - chat-2.lvh.me
+          - chat
+
+  # Reports, the admin queue and actions (lock, suspend, takedown), admin lookups and the audit log (GĐ5).
+  safety:
+    container_name: safety
+    profiles: ["nxl"]
+    build:
+      context: .
+      dockerfile: services/safety/Dockerfile
+    environment:
+      NXL_ENV: "dev"
+      SAFETY_LOG_LEVEL: "debug"
+      SAFETY_HTTP_PORT: "8099"
+      NXL_PG_URL_SAFETY: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432/nxl_safety?sslmode=disable"
+      NATS_URL: "nats://guest:guest@nats:4222/"
+      SAFETY_REDIS_ADDR: "redis:6379"
+      SAFETY_JWKS_URL: "http://identity:8090/v1/auth/.well-known/jwks.json"
+      NXL_INTERNAL_SECRET: "${NXL_INTERNAL_SECRET:-dev-internal-secret}"
+      # Report evidence (≤ 300 ms) from either chat instance.
+      SAFETY_CHAT_INTERNAL_URL: "http://chat:8085"
+      SAFETY_EVIDENCE_TIMEOUT: "${SAFETY_EVIDENCE_TIMEOUT:-300ms}"
+      SAFETY_REPORT_RATE_LIMIT: "${SAFETY_REPORT_RATE_LIMIT:-10}"
+      # One-off backfill of the user / channel / stream copies.
+      SAFETY_IDENTITY_INTERNAL_URL: "http://identity:8089"
+      SAFETY_CHANNEL_INTERNAL_URL: "http://channel:8088"
+      SAFETY_STREAM_INTERNAL_URL: "http://stream:8093"
+    ports:
+      - "8099:8099"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      app_network:
+        aliases:
+          - safety.lvh.me
 
   # RTMP ingest + ffmpeg ABR + HLS upload (docs/plans/technical/2026-10-11-core-livestream-rtmp-hls.md).
   # OBS -> rtmp://localhost:1935/live, key from POST /v1/studio/stream-key; test page http://localhost:8091/dev/player
@@ -380,7 +434,7 @@ services:
           - mailpit.lvh.me
 
   # Single entry point for the browser (architecture §4): /v1/* -> services, /hls/* -> MinIO.
-  # Rate limits, CORS and security headers (GĐ1); signed HLS URLs (secure_link) come in GĐ5.
+  # Rate limits, CORS and security headers (GĐ1); signed HLS URLs /hls/t/... (secure_link, GĐ5).
   # templates/*.template are rendered with the NXL_* variables below into /etc/nginx/conf.d at start.
   nginx:
     container_name: nginx
@@ -394,6 +448,9 @@ services:
       NXL_EDGE_AUTH_RATE: "${NXL_EDGE_AUTH_RATE:-10r/m}"
       NXL_EDGE_WRITE_RATE: "${NXL_EDGE_WRITE_RATE:-60r/m}"
       NXL_EDGE_READ_RATE: "${NXL_EDGE_READ_RATE:-600r/m}"
+      # Signed HLS (GĐ5 TSD §9.3): same secret as stream-svc; 1 keeps unsigned /hls/ playlists working.
+      NXL_HLS_SECRET: "${NXL_HLS_SECRET:-dev-hls-secret-0123456789abcdef0123456789abcdef}"
+      NXL_HLS_ALLOW_UNSIGNED: "${NXL_HLS_ALLOW_UNSIGNED:-1}"
     volumes:
       - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./deploy/nginx/templates:/etc/nginx/templates:ro

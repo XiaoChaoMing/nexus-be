@@ -20,6 +20,10 @@ scrape_configs:
     static_configs:
       - targets: ["chat-1:8095", "chat-2:8095"]
 
+  - job_name: safety
+    static_configs:
+      - targets: ["safety:8099"]
+
   - job_name: media
     static_configs:
       - targets: ["media:8091"]

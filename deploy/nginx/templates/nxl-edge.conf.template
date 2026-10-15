@@ -16,3 +16,15 @@ map "$nxl_admin_path $http_origin" $nxl_cors_origin
     "0 ${NXL_ADMIN_ORIGIN}" $http_origin;
     "1 ${NXL_ADMIN_ORIGIN}" $http_origin;
 }
+
+# Signed HLS (GĐ5 TSD §6.9): the secret shared with stream-svc (STREAM_HLS_SECRET) and whether unsigned
+# playlists / segments under /hls/ are still served (1 during the switch-over, 0 afterwards).
+map $request_method $nxl_hls_secret
+{
+    default "${NXL_HLS_SECRET}";
+}
+
+map $request_method $nxl_hls_allow_unsigned
+{
+    default "${NXL_HLS_ALLOW_UNSIGNED}";
+}

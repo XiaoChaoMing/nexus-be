@@ -10,12 +10,13 @@ web app in `../nexuslive-admin`.
 | `services/channel` | Creator channels (created on `creator.approved.v1`), channel page, follows and bell, profile with avatar / banner (served at `/media/`), categories, search, schedules and reminders, Studio channel settings | 8094 |
 | `services/stream` | Stream keys, stream lifecycle (LIVE → INTERRUPTED → ENDED), live catalog, VODs | 8092 public, 8093 internal |
 | `services/media` | RTMP ingest, ffmpeg ABR transcode (720p/480p/360p), HLS to MinIO, thumbnails, crash recovery | 1935 RTMP, 8091 |
-| `services/chat` | Realtime gateway `GET /v1/ws` (chat, stream status, viewer counts), live chat with modes and limits, history, emotes; two instances in compose (`chat-1`, `chat-2`) sharing Redis | 8095 (`chat-1`), 8096 (`chat-2`) |
+| `services/chat` | Realtime gateway `GET /v1/ws` (chat, stream status, viewer counts), live chat with modes and limits, history, emotes, moderation (delete, pin, timeout, ban, blocked terms, link blocking, Mod / VIP roles); two instances in compose (`chat-1`, `chat-2`) sharing Redis | 8095 (`chat-1`), 8096 (`chat-2`), 8085 internal |
+| `services/safety` | Reports with chat evidence, the admin report queue, admin actions (lock / unlock account, suspend / restore channel, take a stream down) applied by the owning services, admin lookups, append-only audit log | 8099 |
 
 Services share `pkg/` (event bus, transactional outbox, JWT, HTTP server and metrics, logger,
 Postgres, Redis) through `go.work`, and talk over NATS JetStream events and internal HTTP; chat-svc
-instances fan realtime events out to each other over core NATS. More services (safety,
-notification, billing) join phase by phase — see `docs/product/roadmap.md`.
+instances fan realtime events out to each other over core NATS. More services (notification,
+billing) join phase by phase — see `docs/product/roadmap.md`.
 
 ## Quick start
 
@@ -31,7 +32,7 @@ make nxl-up-all           # everything: infra, services, Nginx edge, Prometheus,
 | --- | --- |
 | http://localhost:8080 | Nginx edge — the API (`/v1/*`), the WebSocket gateway (`ws://localhost:8080/v1/ws`), HLS (`/hls/*`) and emotes (`/emotes/*`) for the browser; rate limits, CORS for the web and admin apps |
 | rtmp://localhost:1935/live | OBS server; the stream key comes from Studio (`POST /v1/studio/stream-key`) |
-| http://localhost:8090/swagger/index.html · http://localhost:8094/swagger/index.html · http://localhost:8092/swagger/index.html · http://localhost:8095/swagger/index.html | Swagger of identity, channel, stream and chat |
+| http://localhost:8090/swagger/index.html · http://localhost:8094/swagger/index.html · http://localhost:8092/swagger/index.html · http://localhost:8095/swagger/index.html · http://localhost:8099/swagger/index.html | Swagger of identity, channel, stream, chat and safety |
 | http://localhost:8091/dev/player | media-svc test player |
 | http://localhost:3000 | Grafana — dashboards "NexusLive — Livestream" and "NexusLive — Chat" (anonymous view, admin/admin) |
 | http://localhost:9090 · http://localhost:16686 | Prometheus · Jaeger |
@@ -40,7 +41,7 @@ make nxl-up-all           # everything: infra, services, Nginx edge, Prometheus,
 
 Then start the web client with `VITE_DEV_GATEWAY_URL=http://localhost:8080` (see its README) and
 open http://localhost:5173. The admin web app (`../nexuslive-admin`, `pnpm dev`) runs on
-http://localhost:5174 and reviews creator applications.
+http://localhost:5174 and reviews creator applications and reports.
 
 Dev accounts (seeded by identity when `NXL_ENV=dev`, password `IDENTITY_DEV_SEED_PASSWORD`, default
 `nexuslive123`):
@@ -61,6 +62,11 @@ Chat demo data without a real source yet (follows now come from channel-svc, sub
 billing): `make nxl-chat-dev-grant GRANT=follow|sub|mod|vip|owner CHANNEL=<channelId> USER_ID=<userId>`
 (`ARGS="--minutes 60"` backdates a follow, `ARGS="--tier 2"` sets the sub tier, `ARGS=--revoke` removes).
 `docker stop chat-1` shows the failover: clients reconnect to `chat-2` and resume by `seq`.
+
+Signed HLS (GĐ5): playback URLs become `/hls/t/{expires}/{md5}/streams/{id}/…` with
+`STREAM_HLS_SIGNING=true`; then `NXL_HLS_ALLOW_UNSIGNED=0` makes the edge refuse unsigned playlists and
+segments (`403`). `NXL_HLS_SECRET` is shared by the edge and stream-svc (`openssl rand -hex 32`). Outside
+dev, do not publish MinIO's port 9000: `streams/` stays public-read for the edge.
 
 Compose profiles: none = infrastructure (`make nxl-infra-up`), `nxl` = services + edge, `obs` =
 Prometheus, Grafana, Jaeger (`make nxl-obs-up`). `make nxl-down` stops everything; volumes are kept.
