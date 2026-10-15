@@ -228,9 +228,10 @@ func TestTokens(t *testing.T) { //nolint:paralleltest // shared database
 	require.NoError(t, err)
 	assert.Equal(t, "new-hash", h)
 
+	// The tenth failure locks: SECURITY_LOCK e-mail + audit; the reset: RESET e-mail, then its audit.
 	assert.Equal(t, []string{
 		"user.registered.v1", "auth.email_requested.v1", "auth.email_requested.v1",
-		"user.email_verified.v1", "auth.email_requested.v1",
+		"user.email_verified.v1", "auth.email_requested.v1", "audit.recorded.v1", "auth.email_requested.v1", "audit.recorded.v1",
 	}, outboxTypes(t, r))
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/identity/internal/entity"
 )
 
@@ -127,6 +128,40 @@ type (
 		// UpsertChannel stores the channel once per event id; ErrUserNotFound when the owner is unknown,
 		// ErrChannelTaken when the channel id belongs to another user.
 		UpsertChannel(ctx context.Context, eventID string, ch entity.UserChannel) error
+	}
+
+	// BlockCursor is the keyset position of the block list (created_at DESC, blocked id DESC).
+	BlockCursor struct {
+		CreatedAt time.Time
+		UserID    string
+	}
+
+	// BlockRepo stores user_blocks; changes queue user.blocked / user.unblocked in the same transaction.
+	BlockRepo interface {
+		// List returns the user's blocks, newest first, with the blocked accounts' names.
+		List(ctx context.Context, userID string, after *BlockCursor, limit int) ([]entity.Block, error)
+		// IDs returns at most limit blocked user ids.
+		IDs(ctx context.Context, userID string, limit int) ([]string, error)
+		// Add blocks targetID; added is false when it was already blocked. entity.ErrNotFound when the target
+		// does not exist or was deleted, entity.ErrBlockLimit when the user already blocks maxBlocks accounts.
+		Add(ctx context.Context, userID, targetID string, maxBlocks int) (added bool, err error)
+		// Remove reports false when there was nothing to remove.
+		Remove(ctx context.Context, userID, targetID string) (bool, error)
+	}
+
+	// ModerationRepo applies the account actions of safety-svc.
+	ModerationRepo interface {
+		// ApplyUserAction locks or unlocks the account once per event id, ends its sessions on a lock and queues
+		// user.locked / user.unlocked; changed is false when nothing changed (admin target, deleted, not locked).
+		ApplyUserAction(ctx context.Context, eventID string, e events.UserActioned) (changed bool, err error)
+	}
+
+	// SnapshotRepo pages through users and blocks for other services' one-off backfill (internal API).
+	SnapshotRepo interface {
+		// Users returns up to limit users with id > after (any status), ordered by id.
+		Users(ctx context.Context, after string, limit int) ([]entity.User, error)
+		// Blocks returns up to limit rows after the (blocker, blocked) position, ordered by it.
+		Blocks(ctx context.Context, after *entity.BlockPair, limit int) ([]entity.BlockPair, error)
 	}
 
 	// SeedRepo creates the development accounts.

@@ -25,6 +25,13 @@ const (
 	RoleNameAdmin   = "ADMIN"
 )
 
+// Lock kinds (users.lock_kind): a failed-login lock expires and a password reset lifts it; an admin lock is
+// lifted only by an admin or its expiry.
+const (
+	LockKindFailedLogin = "FAILED_LOGIN"
+	LockKindAdmin       = "ADMIN"
+)
+
 // Account defaults (users table defaults).
 const (
 	DefaultLocale   = "vi"
@@ -51,6 +58,8 @@ type User struct {
 	GlobalRole        string
 	Status            UserStatus
 	LockedUntil       *time.Time
+	LockKind          *string
+	LockReason        *string
 	FailedLogins      int
 	LastFailedLoginAt *time.Time
 	Preferences       Preferences
@@ -67,6 +76,15 @@ func (u User) IsLocked(now time.Time) bool {
 	}
 
 	return u.LockedUntil == nil || now.Before(*u.LockedUntil)
+}
+
+// Effective returns the user as seen now: a lock that has expired reads as ACTIVE.
+func (u User) Effective(now time.Time) User {
+	if u.Status == UserLocked && u.LockedUntil != nil && !now.Before(*u.LockedUntil) {
+		u.Status, u.LockedUntil, u.LockKind, u.LockReason = UserActive, nil, nil, nil
+	}
+
+	return u
 }
 
 // IsTemporarilyLocked reports a lock from failed sign-ins that has not expired yet.

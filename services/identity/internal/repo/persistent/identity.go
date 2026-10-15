@@ -24,8 +24,8 @@ const (
 	// _userColumns are read by scanUser, in order; the query must alias users as u and LEFT JOIN
 	// user_channels as uc.
 	_userColumns = `u.id, u.username::text, u.display_name, u.email::text, u.email_verified_at, u.birth_date,
-		u.locale, u.timezone, u.global_role, u.status, u.locked_until, u.failed_logins, u.last_failed_login_at,
-		u.preferences, u.created_at, u.updated_at, uc.channel_id::text`
+		u.locale, u.timezone, u.global_role, u.status, u.locked_until, u.lock_kind, u.lock_reason, u.failed_logins,
+		u.last_failed_login_at, u.preferences, u.created_at, u.updated_at, uc.channel_id::text`
 	_userFrom   = ` FROM users u LEFT JOIN user_channels uc ON uc.user_id = u.id`
 	_userSelect = `SELECT ` + _userColumns + _userFrom
 )
@@ -48,7 +48,7 @@ func (r *UserRepo) Create(ctx context.Context, u entity.User, passwordHash strin
 		}
 
 		err := addOutbox(ctx, tx, _aggregateUser, u.ID, events.TypeUserRegistered, events.UserRegistered{
-			UserID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Email: u.Email,
+			UserID: u.ID, Username: u.Username, DisplayName: u.DisplayName, Email: u.Email, Locale: u.Locale, Timezone: u.Timezone,
 		})
 		if err != nil {
 			return fmt.Errorf("UserRepo - Create - %w", err)
@@ -124,7 +124,8 @@ func (r *UserRepo) PasswordHash(ctx context.Context, userID string) (string, err
 }
 
 // RecordLoginFailure counts in one UPDATE, so concurrent wrong passwords cannot lose an increment: a
-// failure older than the window restarts the count at 1.
+// failure older than the window restarts the count at 1. The failure that locks the account queues the
+// security e-mail and the audit entry in the same transaction.
 func (r *UserRepo) RecordLoginFailure(ctx context.Context, userID string, now time.Time, p repo.LoginFailurePolicy) (entity.User, error) {
 	const q = `WITH u AS (
 		UPDATE users SET
@@ -134,6 +135,9 @@ func (r *UserRepo) RecordLoginFailure(ctx context.Context, userID string, now ti
 			              THEN 'LOCKED' ELSE 'ACTIVE' END,
 			locked_until = CASE WHEN (CASE WHEN last_failed_login_at > $3::timestamptz THEN failed_logins + 1 ELSE 1 END) >= $5::int
 			                    THEN $4::timestamptz END,
+			lock_kind = CASE WHEN (CASE WHEN last_failed_login_at > $3::timestamptz THEN failed_logins + 1 ELSE 1 END) >= $5::int
+			                 THEN 'FAILED_LOGIN' END,
+			lock_reason = NULL,
 			updated_at = $2::timestamptz
 		WHERE id = $1 AND (status = 'ACTIVE' OR (status = 'LOCKED' AND locked_until IS NOT NULL AND locked_until <= $2::timestamptz))
 		RETURNING *
@@ -141,12 +145,39 @@ func (r *UserRepo) RecordLoginFailure(ctx context.Context, userID string, now ti
 
 	var u entity.User
 
-	err := scanUser(r.Pool.QueryRow(ctx, q, userID, now, now.Add(-p.Window), now.Add(p.Window), p.MaxFailures, _maxFailedLogins), &u)
+	err := inTx(ctx, r.Pool, "UserRepo - RecordLoginFailure", func(tx pgx.Tx) error {
+		if err := scanUser(tx.QueryRow(ctx, q, userID, now, now.Add(-p.Window), now.Add(p.Window), p.MaxFailures, _maxFailedLogins), &u); err != nil {
+			return err
+		}
+
+		if u.Status != entity.UserLocked {
+			return nil
+		}
+
+		return temporarilyLocked(ctx, tx, u)
+	})
 	if err != nil {
 		return entity.User{}, err
 	}
 
 	return u, nil
+}
+
+// temporarilyLocked queues the SECURITY_LOCK e-mail (no token) and the ACCOUNT_TEMP_LOCKED audit entry.
+func temporarilyLocked(ctx context.Context, tx pgx.Tx, u entity.User) error {
+	err := addOutbox(ctx, tx, _aggregateUser, u.ID, events.TypeEmailRequested, events.EmailRequested{
+		UserID: u.ID, Email: u.Email, Username: u.Username, Purpose: events.EmailPurposeSecurityLock, Locale: u.Locale,
+	})
+	if err != nil {
+		return fmt.Errorf("UserRepo - RecordLoginFailure - %w", err)
+	}
+
+	meta := map[string]any{"failedLogins": u.FailedLogins}
+	if u.LockedUntil != nil {
+		meta["lockedUntil"] = u.LockedUntil.UTC().Format(time.RFC3339)
+	}
+
+	return addAudit(ctx, tx, u.ID, auditOf(nil, events.ActorSystem, _auditTempLocked, _resourceUser, &u.ID, meta))
 }
 
 // ResetLoginFailures -.
@@ -156,6 +187,8 @@ func (r *UserRepo) ResetLoginFailures(ctx context.Context, userID string, now ti
 			last_failed_login_at = NULL,
 			status = CASE WHEN status = 'LOCKED' AND locked_until <= $2 THEN 'ACTIVE' ELSE status END,
 			locked_until = CASE WHEN status = 'LOCKED' AND locked_until <= $2 THEN NULL ELSE locked_until END,
+			lock_kind = CASE WHEN status = 'LOCKED' AND locked_until <= $2 THEN NULL ELSE lock_kind END,
+			lock_reason = CASE WHEN status = 'LOCKED' AND locked_until <= $2 THEN NULL ELSE lock_reason END,
 			updated_at = $2
 		WHERE id = $1`, userID, now)
 	if err != nil {
@@ -170,7 +203,7 @@ func (r *UserRepo) UpdateProfile(ctx context.Context, userID string, p repo.Prof
 	var out entity.User
 
 	err := inTx(ctx, r.Pool, "UserRepo - UpdateProfile", func(tx pgx.Tx) error {
-		oldName, err := lockProfile(ctx, tx, userID, p)
+		old, err := lockProfile(ctx, tx, userID, p)
 		if err != nil {
 			return err
 		}
@@ -179,17 +212,22 @@ func (r *UserRepo) UpdateProfile(ctx context.Context, userID string, p repo.Prof
 			return perr
 		}
 
-		if p.DisplayName != nil && *p.DisplayName != oldName {
-			err = addOutbox(ctx, tx, _aggregateUser, userID, events.TypeUserProfileUpdated,
-				events.UserProfileUpdated{UserID: userID, DisplayName: *p.DisplayName})
-			if err != nil {
-				return fmt.Errorf("UserRepo - UpdateProfile - %w", err)
-			}
+		if out, err = getUser(ctx, tx, `u.id = $1`, userID); err != nil {
+			return err
 		}
 
-		out, err = getUser(ctx, tx, `u.id = $1`, userID)
+		if old == (profileNames{out.DisplayName, out.Locale, out.Timezone}) {
+			return nil
+		}
 
-		return err
+		err = addOutbox(ctx, tx, _aggregateUser, userID, events.TypeUserProfileUpdated, events.UserProfileUpdated{
+			UserID: userID, DisplayName: out.DisplayName, Locale: out.Locale, Timezone: out.Timezone,
+		})
+		if err != nil {
+			return fmt.Errorf("UserRepo - UpdateProfile - %w", err)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return entity.User{}, err
@@ -198,29 +236,34 @@ func (r *UserRepo) UpdateProfile(ctx context.Context, userID string, p repo.Prof
 	return out, nil
 }
 
+// profileNames are the fields user.profile_updated carries.
+type profileNames struct {
+	displayName, locale, timezone string
+}
+
 // lockProfile locks the user row, enforces that a birth date is set only once and returns the current
-// display name.
-func lockProfile(ctx context.Context, tx pgx.Tx, userID string, p repo.ProfilePatch) (string, error) {
+// display name, locale and time zone.
+func lockProfile(ctx context.Context, tx pgx.Tx, userID string, p repo.ProfilePatch) (profileNames, error) {
 	var (
-		name      string
+		cur       profileNames
 		birthDate *time.Time
 	)
 
-	err := tx.QueryRow(ctx, `SELECT display_name, birth_date FROM users WHERE id = $1 FOR UPDATE`, userID).
-		Scan(&name, &birthDate)
+	err := tx.QueryRow(ctx, `SELECT display_name, locale, timezone, birth_date FROM users WHERE id = $1 FOR UPDATE`, userID).
+		Scan(&cur.displayName, &cur.locale, &cur.timezone, &birthDate)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", entity.ErrUserNotFound
+		return profileNames{}, entity.ErrUserNotFound
 	}
 
 	if err != nil {
-		return "", fmt.Errorf("UserRepo - UpdateProfile - select: %w", err)
+		return profileNames{}, fmt.Errorf("UserRepo - UpdateProfile - select: %w", err)
 	}
 
 	if p.BirthDate != nil && birthDate != nil {
-		return "", entity.ErrBirthDateAlreadySet
+		return profileNames{}, entity.ErrBirthDateAlreadySet
 	}
 
-	return name, nil
+	return cur, nil
 }
 
 func applyProfile(ctx context.Context, tx pgx.Tx, userID string, p repo.ProfilePatch, now time.Time) error {
@@ -263,7 +306,7 @@ func (r *UserRepo) ChangePassword(ctx context.Context, userID, passwordHash stri
 			return fmt.Errorf("UserRepo - ChangePassword - insert session: %w", err)
 		}
 
-		return nil
+		return addAudit(ctx, tx, userID, auditOf(&userID, events.ActorUser, _auditPasswordChanged, _resourceUser, &userID, nil))
 	})
 }
 
@@ -293,15 +336,22 @@ func setPassword(ctx context.Context, tx pgx.Tx, userID, passwordHash string, no
 func (r *UserRepo) PromoteAdmin(ctx context.Context, email string) (entity.User, error) {
 	var id string
 
-	err := r.Pool.QueryRow(ctx,
-		`UPDATE users SET global_role = $2, updated_at = now() WHERE email = $1::citext RETURNING id`,
-		email, entity.RoleAdmin).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return entity.User{}, entity.ErrUserNotFound
-	}
+	err := inTx(ctx, r.Pool, "UserRepo - PromoteAdmin", func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`UPDATE users SET global_role = $2, updated_at = now() WHERE email = $1::citext RETURNING id`,
+			email, entity.RoleAdmin).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return entity.ErrUserNotFound
+		}
 
+		if err != nil {
+			return fmt.Errorf("UserRepo - PromoteAdmin - update: %w", err)
+		}
+
+		return addAudit(ctx, tx, id, auditOf(nil, events.ActorSystem, _auditAdminPromoted, _resourceUser, &id, nil))
+	})
 	if err != nil {
-		return entity.User{}, fmt.Errorf("UserRepo - PromoteAdmin - update: %w", err)
+		return entity.User{}, err
 	}
 
 	return r.GetByID(ctx, id)
@@ -330,8 +380,8 @@ func scanUser(row pgx.Row, u *entity.User, extra ...any) error {
 
 	dest := append([]any{
 		&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.EmailVerifiedAt, &u.BirthDate,
-		&u.Locale, &u.Timezone, &u.GlobalRole, &status, &u.LockedUntil, &u.FailedLogins, &u.LastFailedLoginAt,
-		&prefs, &u.CreatedAt, &u.UpdatedAt, &u.ChannelID,
+		&u.Locale, &u.Timezone, &u.GlobalRole, &status, &u.LockedUntil, &u.LockKind, &u.LockReason, &u.FailedLogins,
+		&u.LastFailedLoginAt, &prefs, &u.CreatedAt, &u.UpdatedAt, &u.ChannelID,
 	}, extra...)
 
 	err := row.Scan(dest...)

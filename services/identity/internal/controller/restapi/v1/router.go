@@ -12,6 +12,8 @@ import (
 type Deps struct {
 	Auth         usecase.Auth
 	Creator      usecase.Creator
+	Blocks       usecase.Blocks
+	AdminUsers   usecase.AdminUsers
 	Signer       *jwt.EdDSA
 	Logger       logger.Interface
 	CookieSecure bool
@@ -19,7 +21,7 @@ type Deps struct {
 
 // NewRoutes registers every /v1 route of identity-svc.
 func NewRoutes(group fiber.Router, d Deps) {
-	r := &V1{auth: d.Auth, creator: d.Creator, jwks: d.Signer.JWKS(), l: d.Logger, v: NewValidator(), cookieSecure: d.CookieSecure}
+	r := &V1{auth: d.Auth, creator: d.Creator, blocks: d.Blocks, adminUsers: d.AdminUsers, jwks: d.Signer.JWKS(), l: d.Logger, v: NewValidator(), cookieSecure: d.CookieSecure}
 	authn := middleware.Auth(d.Signer)
 
 	auth := group.Group("/auth")
@@ -41,6 +43,9 @@ func NewRoutes(group fiber.Router, d Deps) {
 		me.Get("", authn, r.getMe)
 		me.Patch("", authn, r.updateMe)
 		me.Post("/password", authn, r.changePassword)
+		me.Get("/blocks", authn, r.listBlocks)
+		me.Put("/blocks/:userId", authn, r.block)
+		me.Delete("/blocks/:userId", authn, r.unblock)
 	}
 
 	apps := group.Group("/creator-applications")
@@ -58,4 +63,6 @@ func NewRoutes(group fiber.Router, d Deps) {
 		admin.Post("/:id/approve", authn, adminOnly, r.approveApplication)
 		admin.Post("/:id/reject", authn, adminOnly, r.rejectApplication)
 	}
+
+	group.Get("/admin/users/:id", authn, adminOnly, r.adminUser)
 }

@@ -11,6 +11,8 @@ import (
 type V1 struct {
 	auth         usecase.Auth
 	creator      usecase.Creator
+	blocks       usecase.Blocks
+	adminUsers   usecase.AdminUsers
 	jwks         jwt.JWKS
 	l            logger.Interface
 	v            *validator.Validate

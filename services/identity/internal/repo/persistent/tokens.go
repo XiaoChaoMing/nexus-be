@@ -189,19 +189,20 @@ func (r *TokenRepo) ResetPassword(ctx context.Context, tokenHash, passwordHash s
 			return err
 		}
 
-		// Lifts a temporary lock only; an admin lock (locked_until NULL) stays.
+		// Lifts a failed-login lock only; an admin lock stays.
 		_, err = tx.Exec(ctx, `UPDATE users SET
 				failed_logins = 0,
 				last_failed_login_at = NULL,
-				status = CASE WHEN status = 'LOCKED' AND locked_until IS NOT NULL THEN 'ACTIVE' ELSE status END,
-				locked_until = CASE WHEN status = 'LOCKED' AND locked_until IS NOT NULL THEN NULL ELSE locked_until END,
+				status = CASE WHEN lock_kind = 'FAILED_LOGIN' THEN 'ACTIVE' ELSE status END,
+				locked_until = CASE WHEN lock_kind = 'FAILED_LOGIN' THEN NULL ELSE locked_until END,
+				lock_kind = CASE WHEN lock_kind = 'FAILED_LOGIN' THEN NULL ELSE lock_kind END,
 				updated_at = $2
 			WHERE id = $1`, userID, now)
 		if err != nil {
 			return fmt.Errorf("TokenRepo - ResetPassword - users: %w", err)
 		}
 
-		return nil
+		return addAudit(ctx, tx, userID, auditOf(&userID, events.ActorUser, _auditPasswordReset, _resourceUser, &userID, nil))
 	})
 	if err != nil {
 		return "", err

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minhnn/nexuslive-be/pkg/events"
 )
 
 const (
@@ -19,6 +20,16 @@ const (
 
 	_aggregateUser        = "user"
 	_aggregateApplication = "creator_application"
+
+	// Audit actions of audit.recorded.v1 (GĐ5 TSD §6.5) and their resource types.
+	_auditTempLocked       = "ACCOUNT_TEMP_LOCKED"
+	_auditPasswordChanged  = "PASSWORD_CHANGED"
+	_auditPasswordReset    = "PASSWORD_RESET"
+	_auditCreatorApproved  = "CREATOR_APPROVED"
+	_auditCreatorRejected  = "CREATOR_REJECTED"
+	_auditAdminPromoted    = "ADMIN_PROMOTED"
+	_resourceUser          = "USER"
+	_resourceCreatorApplic = "CREATOR_APPLICATION"
 )
 
 func inTx(ctx context.Context, pool *pgxpool.Pool, op string, fn func(tx pgx.Tx) error) error {
@@ -64,4 +75,23 @@ func pgErrorCode(err error) (code, constraint string) {
 	}
 
 	return pgErr.Code, pgErr.ConstraintName
+}
+
+func auditOf(actorID *string, actorRole, action, resourceType string, resourceID *string, meta map[string]any) events.AuditRecorded {
+	if meta == nil {
+		meta = map[string]any{}
+	}
+
+	return events.AuditRecorded{
+		ActorID: actorID, ActorRole: actorRole, Action: action, ResourceType: resourceType, ResourceID: resourceID, Metadata: meta,
+	}
+}
+
+// addAudit queues audit.recorded.v1 for safety-svc's audit log in the caller's transaction.
+func addAudit(ctx context.Context, tx pgx.Tx, aggregateID string, a events.AuditRecorded) error {
+	if err := addOutbox(ctx, tx, _aggregateUser, aggregateID, events.TypeAuditRecorded, a); err != nil {
+		return fmt.Errorf("audit %s - %w", a.Action, err)
+	}
+
+	return nil
 }

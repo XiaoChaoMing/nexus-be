@@ -77,6 +77,9 @@ func sentinelMappings() []sentinelMapping {
 		{entity.ErrInvalidState, http.StatusConflict, CodeInvalidState, "application is no longer pending", nil},
 		{entity.ErrApplicationNotFound, http.StatusNotFound, CodeNotFound, "application not found", nil},
 		{entity.ErrSelfReview, http.StatusForbidden, CodeForbidden, "cannot review your own application", nil},
+		{entity.ErrNotFound, http.StatusNotFound, CodeNotFound, "user not found", nil},
+		{entity.ErrSelfBlock, http.StatusBadRequest, CodeValidationFailed, "cannot block yourself", map[string]string{"userId": _detailInvalid}},
+		{entity.ErrBlockLimit, http.StatusConflict, CodeConflict, "block limit reached", map[string]string{"limit": strconv.Itoa(entity.BlockMax)}},
 	}
 }
 

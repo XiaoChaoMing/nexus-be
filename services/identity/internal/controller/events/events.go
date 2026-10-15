@@ -25,9 +25,56 @@ const (
 
 var errBadPayload = errors.New("bad payload")
 
-// ChannelTypes are consumed by DurableChannels.
+// ChannelTypes are the channel events consumed by DurableChannels.
 func ChannelTypes() []string {
 	return []string{events.TypeChannelCreated}
+}
+
+// Types are every event consumed by DurableChannels: channels and safety-svc's account actions.
+func Types() []string {
+	return []string{events.TypeChannelCreated, events.TypeUserActioned}
+}
+
+// Handler routes the events of DurableChannels.
+func Handler(sync usecase.ChannelSync, mod usecase.Moderation) eventbus.Handler {
+	channels, safety := ChannelHandler(sync), SafetyHandler(mod)
+
+	return func(ctx context.Context, e eventbus.Event) error {
+		if e.Type == events.TypeUserActioned {
+			return safety(ctx, e)
+		}
+
+		return channels(ctx, e)
+	}
+}
+
+// SafetyHandler applies safety.user_actioned.v1 (lock / unlock).
+func SafetyHandler(mod usecase.Moderation) eventbus.Handler {
+	return func(ctx context.Context, e eventbus.Event) error {
+		if e.Type != events.TypeUserActioned {
+			return nil
+		}
+
+		var p events.UserActioned
+		if err := decode(e, &p); err != nil {
+			return err
+		}
+
+		// processed_events needs the event id to apply the action once.
+		if !isUUID(e.ID) || !isUUID(p.UserID) || !isUUID(p.ActionID) {
+			return skip(e, errBadPayload)
+		}
+
+		if p.Action != events.ActionLock && p.Action != events.ActionUnlock {
+			return skip(e, errBadPayload)
+		}
+
+		if p.LockedUntil != nil && p.LockedUntil.IsZero() {
+			p.LockedUntil = nil
+		}
+
+		return mod.Apply(ctx, e.ID, p)
+	}
 }
 
 // MailTypes are consumed by DurableMailer.
@@ -62,7 +109,8 @@ func ChannelHandler(sync usecase.ChannelSync) eventbus.Handler {
 	}
 }
 
-// MailHandler sends the requested e-mail; an SMTP failure returns an error so JetStream redelivers it.
+// MailHandler sends the requested e-mail; an SMTP failure returns an error so JetStream redelivers it. A
+// purpose it has no template for (SECURITY_LOCK, sent by notification-svc) is skipped.
 func MailHandler(mail usecase.Mail) eventbus.Handler {
 	return func(ctx context.Context, e eventbus.Event) error {
 		if e.Type != events.TypeEmailRequested {

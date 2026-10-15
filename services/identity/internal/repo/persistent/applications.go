@@ -201,7 +201,12 @@ func (r *ApplicationRepo) Approve(ctx context.Context, adminID, id string, now t
 			return fmt.Errorf("ApplicationRepo - Approve - update: %w", err)
 		}
 
-		return approved(ctx, tx, id, userID, birthDate, now)
+		if aerr := approved(ctx, tx, id, userID, birthDate, now); aerr != nil {
+			return aerr
+		}
+
+		return addAudit(ctx, tx, userID, auditOf(&adminID, events.ActorAdmin, _auditCreatorApproved, _resourceCreatorApplic, &id,
+			map[string]any{"userId": userID}))
 	})
 }
 
@@ -251,7 +256,10 @@ func (r *ApplicationRepo) Reject(ctx context.Context, adminID, id, reason string
 			return fmt.Errorf("ApplicationRepo - Reject - %w", err)
 		}
 
-		return nil
+		a := auditOf(&adminID, events.ActorAdmin, _auditCreatorRejected, _resourceCreatorApplic, &id, map[string]any{"userId": userID})
+		a.Reason = &reason
+
+		return addAudit(ctx, tx, userID, a)
 	})
 }
 

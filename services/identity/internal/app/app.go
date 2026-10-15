@@ -18,6 +18,7 @@ import (
 	"github.com/minhnn/nexuslive-be/pkg/postgres"
 	"github.com/minhnn/nexuslive-be/services/identity/config"
 	"github.com/minhnn/nexuslive-be/services/identity/internal/controller/events"
+	"github.com/minhnn/nexuslive-be/services/identity/internal/controller/internalapi"
 	"github.com/minhnn/nexuslive-be/services/identity/internal/controller/restapi"
 	v1 "github.com/minhnn/nexuslive-be/services/identity/internal/controller/restapi/v1"
 	"github.com/minhnn/nexuslive-be/services/identity/internal/entity"
@@ -26,6 +27,7 @@ import (
 	"github.com/minhnn/nexuslive-be/services/identity/internal/usecase/auth"
 	"github.com/minhnn/nexuslive-be/services/identity/internal/usecase/bootstrap"
 	"github.com/minhnn/nexuslive-be/services/identity/internal/usecase/creator"
+	"github.com/minhnn/nexuslive-be/services/identity/internal/usecase/moderation"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -39,13 +41,14 @@ const (
 
 // useCases are the wired application services.
 type useCases struct {
-	auth      *auth.UseCase
-	creator   *creator.UseCase
-	bootstrap *bootstrap.UseCase
+	auth       *auth.UseCase
+	creator    *creator.UseCase
+	bootstrap  *bootstrap.UseCase
+	moderation *moderation.UseCase
 }
 
 // Run creates objects via constructors.
-func Run(cfg *config.Config) {
+func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: one branch per fatal start-up error
 	l := logger.New(cfg.Log.Level)
 
 	signer, err := newSigner(cfg, l)
@@ -82,7 +85,7 @@ func Run(cfg *config.Config) {
 
 	go outbox.New(pg.Pool, bus, l).Run(ctx)
 
-	stopConsumers, err := startConsumers(ctx, cfg, bus, uc.creator, l)
+	stopConsumers, err := startConsumers(ctx, cfg, bus, uc, l)
 	if err != nil {
 		l.Fatal("identity - Run - startConsumers: %v", err)
 	}
@@ -94,10 +97,15 @@ func Run(cfg *config.Config) {
 	httpServer.App.Use(httpmetrics.New(reg))
 	httpServer.App.Get("/metrics", adaptor.HTTPHandler(promhttp.HandlerFor(reg, promhttp.HandlerOpts{})))
 	restapi.NewRouter(httpServer.App, v1.Deps{
-		Auth: uc.auth, Creator: uc.creator, Signer: signer, Logger: l, CookieSecure: cfg.Cookies.Secure,
+		Auth: uc.auth, Creator: uc.creator, Blocks: uc.moderation, AdminUsers: uc.moderation,
+		Signer: signer, Logger: l, CookieSecure: cfg.Cookies.Secure,
 	}, cfg.Swagger.Enabled)
 
+	internal := httpserver.New(l, httpserver.Port(cfg.HTTP.InternalPort))
+	internalapi.NewRouter(internal.App, uc.moderation, cfg.HTTP.InternalSecret, l)
+
 	httpServer.Start()
+	internal.Start()
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
@@ -107,10 +115,16 @@ func Run(cfg *config.Config) {
 		l.Info("identity - Run - signal: %s", s.String())
 	case err = <-httpServer.Notify():
 		l.Error("identity - Run - httpServer.Notify: %v", err)
+	case err = <-internal.Notify():
+		l.Error("identity - Run - internal.Notify: %v", err)
 	}
 
 	if err = httpServer.Shutdown(); err != nil {
 		l.Error("identity - Run - httpServer.Shutdown: %v", err)
+	}
+
+	if err = internal.Shutdown(); err != nil {
+		l.Error("identity - Run - internal.Shutdown: %v", err)
 	}
 }
 
@@ -172,6 +186,10 @@ func newUseCases(cfg *config.Config, pg *postgres.Postgres, signer *jwt.EdDSA, l
 			Location:             loc,
 		}, l),
 		bootstrap: bootstrap.New(persistent.NewSeedRepo(pg), users, hasher, l),
+		moderation: moderation.New(moderation.Repos{
+			Users: users, Blocks: persistent.NewBlockRepo(pg), Actions: persistent.NewModerationRepo(pg),
+			Snapshot: persistent.NewModerationRepo(pg),
+		}, l),
 	}, nil
 }
 
@@ -201,12 +219,12 @@ func seedDev(ctx context.Context, cfg *config.Config, uc *bootstrap.UseCase, l l
 	}
 }
 
-func startConsumers(ctx context.Context, cfg *config.Config, bus *eventbus.Bus, sync *creator.UseCase, l logger.Interface) (func(), error) {
+func startConsumers(ctx context.Context, cfg *config.Config, bus *eventbus.Bus, uc useCases, l logger.Interface) (func(), error) {
 	onErr := func(e eventbus.Event, herr error) {
 		l.Warn("identity - event %s %s: %v", e.Type, e.ID, herr)
 	}
 
-	stopChannels, err := bus.Consume(ctx, events.DurableChannels, events.ChannelTypes(), events.ChannelHandler(sync), onErr)
+	stopChannels, err := bus.Consume(ctx, events.DurableChannels, events.Types(), events.Handler(uc.creator, uc.moderation), onErr)
 	if err != nil {
 		return nil, err
 	}

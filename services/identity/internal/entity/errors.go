@@ -50,6 +50,12 @@ var (
 	ErrSelfReview = errors.New("cannot review own application")
 	// ErrInvalidCursor -.
 	ErrInvalidCursor = errors.New("invalid cursor")
+	// ErrNotFound: the user a request targets (block, admin lookup) does not exist or was deleted.
+	ErrNotFound = errors.New("not found")
+	// ErrSelfBlock: a user cannot block themselves.
+	ErrSelfBlock = errors.New("cannot block yourself")
+	// ErrBlockLimit: the user already blocks BlockMax accounts.
+	ErrBlockLimit = errors.New("block limit reached")
 	// ErrChannelTaken: the channel id is already recorded for another user.
 	ErrChannelTaken = errors.New("channel already recorded for another user")
 )
