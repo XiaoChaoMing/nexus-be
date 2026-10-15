@@ -463,6 +463,7 @@ func (r *Repo) AnnounceDue(ctx context.Context, until time.Time, batch int,
 			`SELECT `+_scheduleCols+` FROM schedules
 			 WHERE status = 'ACTIVE' AND (upcoming_notified_until IS NULL OR upcoming_notified_until < $1)
 			   AND (last_occurrence_at IS NULL OR last_occurrence_at > now())
+			   AND channel_id IN (SELECT id FROM channels WHERE status = 'ACTIVE')
 			 ORDER BY upcoming_notified_until NULLS FIRST, id
 			 LIMIT $2 FOR UPDATE SKIP LOCKED`, until, batch)
 		if err != nil {

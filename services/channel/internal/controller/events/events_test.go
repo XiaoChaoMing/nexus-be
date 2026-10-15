@@ -2,6 +2,7 @@ package events_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -74,7 +75,7 @@ func TestHandlerDecodes(t *testing.T) {
 	t.Parallel()
 
 	rec := &recSync{}
-	h := events.Handler(rec)
+	h := events.Handler(rec, nil)
 	ctx := context.Background()
 	user, ch, st, cat, vod := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 
@@ -138,9 +139,65 @@ func TestHandlerSkipsBadPayloads(t *testing.T) {
 			t.Parallel()
 
 			rec := &recSync{}
-			err := events.Handler(rec)(context.Background(), tc.e)
+			err := events.Handler(rec, nil)(context.Background(), tc.e)
 			require.ErrorIs(t, err, eventbus.ErrSkip)
 			require.True(t, rec.empty())
 		})
 	}
+}
+
+type recSafety struct {
+	got []pkgevents.ChannelActioned
+}
+
+func (r *recSafety) ChannelActioned(_ context.Context, _ string, e pkgevents.ChannelActioned) error {
+	r.got = append(r.got, e)
+
+	return nil
+}
+
+func TestChannelActioned(t *testing.T) {
+	t.Parallel()
+
+	good := pkgevents.ChannelActioned{ActionID: uuid.NewString(), ChannelID: uuid.NewString(), Action: pkgevents.ActionSuspend, Reason: "spam"}
+
+	for _, tc := range []struct {
+		name string
+		id   string
+		p    pkgevents.ChannelActioned
+		skip bool
+	}{
+		{name: "suspend", id: uuid.NewString(), p: good},
+		{name: "unknown action", id: uuid.NewString(), p: pkgevents.ChannelActioned{ActionID: good.ActionID, ChannelID: good.ChannelID, Action: "BAN"}, skip: true},
+		{name: "no event id", p: good, skip: true},
+		{name: "bad channel", id: uuid.NewString(), p: pkgevents.ChannelActioned{ActionID: good.ActionID, ChannelID: "x", Action: pkgevents.ActionRestore}, skip: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := &recSafety{}
+			err := events.Handler(&recSync{}, rec)(context.Background(), eventbus.Event{
+				ID: tc.id, Type: pkgevents.TypeChannelActioned, Payload: mustJSON(t, tc.p),
+			})
+
+			if tc.skip {
+				require.ErrorIs(t, err, eventbus.ErrSkip)
+				require.Empty(t, rec.got)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, rec.got, 1)
+		})
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+
+	return b
 }

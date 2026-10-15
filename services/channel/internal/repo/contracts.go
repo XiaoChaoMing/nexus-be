@@ -39,6 +39,22 @@ type (
 		LiveStreamIDs(ctx context.Context) ([]string, error)
 	}
 
+	// SafetyRepo applies safety-svc's channel actions.
+	SafetyRepo interface {
+		// SetStatus suspends or restores the channel once per event id, keeps its search documents in step
+		// (removed while suspended, the channel's own restored) and queues channel.suspended / channel.restored;
+		// changed is false when the channel was already in that state (or does not exist).
+		SetStatus(ctx context.Context, eventID string, c entity.StatusChange) (changed bool, err error)
+	}
+
+	// SnapshotRepo pages through channels and follows for other services' one-off backfill (internal API).
+	SnapshotRepo interface {
+		// Channels returns up to limit channels with id > after, ordered by id.
+		Channels(ctx context.Context, after string, limit int) ([]entity.ChannelCopy, error)
+		// Follows returns up to limit follows after the (user, channel) position, ordered by it.
+		Follows(ctx context.Context, after *entity.FollowCopy, limit int) ([]entity.FollowCopy, error)
+	}
+
 	// FollowRepo stores follows; changes queue follow.* in the same transaction.
 	FollowRepo interface {
 		// Follow is idempotent: created is false (and nothing is queued) when the user already follows.

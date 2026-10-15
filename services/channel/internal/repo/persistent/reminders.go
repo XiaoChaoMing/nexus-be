@@ -127,6 +127,8 @@ func (r *Repo) MarkDue(ctx context.Context, lead time.Duration, batch int) (int,
 			 )
 			 SELECT m.schedule_id::text, s.channel_id::text, s.title, m.occurrence_at, array_agg(m.user_id::text ORDER BY m.user_id)
 			 FROM marked m JOIN schedules s ON s.id = m.schedule_id
+			 -- Reminders of a suspended channel are consumed without a notification.
+			 JOIN channels c ON c.id = s.channel_id AND c.status = 'ACTIVE'
 			 GROUP BY m.schedule_id, s.channel_id, s.title, m.occurrence_at`, lead.Seconds(), batch)
 		if err != nil {
 			return fmt.Errorf("Repo - MarkDue: %w", err)

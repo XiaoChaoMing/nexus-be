@@ -25,8 +25,9 @@ import (
 var errDB = errors.New("db down")
 
 const (
-	_channelID = "0199c0de-0000-7000-8000-000000000001"
-	_userID    = "0199c0de-0000-7000-8000-0000000000aa"
+	_channelID     = "0199c0de-0000-7000-8000-000000000001"
+	_userID        = "0199c0de-0000-7000-8000-0000000000aa"
+	_suspendedUser = "0199c0de-0000-7000-8000-0000000000bb"
 )
 
 type fakeUC struct {
@@ -55,6 +56,15 @@ func (fakeUC) Profile(_ context.Context, handle, _ string) (entity.Profile, erro
 	}
 
 	return entity.Profile{}, entity.ErrNotFound
+}
+
+func (fakeUC) Channel(_ context.Context, ownerID string) (entity.Channel, error) {
+	status := entity.StatusActive
+	if ownerID == _suspendedUser {
+		status = entity.StatusSuspended
+	}
+
+	return entity.Channel{ID: _channelID, OwnerID: ownerID, Handle: "minhnn", DisplayName: "Minh", Status: status}, nil
 }
 
 func (fakeUC) Follow(_ context.Context, userID, channelID string) (entity.Follow, error) {
@@ -248,6 +258,14 @@ func TestRoutes(t *testing.T) { //nolint:funlen // one table of routes
 			status: http.StatusBadRequest, code: entity.CodeValidationFailed, details: map[string]string{"occurrenceAt": entity.DetailFormat},
 		},
 		{name: "studio guest", method: http.MethodGet, path: "/v1/studio/channel", status: http.StatusUnauthorized, code: entity.CodeUnauthorized},
+		{
+			name: "suspended channel cannot write", method: http.MethodPatch, path: "/v1/studio/channel", user: _suspendedUser,
+			body: `{"displayName":"x"}`, status: http.StatusForbidden, code: entity.CodeChannelSuspended,
+		},
+		{
+			name: "suspended channel cannot schedule", method: http.MethodPost, path: "/v1/studio/schedules", user: _suspendedUser,
+			body: `{}`, status: http.StatusForbidden, code: entity.CodeChannelSuspended,
+		},
 		{
 			name: "handle taken", method: http.MethodPatch, path: "/v1/studio/channel", user: _userID, body: `{"handle":"taken"}`,
 			status: http.StatusConflict, code: entity.CodeHandleTaken, details: map[string]string{"handle": entity.DetailTaken},

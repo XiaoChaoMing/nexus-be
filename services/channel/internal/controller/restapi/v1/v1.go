@@ -77,7 +77,7 @@ func NewRoutes(group fiber.Router, uc UseCases, auth Auth, o Options, l logger.I
 	group.Post("/schedules/:id/reminders", auth.Required, r.remind)
 	group.Delete("/schedules/:id/reminders", auth.Required, r.unremind)
 
-	st := group.Group("/studio", auth.Required)
+	st := group.Group("/studio", auth.Required, r.refuseSuspendedWrites)
 	{
 		st.Get("/channel/stats", r.stats)
 		st.Get("/channel", r.studioChannel)
@@ -174,4 +174,24 @@ func idParam(ctx *fiber.Ctx) (string, bool) {
 	}
 
 	return u.String(), true
+}
+
+// refuseSuspendedWrites answers 403 CHANNEL_SUSPENDED to every Studio change of a suspended channel; reading
+// the Studio stays open. A caller without a channel goes on to the handler's NOT_CREATOR.
+func (r *routes) refuseSuspendedWrites(ctx *fiber.Ctx) error {
+	if ctx.Method() == fiber.MethodGet || ctx.Method() == fiber.MethodHead {
+		return ctx.Next()
+	}
+
+	userID, ok := middleware.UserID(ctx)
+	if !ok {
+		return ctx.Next()
+	}
+
+	ch, err := r.uc.Studio.Channel(ctx.UserContext(), userID)
+	if err == nil && ch.Suspended() {
+		return r.fail(ctx, "studio", entity.ErrSuspended)
+	}
+
+	return ctx.Next()
 }

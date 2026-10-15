@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -38,6 +39,9 @@ type (
 	// HTTP -.
 	HTTP struct {
 		Port string `env:"CHANNEL_HTTP_PORT" envDefault:"8094"`
+		// Internal API (channel and follow snapshots for other services); reachable only inside the Docker network.
+		InternalPort   string `env:"CHANNEL_INTERNAL_PORT" envDefault:"8088"`
+		InternalSecret string `env:"NXL_INTERNAL_SECRET"`
 	}
 
 	// Log -.
@@ -101,11 +105,25 @@ type (
 	}
 )
 
+// ErrInternalSecretRequired -.
+var ErrInternalSecretRequired = errors.New("NXL_INTERNAL_SECRET is required outside dev")
+
+// _devInternalSecret keeps `make nxl-up` working without an .env; refused outside dev.
+const _devInternalSecret = "dev-internal-secret" //nolint:gosec // dev-only default, refused outside dev
+
 // NewConfig returns app config.
 func NewConfig() (*Config, error) {
 	cfg := &Config{}
 	if err := env.Parse(cfg); err != nil {
 		return nil, fmt.Errorf("config error: %w", err)
+	}
+
+	if cfg.HTTP.InternalSecret == "" {
+		if cfg.App.Env != "dev" {
+			return nil, fmt.Errorf("config error: %w", ErrInternalSecretRequired)
+		}
+
+		cfg.HTTP.InternalSecret = _devInternalSecret
 	}
 
 	return cfg, nil

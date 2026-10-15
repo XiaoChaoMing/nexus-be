@@ -34,6 +34,8 @@ var (
 	ErrScheduleLimit = errors.New("too many active schedules")
 	// ErrInvalidState: the transition is not allowed in the current state.
 	ErrInvalidState = errors.New("invalid state")
+	// ErrInvalidCursor: a snapshot cursor that this service never returned.
+	ErrInvalidCursor = errors.New("invalid cursor")
 )
 
 // Error codes of NXL-00 §5 returned by channel-svc.

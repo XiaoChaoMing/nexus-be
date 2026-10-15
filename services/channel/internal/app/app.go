@@ -19,6 +19,7 @@ import (
 	"github.com/minhnn/nexuslive-be/pkg/redis"
 	"github.com/minhnn/nexuslive-be/services/channel/config"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/controller/events"
+	"github.com/minhnn/nexuslive-be/services/channel/internal/controller/internalapi"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/controller/restapi"
 	v1 "github.com/minhnn/nexuslive-be/services/channel/internal/controller/restapi/v1"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/imaging"
@@ -29,6 +30,7 @@ import (
 	"github.com/minhnn/nexuslive-be/services/channel/internal/repo/viewers"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/usecase/channels"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/usecase/enrich"
+	"github.com/minhnn/nexuslive-be/services/channel/internal/usecase/safety"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/usecase/schedules"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/usecase/search"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/usecase/studio"
@@ -48,6 +50,7 @@ type useCases struct {
 	studio    *studio.UseCase
 	search    *search.UseCase
 	schedules *schedules.UseCase
+	safety    *safety.UseCase
 }
 
 // Run creates objects via constructors.
@@ -115,7 +118,7 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	// Outgoing events leave through the outbox.
 	go outbox.New(pg.Pool, bus, l).Run(ctx)
 
-	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc.channels), func(e eventbus.Event, herr error) {
+	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc.channels, uc.safety), func(e eventbus.Event, herr error) {
 		l.Warn("channel - event %s %s: %v", e.Type, e.ID, herr)
 	})
 	if err != nil {
@@ -137,9 +140,13 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	}, l, cfg.Swagger.Enabled)
 	public.App.Get("/metrics", adaptor.HTTPHandler(m.Handler()))
 
-	public.Start()
+	internal := httpserver.New(l, httpserver.Port(cfg.HTTP.InternalPort))
+	internalapi.NewRouter(internal.App, uc.safety, cfg.HTTP.InternalSecret, l)
 
-	l.Info("channel - Run - public :%s", cfg.HTTP.Port)
+	public.Start()
+	internal.Start()
+
+	l.Info("channel - Run - public :%s, internal :%s", cfg.HTTP.Port, cfg.HTTP.InternalPort)
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
@@ -149,12 +156,18 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 		l.Info("channel - Run - signal: %s", s.String())
 	case err = <-public.Notify():
 		l.Error("channel - Run - public server: %v", err)
+	case err = <-internal.Notify():
+		l.Error("channel - Run - internal server: %v", err)
 	}
 
 	cancel()
 
 	if err = public.Shutdown(); err != nil {
 		l.Error("channel - Run - public shutdown: %v", err)
+	}
+
+	if err = internal.Shutdown(); err != nil {
+		l.Error("channel - Run - internal shutdown: %v", err)
 	}
 }
 
@@ -175,6 +188,7 @@ func wire(cfg *config.Config, store *persistent.Repo, objs repo.ObjectStore, cou
 			Horizon:              cfg.Schedule.Horizon,
 		}, l),
 		search: search.New(store, store, e, l),
+		safety: safety.New(store, store, l),
 		schedules: schedules.New(schedules.Repos{
 			Channels: store, Schedules: store, Reminders: store, Categories: store,
 		}, e, schedules.Config{

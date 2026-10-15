@@ -22,6 +22,7 @@ const Durable = "channel-svc"
 var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeCreatorApproved, events.TypeStreamStarted, events.TypeStreamUpdated, events.TypeStreamEnded,
 	events.TypeStreamScheduled, events.TypeStreamVODReady, events.TypeVODUpdated, events.TypeVODDeleted,
+	events.TypeChannelActioned,
 }
 
 // _vodReady is the VOD status that can be shown publicly.
@@ -30,10 +31,11 @@ const (
 	_vodPublic = "PUBLIC"
 )
 
-// Handler routes one event to the sync use case.
-func Handler(sync usecase.Sync) eventbus.Handler {
+// Handler routes one event to the sync or safety use case.
+func Handler(sync usecase.Sync, safety usecase.Safety) eventbus.Handler {
 	handlers := map[string]eventbus.Handler{
 		events.TypeCreatorApproved: onCreatorApproved(sync),
+		events.TypeChannelActioned: onChannelActioned(safety),
 		events.TypeStreamStarted: handle(func(p events.StreamStarted) []string { return []string{p.StreamID, p.ChannelID} },
 			func(ctx context.Context, id string, p events.StreamStarted) error {
 				return sync.StreamStarted(ctx, id, liveOf(p.StreamID, p.ChannelID, p.Title, p.CategoryID, p.Tags, p.Language,
@@ -170,5 +172,17 @@ func onCreatorApproved(sync usecase.Sync) eventbus.Handler {
 			}
 
 			return sync.CreatorApproved(ctx, id, usecase.CreatorApproved{UserID: p.UserID, Username: p.Username, DisplayName: p.DisplayName})
+		})
+}
+
+// onChannelActioned needs the event id: processed_events applies the action once.
+func onChannelActioned(safety usecase.Safety) eventbus.Handler {
+	return handle(func(p events.ChannelActioned) []string { return []string{p.ChannelID, p.ActionID} },
+		func(ctx context.Context, id string, p events.ChannelActioned) error {
+			if id == "" || (p.Action != events.ActionSuspend && p.Action != events.ActionRestore) {
+				return fmt.Errorf("%w: %s: bad action or event id", eventbus.ErrSkip, events.TypeChannelActioned)
+			}
+
+			return safety.ChannelActioned(ctx, id, p)
 		})
 }

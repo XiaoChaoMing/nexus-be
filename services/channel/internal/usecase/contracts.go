@@ -83,6 +83,18 @@ type (
 		VODDeleted(ctx context.Context, eventID, vodID string) error
 	}
 
+	// Safety applies safety-svc's channel actions (safety.channel_actioned.v1); idempotent on eventID.
+	Safety interface {
+		ChannelActioned(ctx context.Context, eventID string, e events.ChannelActioned) error
+	}
+
+	// Snapshot pages through channels and follows for other services' backfill (internal API). after is the
+	// nextAfter of the previous page ("" = first); the returned next is "" on the last page.
+	Snapshot interface {
+		Channels(ctx context.Context, after string, limit int) (items []entity.ChannelCopy, next string, err error)
+		Follows(ctx context.Context, after string, limit int) (items []entity.FollowCopy, next string, err error)
+	}
+
 	// Jobs run in the background (app.go tickers).
 	Jobs interface {
 		// AnnounceUpcoming queues schedule.occurrence_upcoming for occurrences within the upcoming lead.
