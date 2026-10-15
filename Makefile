@@ -11,7 +11,7 @@ BASE_STACK = docker compose -f docker-compose.yml
 ALL_PROFILES = --profile nxl --profile obs
 
 # Go modules of the workspace (go.work). Add a service here when it gets its own module.
-NXL_GO_MODULES := . services/identity services/channel services/stream services/media services/chat
+NXL_GO_MODULES := . services/identity services/channel services/stream services/media services/chat services/safety
 # -race needs cgo (gcc). Without a C compiler on Windows: make nxl-test NXL_TEST_FLAGS=
 NXL_TEST_FLAGS ?= -race
 
@@ -61,7 +61,7 @@ nxl-lint: ### golangci-lint on every Go module of the workspace
 	$(foreach m,$(NXL_GO_MODULES),go -C $(m) tool golangci-lint run ./...$(nl))
 .PHONY: nxl-lint
 
-nxl-test: ### unit tests of every Go module; repository tests also need NXL_TEST_PG_URL_<SVC> (stream, channel, chat), Redis tests NXL_TEST_REDIS_ADDR
+nxl-test: ### unit tests of every Go module; repository tests also need NXL_TEST_PG_URL_<SVC> (stream, channel, chat, identity, safety), Redis tests NXL_TEST_REDIS_ADDR
 	$(foreach m,$(NXL_GO_MODULES),go -C $(m) test $(NXL_TEST_FLAGS) -covermode atomic ./...$(nl))
 .PHONY: nxl-test
 
@@ -177,8 +177,8 @@ nxl-bench: ### transcode load test through the edge: make nxl-bench COUNTS="1 2 
 	COUNTS="$(or $(COUNTS),1 2 3)" bash scripts/bench-transcode.sh
 .PHONY: nxl-bench
 
-nxl-swag: ### regenerate Swagger specs of identity-svc, channel-svc, stream-svc and chat-svc (runs swag in Docker, no local Go needed)
-	docker run --rm -v "$(CURDIR):/src" -w /src golang:1.27-alpine3.23 sh -c 'for s in identity channel stream chat; do \
+nxl-swag: ### regenerate Swagger specs of identity-svc, channel-svc, stream-svc, chat-svc and safety-svc (runs swag in Docker, no local Go needed)
+	docker run --rm -v "$(CURDIR):/src" -w /src golang:1.27-alpine3.23 sh -c 'for s in identity channel stream chat safety; do \
 		(cd services/$$s && go tool swag init -q -g internal/controller/restapi/router.go -o docs \
 			--parseInternal --parseDependency --parseDepth 2 --useStructName) || exit 1; done'
 .PHONY: nxl-swag

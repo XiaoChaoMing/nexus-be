@@ -1,0 +1,1100 @@
+basePath: /v1
+definitions:
+  ActionAccepted:
+    properties:
+      actionId:
+        type: string
+    type: object
+  ActionRequest:
+    properties:
+      reason:
+        type: string
+      reportId:
+        type: string
+    type: object
+  AdminAction:
+    properties:
+      admin:
+        $ref: '#/definitions/Ref'
+      createdAt:
+        type: string
+      expiresAt:
+        type: string
+      id:
+        type: string
+      reason:
+        type: string
+      reportId:
+        type: string
+      targetId:
+        type: string
+      targetType:
+        enum:
+        - USER
+        - CHANNEL
+        - STREAM
+        type: string
+      type:
+        enum:
+        - LOCK_USER
+        - UNLOCK_USER
+        - SUSPEND_CHANNEL
+        - RESTORE_CHANNEL
+        - TAKEDOWN_STREAM
+        type: string
+    type: object
+  AdminChannel:
+    properties:
+      avatarUrl:
+        type: string
+      currentStreamId:
+        type: string
+      displayName:
+        type: string
+      handle:
+        type: string
+      id:
+        type: string
+      openReports:
+        type: integer
+      owner:
+        $ref: '#/definitions/Ref'
+      status:
+        enum:
+        - ACTIVE
+        - SUSPENDED
+        type: string
+      suspendedAt:
+        type: string
+    type: object
+  AdminReport:
+    properties:
+      assignedTo:
+        $ref: '#/definitions/Ref'
+      createdAt:
+        type: string
+      id:
+        type: string
+      reason:
+        type: string
+      reporter:
+        $ref: '#/definitions/Ref'
+      sameTargetCount:
+        type: integer
+      status:
+        enum:
+        - OPEN
+        - IN_REVIEW
+        - RESOLVED
+        - DISMISSED
+        type: string
+      target:
+        $ref: '#/definitions/Target'
+      targetType:
+        enum:
+        - USER
+        - CHANNEL
+        - STREAM
+        - MESSAGE
+        type: string
+    type: object
+  AdminReportDetail:
+    properties:
+      actions:
+        items:
+          $ref: '#/definitions/AdminAction'
+        type: array
+      assignedTo:
+        $ref: '#/definitions/Ref'
+      createdAt:
+        type: string
+      evidence:
+        items:
+          $ref: '#/definitions/EvidenceItem'
+        type: array
+      evidenceStatus:
+        enum:
+        - CAPTURED
+        - NONE
+        - UNAVAILABLE
+        type: string
+      id:
+        type: string
+      note:
+        type: string
+      reason:
+        type: string
+      relatedReports:
+        items:
+          $ref: '#/definitions/AdminReport'
+        type: array
+      reporter:
+        $ref: '#/definitions/Ref'
+      resolutionNote:
+        type: string
+      resolvedAt:
+        type: string
+      resolvedBy:
+        $ref: '#/definitions/Ref'
+      sameTargetCount:
+        type: integer
+      status:
+        enum:
+        - OPEN
+        - IN_REVIEW
+        - RESOLVED
+        - DISMISSED
+        type: string
+      streamId:
+        type: string
+      target:
+        $ref: '#/definitions/Target'
+      targetType:
+        enum:
+        - USER
+        - CHANNEL
+        - STREAM
+        - MESSAGE
+        type: string
+    type: object
+  AdminUserRow:
+    properties:
+      displayName:
+        type: string
+      globalRole:
+        enum:
+        - USER
+        - ADMIN
+        type: string
+      id:
+        type: string
+      lockedUntil:
+        type: string
+      openReports:
+        type: integer
+      status:
+        enum:
+        - ACTIVE
+        - LOCKED
+        - DELETED
+        type: string
+      username:
+        type: string
+    type: object
+  AuditEntry:
+    properties:
+      action:
+        type: string
+      actor:
+        $ref: '#/definitions/Ref'
+      actorRole:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      reason:
+        type: string
+      resourceId:
+        type: string
+      resourceType:
+        type: string
+      sourceService:
+        type: string
+    type: object
+  AuditList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/AuditEntry'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  ChannelList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/AdminChannel'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Data-AdminChannel:
+    properties:
+      data:
+        $ref: '#/definitions/AdminChannel'
+    type: object
+  Data-AdminReport:
+    properties:
+      data:
+        $ref: '#/definitions/AdminReport'
+    type: object
+  Data-internal_controller_restapi_v1_ActionAccepted:
+    properties:
+      data:
+        $ref: '#/definitions/ActionAccepted'
+    type: object
+  Data-internal_controller_restapi_v1_AdminReportDetail:
+    properties:
+      data:
+        $ref: '#/definitions/AdminReportDetail'
+    type: object
+  Data-internal_controller_restapi_v1_AuditList:
+    properties:
+      data:
+        $ref: '#/definitions/AuditList'
+    type: object
+  Data-internal_controller_restapi_v1_ChannelList:
+    properties:
+      data:
+        $ref: '#/definitions/ChannelList'
+    type: object
+  Data-internal_controller_restapi_v1_OpenCount:
+    properties:
+      data:
+        $ref: '#/definitions/OpenCount'
+    type: object
+  Data-internal_controller_restapi_v1_ReportCreated:
+    properties:
+      data:
+        $ref: '#/definitions/ReportCreated'
+    type: object
+  Data-internal_controller_restapi_v1_ReportList:
+    properties:
+      data:
+        $ref: '#/definitions/ReportList'
+    type: object
+  Data-internal_controller_restapi_v1_Resolved:
+    properties:
+      data:
+        $ref: '#/definitions/Resolved'
+    type: object
+  Data-internal_controller_restapi_v1_UserList:
+    properties:
+      data:
+        $ref: '#/definitions/UserList'
+    type: object
+  ErrorBody:
+    properties:
+      code:
+        type: string
+      details:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        type: string
+    type: object
+  ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/ErrorBody'
+    type: object
+  EvidenceItem:
+    properties:
+      body:
+        type: string
+      createdAt:
+        type: string
+      deleted:
+        type: boolean
+      fragments:
+        items:
+          type: object
+        type: array
+      messageId:
+        type: string
+      userId:
+        type: string
+    type: object
+  LockRequest:
+    properties:
+      durationHours:
+        enum:
+        - 24
+        - 168
+        - 720
+        type: integer
+      reason:
+        type: string
+      reportId:
+        type: string
+    type: object
+  OpenCount:
+    properties:
+      inReview:
+        type: integer
+      open:
+        type: integer
+    type: object
+  Ref:
+    properties:
+      id:
+        type: string
+      username:
+        type: string
+    type: object
+  ReportCreated:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: string
+      status:
+        enum:
+        - OPEN
+        - IN_REVIEW
+        - RESOLVED
+        - DISMISSED
+        type: string
+    type: object
+  ReportList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/AdminReport'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  ReportRequest:
+    properties:
+      note:
+        type: string
+      reason:
+        enum:
+        - SPAM
+        - HARASSMENT
+        - VIOLENCE
+        - SENSITIVE
+        - COPYRIGHT
+        - OTHER
+        type: string
+      streamId:
+        description: StreamID is required for MESSAGE (the room of the message); optional
+          for USER (evidence from that room).
+        type: string
+      targetId:
+        type: string
+      targetType:
+        enum:
+        - USER
+        - CHANNEL
+        - STREAM
+        - MESSAGE
+        type: string
+    type: object
+  ResolveRequest:
+    properties:
+      applyToSameTarget:
+        type: boolean
+      note:
+        type: string
+      status:
+        enum:
+        - RESOLVED
+        - DISMISSED
+        type: string
+    type: object
+  Resolved:
+    properties:
+      closedCount:
+        type: integer
+      report:
+        $ref: '#/definitions/AdminReport'
+    type: object
+  Target:
+    properties:
+      id:
+        type: string
+      label:
+        type: string
+      link:
+        type: string
+      userId:
+        type: string
+    type: object
+  UserList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/AdminUserRow'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: Reports, the admin report queue, admin actions (lock, suspend, takedown),
+    admin lookups and the audit log. Get a token from identity-svc (http://localhost:8090/swagger/index.html
+    → /auth/login; admin@nexuslive.dev for /admin) and paste "Bearer <accessToken>"
+    into Authorize.
+  title: NexusLive safety-svc API
+  version: "1.0"
+paths:
+  /admin/audit-log:
+    get:
+      description: Newest first. Rows written by safety-svc and mapped from chat,
+        identity and channel-role events; append-only.
+      parameters:
+      - description: user id
+        in: query
+        name: actorId
+        type: string
+      - description: e.g. USER_LOCKED, CHAT_BAN
+        in: query
+        name: action
+        type: string
+      - description: USER, CHANNEL, STREAM, MESSAGE, REPORT, CREATOR_APPLICATION
+        in: query
+        name: resourceType
+        type: string
+      - description: uuid
+        in: query
+        name: resourceId
+        type: string
+      - description: RFC 3339, inclusive
+        in: query
+        name: from
+        type: string
+      - description: RFC 3339, exclusive
+        in: query
+        name: to
+        type: string
+      - description: nextCursor
+        in: query
+        name: cursor
+        type: string
+      - description: 1–100, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_AuditList'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Audit log
+      tags:
+      - admin-audit
+  /admin/channels:
+    get:
+      description: 'q: a UUID matches the id, anything else a handle prefix or a display-name
+        substring. Sorted by handle.'
+      parameters:
+      - description: 1–50 characters
+        in: query
+        name: q
+        type: string
+      - description: ACTIVE or SUSPENDED
+        in: query
+        name: status
+        type: string
+      - description: nextCursor
+        in: query
+        name: cursor
+        type: string
+      - description: 1–100, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ChannelList'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Look up channels
+      tags:
+      - admin-lookup
+  /admin/channels/{channelId}:
+    get:
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminChannel'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Channel detail (suspended channels included)
+      tags:
+      - admin-lookup
+  /admin/channels/{channelId}/restore:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: reason (reportId ignored)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ActionRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ActionAccepted'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Restore a suspended channel
+      tags:
+      - admin-actions
+  /admin/channels/{channelId}/suspend:
+    post:
+      consumes:
+      - application/json
+      description: 202; channel-svc suspends it, stream-svc ends its broadcast and
+        cancels its schedules, chat closes its rooms.
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ActionRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ActionAccepted'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Suspend a channel
+      tags:
+      - admin-actions
+  /admin/reports:
+    get:
+      description: Oldest first. status is a CSV list (default OPEN,IN_REVIEW); targetType
+        and reason accept CSV too.
+      parameters:
+      - description: CSV of OPEN, IN_REVIEW, RESOLVED, DISMISSED
+        in: query
+        name: status
+        type: string
+      - description: CSV of USER, CHANNEL, STREAM, MESSAGE
+        in: query
+        name: targetType
+        type: string
+      - description: CSV of SPAM, HARASSMENT, VIOLENCE, SENSITIVE, COPYRIGHT, OTHER
+        in: query
+        name: reason
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–100, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ReportList'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN (not an admin)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Admin report queue
+      tags:
+      - admin-reports
+  /admin/reports/{id}:
+    get:
+      parameters:
+      - description: report id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_AdminReportDetail'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Report detail with evidence, related reports and admin actions
+      tags:
+      - admin-reports
+  /admin/reports/{id}/claim:
+    post:
+      parameters:
+      - description: report id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminReport'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: INVALID_STATE (closed)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Claim a report (IN_REVIEW, assigned to the caller; another admin may
+        take it over)
+      tags:
+      - admin-reports
+  /admin/reports/{id}/resolve:
+    post:
+      consumes:
+      - application/json
+      description: applyToSameTarget closes every open report on the same target;
+        each closed report emits safety.report_resolved.v1 (the reporter is notified).
+        note is 10–500 characters.
+      parameters:
+      - description: report id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: decision
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ResolveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Resolved'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: INVALID_STATE (closed)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Resolve or dismiss a report
+      tags:
+      - admin-reports
+  /admin/reports/open-count:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_OpenCount'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Open report counts (admin menu badge)
+      tags:
+      - admin-reports
+  /admin/streams/{streamId}/takedown:
+    post:
+      consumes:
+      - application/json
+      description: A stream on air ends with endReason admin_takedown; an ended stream
+        loses its VOD. SCHEDULED, CANCELLED, or ENDED without a VOD → 409 INVALID_STATE.
+      parameters:
+      - description: stream id
+        in: path
+        name: streamId
+        required: true
+        type: string
+      - description: reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ActionRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ActionAccepted'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Take a stream down
+      tags:
+      - admin-actions
+  /admin/users:
+    get:
+      description: 'q: a UUID matches the id, anything else a username prefix (case-insensitive).
+        Sorted by username. status is the effective one (an expired lock reads ACTIVE).'
+      parameters:
+      - description: 1–50 characters
+        in: query
+        name: q
+        type: string
+      - description: ACTIVE, LOCKED or DELETED
+        in: query
+        name: status
+        type: string
+      - description: nextCursor
+        in: query
+        name: cursor
+        type: string
+      - description: 1–100, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_UserList'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Look up users
+      tags:
+      - admin-lookup
+  /admin/users/{userId}/lock:
+    post:
+      consumes:
+      - application/json
+      description: Records the action and returns 202; identity applies it (status
+        LOCKED, sessions revoked, sockets closed 4003) within seconds. durationHours
+        24, 168, 720 or null (until unlocked). Locking an admin → 403; oneself → 400
+        userId=INVALID. Locking a locked user sets the new end.
+      parameters:
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      - description: lock
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/LockRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ActionAccepted'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Lock a user account
+      tags:
+      - admin-actions
+  /admin/users/{userId}/unlock:
+    post:
+      consumes:
+      - application/json
+      description: Always 202; identity ignores a user who is not locked.
+      parameters:
+      - description: user id
+        in: path
+        name: userId
+        required: true
+        type: string
+      - description: reason (reportId ignored)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ActionRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ActionAccepted'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Unlock a user account
+      tags:
+      - admin-actions
+  /reports:
+    post:
+      consumes:
+      - application/json
+      description: A second report of the same target while the first one is still
+        open returns it with 200 (not counted). More than 10 reports an hour → 429
+        with details.retryAfterSec. For a MESSAGE the room's streamId is required;
+        the message and up to 9 earlier messages of its author are kept as evidence
+        (evidenceStatus UNAVAILABLE when chat-svc does not answer within 300 ms).
+        Reporting oneself → 400 targetId=INVALID.
+      parameters:
+      - description: report
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ReportRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: open duplicate
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ReportCreated'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ReportCreated'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "429":
+          description: RATE_LIMITED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Report a user, channel, stream or chat message
+      tags:
+      - reports
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
