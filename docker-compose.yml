@@ -103,7 +103,7 @@ services:
   db-migrate:
     container_name: db-migrate
     profiles: ["nxl"]
-    image: migrate/migrate:v4.18.3
+    image: migrate/migrate:v4.20.1
     environment:
       NXL_PG_BASE: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432"
       NXL_SERVICES: "identity channel stream chat safety notification billing"
