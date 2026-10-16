@@ -458,7 +458,7 @@ services:
   # the viewer counts.
   redis:
     container_name: redis
-    image: redis:7.4.5-alpine
+    image: redis:8.10.2-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "6379:6379"
