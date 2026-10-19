@@ -1,0 +1,2465 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "Subscription tiers, checkout (SePay Payment Gateway or the dev fake), the SePay IPN webhook, the viewer's subscriptions and payments, Studio monetization (tiers, overview, ledger, payouts) and the admin payout queue. Get a token from identity-svc (http://localhost:8090/swagger/index.html → /auth/login; admin@nexuslive.dev for /admin) and paste \"Bearer \u003caccessToken\u003e\" into Authorize.",
+        "title": "NexusLive billing-svc API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/v1",
+    "paths": {
+        "/admin/checkout-orders": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Newest first. needsReview=true lists paid orders that could not be applied (another tier was live); status CSV; q = invoice number prefix (case-insensitive).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Checkout orders (review page)",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "true | false",
+                        "name": "needsReview",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "CSV of order statuses",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "invoice number prefix",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1–50, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_AdminOrder"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/payouts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "status REQUESTED (default, oldest first), APPROVED, REJECTED or ALL (newest first); each row carries the channel balance.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Payout queue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "REQUESTED | APPROVED | REJECTED | ALL",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1–50, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_AdminPayout"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/payouts/pending-count": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Requested payouts (admin menu badge)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_PendingCount"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/payouts/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "A payout request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "payout id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminPayout"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/payouts/{id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "REQUESTED → APPROVED with a PAYOUT debit in the ledger (no money is moved). A reviewed payout → 409.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Approve a payout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "payout id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminPayout"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/payouts/{id}/bank-account": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Decrypted on demand; every view is written to the audit log (PAYOUT_BANK_INFO_VIEWED). Not cached.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "The full bank account of a payout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "payout id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_BankAccount"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "500": {
+                        "description": "INTERNAL_ERROR (cannot decrypt)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/payouts/{id}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "reason 10–500 characters after trim; the amount is available again. A reviewed payout → 409.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Reject a payout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "payout id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/RejectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminPayout"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/channels/{channelId}/subscription-tiers": {
+            "get": {
+                "description": "Active tiers by level (AC-H01). Unknown channel → 404, suspended channel → 403.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tiers"
+                ],
+                "summary": "Subscription tiers of a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_Tier"
+                        }
+                    },
+                    "403": {
+                        "description": "CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/checkout/config": {
+            "get": {
+                "description": "Payment methods offered on the modal (BILLING_SEPAY_METHODS) and the fixed rules.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "checkout"
+                ],
+                "summary": "Checkout settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_CheckoutConfig"
+                        }
+                    }
+                }
+            }
+        },
+        "/checkout/orders": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a PENDING order (30 min) and the signed form to post to the payment page, fields in order. The caller's pending order of the same tier is returned with 200 (re-signed). Requires Idempotency-Key (UUID): same key and body → the stored answer with Idempotent-Replay: true; same key, other body → 422 IDEMPOTENCY_KEY_REUSED; still running → 409 CONFLICT. 409 INVALID_STATE details.reason: TIER_INACTIVE, TIER_CHANGE (currentTier, currentPeriodEnd), MAX_PREPAID (currentPeriodEnd, maxPeriodEnd), ORDER_PENDING (orderId, tierLevel). 409 CONFLICT details.limit = 5 pending orders.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "checkout"
+                ],
+                "summary": "Start a subscription checkout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "UUID",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "order",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/CreateOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "pending order of the same tier",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_OrderCheckout"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_OrderCheckout"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE / CONFLICT",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "422": {
+                        "description": "CANNOT_SUBSCRIBE_SELF / IDEMPOTENCY_KEY_REUSED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/checkout/orders/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "With the subscription it created; an order in review shows the caller's current subscription of the channel. Another user's order → 404.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "checkout"
+                ],
+                "summary": "A checkout order of the caller",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "order id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_OrderView"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/checkout/orders/{id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Only PENDING orders (else 409). The payment provider is told best effort; money that still arrives wins (the order becomes PAID).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "checkout"
+                ],
+                "summary": "Cancel a pending order",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "order id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_OrderOnly"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/checkout/orders/{id}/sync": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Called by /checkout/result. Paid at the provider → PAID; outcome CANCEL → CANCELLED; ERROR → FAILED (reason from the lookup); SUCCESS and not paid yet → stays PENDING (poll GET). The redirect alone never marks an order paid. At most 10 calls a minute per order (429 details.retryAfterSec).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "checkout"
+                ],
+                "summary": "Check a pending order with the payment provider",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "order id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "redirect outcome",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/SyncRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_OrderView"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "429": {
+                        "description": "RATE_LIMITED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/checkout/tiers/{tierId}": {
+            "get": {
+                "description": "The channel and its active tiers; the requested tier is included even when inactive.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "checkout"
+                ],
+                "summary": "A tier with its channel (for /checkout?tierId=)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "tier id",
+                        "name": "tierId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_TierContext"
+                        }
+                    },
+                    "403": {
+                        "description": "CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/payments": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Checkout orders, newest first; status is an optional CSV of PENDING, PAID, CANCELLED, FAILED, EXPIRED, VOIDED.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "subscriptions"
+                ],
+                "summary": "The caller's payment history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "CSV of order statuses",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1–50, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-Order"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/subscriptions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "status=current (default, by period end ascending) or expired (newest first). With channelId and no status: at most one row — the current subscription of that channel, else the most recently ended one (Subscribe button state).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "subscriptions"
+                ],
+                "summary": "The caller's subscriptions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "current | expired",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1–50, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-Sub"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/subscriptions/{id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "ACTIVE → CANCELLED_PENDING_END; benefits stay until currentPeriodEnd. Requires Idempotency-Key. A second cancel → 409.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "subscriptions"
+                ],
+                "summary": "Stop renewal reminders",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "UUID",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "subscription id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-Sub"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE / CONFLICT",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "422": {
+                        "description": "IDEMPOTENCY_KEY_REUSED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/subscriptions/{id}/resume": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "CANCELLED_PENDING_END → ACTIVE while the period runs; otherwise 409.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "subscriptions"
+                ],
+                "summary": "Turn renewal reminders back on",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "subscription id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-Sub"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/monetization/ledger": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Append-only entries, newest first: SUB_REVENUE / PLATFORM_FEE of each payment (reversed by a void) and PAYOUT debits.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-monetization"
+                ],
+                "summary": "The channel ledger",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1–50, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_LedgerEntry"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/monetization/payouts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-monetization"
+                ],
+                "summary": "The channel's payout requests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1–50, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-Payout"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "amount: integer 100000–1000000000 (REQUIRED / MIN / MAX); bankCode one of VCB, TCB, BIDV, VTB, ACB, MB, VPB, TPB, STB, VIB, SHB, HDB (ENUM); accountNumber 6–20 digits (FORMAT); accountName is trimmed, spaces collapsed, upper-cased, 2–100 chars (LENGTH), A–Z and spaces only (FORMAT). 409 INVALID_STATE details.reason: INSUFFICIENT_BALANCE (+ available) or PAYOUT_PENDING. Requires Idempotency-Key.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-monetization"
+                ],
+                "summary": "Request a payout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "UUID",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "payout",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/PayoutRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-Payout"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR / CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE / CONFLICT",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "422": {
+                        "description": "IDEMPOTENCY_KEY_REUSED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/monetization/summary": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Gross, platform fee (5%, rounded down) and net over the range (days start at 00:00 in tz), today's net for the dashboard tile, the ledger balance, pending payouts and live subscribers.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-monetization"
+                ],
+                "summary": "Monetization overview",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "7d (default) | 28d",
+                        "name": "range",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "IANA time zone, default Asia/Ho_Chi_Minh",
+                        "name": "tz",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Summary"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/monetization/tiers": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Every tier of the caller's channel, inactive ones included, with live subscriber counts. No channel → 403 NOT_CREATOR.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-monetization"
+                ],
+                "summary": "The Creator's tiers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_StudioTier"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/studio/monetization/tiers/{level}": {
+            "patch": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Prices are fixed. Tier 1 cannot be turned off (active = INVALID); description ≤ 200 characters after trim; an empty body → body = REQUIRED.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-monetization"
+                ],
+                "summary": "Turn a tier on / off or edit its description",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "1–3",
+                        "name": "level",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "changes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/TierPatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-StudioTier"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR / CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/webhooks/sepay": {
+            "post": {
+                "description": "Called by SePay with X-Secret-Key. 200 {\"success\":true} when applied, a duplicate, ignored, not approved, an unknown invoice or an amount mismatch (the order becomes FAILED AMOUNT_MISMATCH); 401 wrong secret; 400 malformed or over 64 KB; 500 temporary error (SePay retries).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhooks"
+                ],
+                "summary": "SePay IPN",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "IPN secret",
+                        "name": "X-Secret-Key",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "description": "Internal Server Error"
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "AdminOrder": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "$ref": "#/definitions/Money"
+                },
+                "channel": {
+                    "$ref": "#/definitions/ChannelRef"
+                },
+                "channelId": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "failureReason": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invoiceNumber": {
+                    "type": "string",
+                    "example": "NXL7Q2K9M4X1C"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "NEW"
+                },
+                "needsReview": {
+                    "type": "boolean"
+                },
+                "paidAt": {
+                    "type": "string"
+                },
+                "paymentMethod": {
+                    "type": "string",
+                    "example": "BANK_TRANSFER"
+                },
+                "periodDays": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "pspRef": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "PENDING"
+                },
+                "subscriptionId": {
+                    "type": "string"
+                },
+                "tier": {
+                    "$ref": "#/definitions/TierRef"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "AdminPayout": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "$ref": "#/definitions/Money"
+                },
+                "available": {
+                    "$ref": "#/definitions/Money"
+                },
+                "balance": {
+                    "$ref": "#/definitions/Money"
+                },
+                "bank": {
+                    "$ref": "#/definitions/Bank"
+                },
+                "channel": {
+                    "$ref": "#/definitions/PayoutChannel"
+                },
+                "code": {
+                    "type": "string",
+                    "example": "PO-0001"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "rejectReason": {
+                    "type": "string"
+                },
+                "reviewedAt": {
+                    "type": "string"
+                },
+                "reviewedBy": {
+                    "$ref": "#/definitions/Ref"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "REQUESTED"
+                }
+            }
+        },
+        "Bank": {
+            "type": "object",
+            "properties": {
+                "accountName": {
+                    "type": "string",
+                    "example": "NGUYEN VAN AN"
+                },
+                "code": {
+                    "type": "string",
+                    "example": "VCB"
+                },
+                "last4": {
+                    "type": "string",
+                    "example": "6789"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Vietcombank"
+                }
+            }
+        },
+        "BankAccount": {
+            "type": "object",
+            "properties": {
+                "accountName": {
+                    "type": "string",
+                    "example": "NGUYEN VAN AN"
+                },
+                "accountNumber": {
+                    "type": "string",
+                    "example": "0123456789"
+                },
+                "bankCode": {
+                    "type": "string",
+                    "example": "VCB"
+                },
+                "bankName": {
+                    "type": "string",
+                    "example": "Vietcombank"
+                }
+            }
+        },
+        "ChannelRef": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "Checkout": {
+            "type": "object",
+            "properties": {
+                "actionUrl": {
+                    "type": "string",
+                    "example": "https://pay-sandbox.sepay.vn/v1/checkout/init"
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Field"
+                    }
+                },
+                "method": {
+                    "type": "string",
+                    "example": "POST"
+                }
+            }
+        },
+        "CheckoutConfig": {
+            "type": "object",
+            "properties": {
+                "maxPending": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "maxPrepaidDays": {
+                    "type": "integer",
+                    "example": 365
+                },
+                "orderTtlSec": {
+                    "type": "integer",
+                    "example": 1800
+                },
+                "paymentMethods": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "periodDays": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "provider": {
+                    "type": "string",
+                    "example": "SEPAY"
+                },
+                "renewReminderDays": {
+                    "type": "integer",
+                    "example": 3
+                }
+            }
+        },
+        "CreateOrderRequest": {
+            "type": "object",
+            "properties": {
+                "paymentMethod": {
+                    "type": "string",
+                    "example": "BANK_TRANSFER"
+                },
+                "tierId": {
+                    "type": "string",
+                    "example": "0199e001-0000-7000-8000-000000000001"
+                }
+            }
+        },
+        "Data-AdminPayout": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/AdminPayout"
+                }
+            }
+        },
+        "Data-Payout": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Payout"
+                }
+            }
+        },
+        "Data-StudioTier": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/StudioTier"
+                }
+            }
+        },
+        "Data-Sub": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Sub"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_BankAccount": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/BankAccount"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_CheckoutConfig": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/CheckoutConfig"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_OrderCheckout": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/OrderCheckout"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_OrderOnly": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/OrderOnly"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_OrderView": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/OrderView"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Page-Order": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-Order"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Page-Payout": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-Payout"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Page-Sub": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-Sub"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_AdminOrder": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-internal_controller_restapi_v1_AdminOrder"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_AdminPayout": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-internal_controller_restapi_v1_AdminPayout"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_LedgerEntry": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-internal_controller_restapi_v1_LedgerEntry"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_StudioTier": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-internal_controller_restapi_v1_StudioTier"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_Tier": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-internal_controller_restapi_v1_Tier"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_PendingCount": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/PendingCount"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Summary": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Summary"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_TierContext": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/TierContext"
+                }
+            }
+        },
+        "Error": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/ErrorBody"
+                }
+            }
+        },
+        "ErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "example": "INVALID_STATE"
+                },
+                "details": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "message": {
+                    "type": "string",
+                    "example": "invalid state"
+                }
+            }
+        },
+        "Field": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "LedgerEntry": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "$ref": "#/definitions/Money"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "direction": {
+                    "type": "string",
+                    "example": "CREDIT"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invoiceNumber": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "SUB_REVENUE"
+                },
+                "payoutCode": {
+                    "type": "string"
+                },
+                "payoutId": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string",
+                    "example": "CHARGE"
+                }
+            }
+        },
+        "Money": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer",
+                    "example": 59000
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "VND"
+                }
+            }
+        },
+        "Order": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "$ref": "#/definitions/Money"
+                },
+                "channel": {
+                    "$ref": "#/definitions/ChannelRef"
+                },
+                "channelId": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "failureReason": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invoiceNumber": {
+                    "type": "string",
+                    "example": "NXL7Q2K9M4X1C"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "NEW"
+                },
+                "needsReview": {
+                    "type": "boolean"
+                },
+                "paidAt": {
+                    "type": "string"
+                },
+                "paymentMethod": {
+                    "type": "string",
+                    "example": "BANK_TRANSFER"
+                },
+                "periodDays": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "status": {
+                    "type": "string",
+                    "example": "PENDING"
+                },
+                "tier": {
+                    "$ref": "#/definitions/TierRef"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "OrderCheckout": {
+            "type": "object",
+            "properties": {
+                "checkout": {
+                    "$ref": "#/definitions/Checkout"
+                },
+                "order": {
+                    "$ref": "#/definitions/Order"
+                }
+            }
+        },
+        "OrderOnly": {
+            "type": "object",
+            "properties": {
+                "order": {
+                    "$ref": "#/definitions/Order"
+                }
+            }
+        },
+        "OrderView": {
+            "type": "object",
+            "properties": {
+                "order": {
+                    "$ref": "#/definitions/Order"
+                },
+                "subscription": {
+                    "$ref": "#/definitions/Sub"
+                }
+            }
+        },
+        "Page-Order": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Order"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Page-Payout": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Payout"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Page-Sub": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Sub"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Page-internal_controller_restapi_v1_AdminOrder": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/AdminOrder"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Page-internal_controller_restapi_v1_AdminPayout": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/AdminPayout"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Page-internal_controller_restapi_v1_LedgerEntry": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/LedgerEntry"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Page-internal_controller_restapi_v1_StudioTier": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/StudioTier"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Page-internal_controller_restapi_v1_Tier": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Tier"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
+        "Payout": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "$ref": "#/definitions/Money"
+                },
+                "bank": {
+                    "$ref": "#/definitions/Bank"
+                },
+                "code": {
+                    "type": "string",
+                    "example": "PO-0001"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "rejectReason": {
+                    "type": "string"
+                },
+                "reviewedAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "REQUESTED"
+                }
+            }
+        },
+        "PayoutChannel": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "ownerId": {
+                    "type": "string"
+                }
+            }
+        },
+        "PayoutRequest": {
+            "type": "object",
+            "properties": {
+                "accountName": {
+                    "type": "string",
+                    "example": "Nguyen Van An"
+                },
+                "accountNumber": {
+                    "type": "string",
+                    "example": "0123456789"
+                },
+                "amount": {
+                    "type": "integer",
+                    "example": 100000
+                },
+                "bankCode": {
+                    "type": "string",
+                    "example": "VCB"
+                }
+            }
+        },
+        "PendingCount": {
+            "type": "object",
+            "properties": {
+                "requested": {
+                    "type": "integer"
+                }
+            }
+        },
+        "Ref": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            }
+        },
+        "RejectRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "example": "Account name does not match the channel owner"
+                }
+            }
+        },
+        "StudioTier": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "activeSubscribers": {
+                    "type": "integer"
+                },
+                "channelId": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Tier 1"
+                },
+                "periodDays": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "price": {
+                    "$ref": "#/definitions/Money"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "Sub": {
+            "type": "object",
+            "properties": {
+                "cancelledAt": {
+                    "type": "string"
+                },
+                "channel": {
+                    "$ref": "#/definitions/ChannelRef"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "currentPeriodEnd": {
+                    "type": "string"
+                },
+                "currentPeriodStart": {
+                    "type": "string"
+                },
+                "expiredReason": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "remindRenewal": {
+                    "type": "boolean"
+                },
+                "renewable": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "ACTIVE"
+                },
+                "tier": {
+                    "$ref": "#/definitions/TierRef"
+                }
+            }
+        },
+        "Subscribers": {
+            "type": "object",
+            "properties": {
+                "tier1": {
+                    "type": "integer"
+                },
+                "tier2": {
+                    "type": "integer"
+                },
+                "tier3": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "Summary": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "$ref": "#/definitions/Money"
+                },
+                "balance": {
+                    "$ref": "#/definitions/Money"
+                },
+                "feeBps": {
+                    "type": "integer",
+                    "example": 500
+                },
+                "from": {
+                    "type": "string"
+                },
+                "gross": {
+                    "$ref": "#/definitions/Money"
+                },
+                "net": {
+                    "$ref": "#/definitions/Money"
+                },
+                "payoutMin": {
+                    "$ref": "#/definitions/Money"
+                },
+                "pendingPayout": {
+                    "$ref": "#/definitions/Money"
+                },
+                "platformFee": {
+                    "$ref": "#/definitions/Money"
+                },
+                "range": {
+                    "type": "string",
+                    "example": "7d"
+                },
+                "subscribers": {
+                    "$ref": "#/definitions/Subscribers"
+                },
+                "to": {
+                    "type": "string"
+                },
+                "todayNet": {
+                    "$ref": "#/definitions/Money"
+                },
+                "tz": {
+                    "type": "string",
+                    "example": "Asia/Ho_Chi_Minh"
+                }
+            }
+        },
+        "SyncRequest": {
+            "type": "object",
+            "properties": {
+                "outcome": {
+                    "type": "string",
+                    "enum": [
+                        "SUCCESS",
+                        "ERROR",
+                        "CANCEL"
+                    ],
+                    "example": "SUCCESS"
+                }
+            }
+        },
+        "Tier": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "channelId": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Tier 1"
+                },
+                "periodDays": {
+                    "type": "integer",
+                    "example": 30
+                },
+                "price": {
+                    "$ref": "#/definitions/Money"
+                }
+            }
+        },
+        "TierChannel": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "type": "string"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "handle": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "ownerId": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "ACTIVE"
+                }
+            }
+        },
+        "TierContext": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "$ref": "#/definitions/TierChannel"
+                },
+                "tierId": {
+                    "type": "string"
+                },
+                "tiers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Tier"
+                    }
+                }
+            }
+        },
+        "TierPatchRequest": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                }
+            }
+        },
+        "TierRef": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Tier 1"
+                },
+                "price": {
+                    "$ref": "#/definitions/Money"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

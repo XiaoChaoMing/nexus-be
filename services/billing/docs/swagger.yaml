@@ -1,0 +1,1647 @@
+basePath: /v1
+definitions:
+  AdminOrder:
+    properties:
+      amount:
+        $ref: '#/definitions/Money'
+      channel:
+        $ref: '#/definitions/ChannelRef'
+      channelId:
+        type: string
+      createdAt:
+        type: string
+      expiresAt:
+        type: string
+      failureReason:
+        type: string
+      id:
+        type: string
+      invoiceNumber:
+        example: NXL7Q2K9M4X1C
+        type: string
+      kind:
+        example: NEW
+        type: string
+      needsReview:
+        type: boolean
+      paidAt:
+        type: string
+      paymentMethod:
+        example: BANK_TRANSFER
+        type: string
+      periodDays:
+        example: 30
+        type: integer
+      pspRef:
+        type: string
+      status:
+        example: PENDING
+        type: string
+      subscriptionId:
+        type: string
+      tier:
+        $ref: '#/definitions/TierRef'
+      updatedAt:
+        type: string
+      userId:
+        type: string
+    type: object
+  AdminPayout:
+    properties:
+      amount:
+        $ref: '#/definitions/Money'
+      available:
+        $ref: '#/definitions/Money'
+      balance:
+        $ref: '#/definitions/Money'
+      bank:
+        $ref: '#/definitions/Bank'
+      channel:
+        $ref: '#/definitions/PayoutChannel'
+      code:
+        example: PO-0001
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      rejectReason:
+        type: string
+      reviewedAt:
+        type: string
+      reviewedBy:
+        $ref: '#/definitions/Ref'
+      status:
+        example: REQUESTED
+        type: string
+    type: object
+  Bank:
+    properties:
+      accountName:
+        example: NGUYEN VAN AN
+        type: string
+      code:
+        example: VCB
+        type: string
+      last4:
+        example: "6789"
+        type: string
+      name:
+        example: Vietcombank
+        type: string
+    type: object
+  BankAccount:
+    properties:
+      accountName:
+        example: NGUYEN VAN AN
+        type: string
+      accountNumber:
+        example: "0123456789"
+        type: string
+      bankCode:
+        example: VCB
+        type: string
+      bankName:
+        example: Vietcombank
+        type: string
+    type: object
+  ChannelRef:
+    properties:
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      handle:
+        type: string
+      id:
+        type: string
+    type: object
+  Checkout:
+    properties:
+      actionUrl:
+        example: https://pay-sandbox.sepay.vn/v1/checkout/init
+        type: string
+      fields:
+        items:
+          $ref: '#/definitions/Field'
+        type: array
+      method:
+        example: POST
+        type: string
+    type: object
+  CheckoutConfig:
+    properties:
+      maxPending:
+        example: 5
+        type: integer
+      maxPrepaidDays:
+        example: 365
+        type: integer
+      orderTtlSec:
+        example: 1800
+        type: integer
+      paymentMethods:
+        items:
+          type: string
+        type: array
+      periodDays:
+        example: 30
+        type: integer
+      provider:
+        example: SEPAY
+        type: string
+      renewReminderDays:
+        example: 3
+        type: integer
+    type: object
+  CreateOrderRequest:
+    properties:
+      paymentMethod:
+        example: BANK_TRANSFER
+        type: string
+      tierId:
+        example: 0199e001-0000-7000-8000-000000000001
+        type: string
+    type: object
+  Data-AdminPayout:
+    properties:
+      data:
+        $ref: '#/definitions/AdminPayout'
+    type: object
+  Data-Payout:
+    properties:
+      data:
+        $ref: '#/definitions/Payout'
+    type: object
+  Data-StudioTier:
+    properties:
+      data:
+        $ref: '#/definitions/StudioTier'
+    type: object
+  Data-Sub:
+    properties:
+      data:
+        $ref: '#/definitions/Sub'
+    type: object
+  Data-internal_controller_restapi_v1_BankAccount:
+    properties:
+      data:
+        $ref: '#/definitions/BankAccount'
+    type: object
+  Data-internal_controller_restapi_v1_CheckoutConfig:
+    properties:
+      data:
+        $ref: '#/definitions/CheckoutConfig'
+    type: object
+  Data-internal_controller_restapi_v1_OrderCheckout:
+    properties:
+      data:
+        $ref: '#/definitions/OrderCheckout'
+    type: object
+  Data-internal_controller_restapi_v1_OrderOnly:
+    properties:
+      data:
+        $ref: '#/definitions/OrderOnly'
+    type: object
+  Data-internal_controller_restapi_v1_OrderView:
+    properties:
+      data:
+        $ref: '#/definitions/OrderView'
+    type: object
+  Data-internal_controller_restapi_v1_Page-Order:
+    properties:
+      data:
+        $ref: '#/definitions/Page-Order'
+    type: object
+  Data-internal_controller_restapi_v1_Page-Payout:
+    properties:
+      data:
+        $ref: '#/definitions/Page-Payout'
+    type: object
+  Data-internal_controller_restapi_v1_Page-Sub:
+    properties:
+      data:
+        $ref: '#/definitions/Page-Sub'
+    type: object
+  Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_AdminOrder:
+    properties:
+      data:
+        $ref: '#/definitions/Page-internal_controller_restapi_v1_AdminOrder'
+    type: object
+  Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_AdminPayout:
+    properties:
+      data:
+        $ref: '#/definitions/Page-internal_controller_restapi_v1_AdminPayout'
+    type: object
+  Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_LedgerEntry:
+    properties:
+      data:
+        $ref: '#/definitions/Page-internal_controller_restapi_v1_LedgerEntry'
+    type: object
+  Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_StudioTier:
+    properties:
+      data:
+        $ref: '#/definitions/Page-internal_controller_restapi_v1_StudioTier'
+    type: object
+  Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_Tier:
+    properties:
+      data:
+        $ref: '#/definitions/Page-internal_controller_restapi_v1_Tier'
+    type: object
+  Data-internal_controller_restapi_v1_PendingCount:
+    properties:
+      data:
+        $ref: '#/definitions/PendingCount'
+    type: object
+  Data-internal_controller_restapi_v1_Summary:
+    properties:
+      data:
+        $ref: '#/definitions/Summary'
+    type: object
+  Data-internal_controller_restapi_v1_TierContext:
+    properties:
+      data:
+        $ref: '#/definitions/TierContext'
+    type: object
+  Error:
+    properties:
+      error:
+        $ref: '#/definitions/ErrorBody'
+    type: object
+  ErrorBody:
+    properties:
+      code:
+        example: INVALID_STATE
+        type: string
+      details:
+        additionalProperties:
+          type: string
+        type: object
+      message:
+        example: invalid state
+        type: string
+    type: object
+  Field:
+    properties:
+      name:
+        type: string
+      value:
+        type: string
+    type: object
+  LedgerEntry:
+    properties:
+      amount:
+        $ref: '#/definitions/Money'
+      createdAt:
+        type: string
+      direction:
+        example: CREDIT
+        type: string
+      id:
+        type: string
+      invoiceNumber:
+        type: string
+      kind:
+        example: SUB_REVENUE
+        type: string
+      payoutCode:
+        type: string
+      payoutId:
+        type: string
+      source:
+        example: CHARGE
+        type: string
+    type: object
+  Money:
+    properties:
+      amount:
+        example: 59000
+        type: integer
+      currency:
+        example: VND
+        type: string
+    type: object
+  Order:
+    properties:
+      amount:
+        $ref: '#/definitions/Money'
+      channel:
+        $ref: '#/definitions/ChannelRef'
+      channelId:
+        type: string
+      createdAt:
+        type: string
+      expiresAt:
+        type: string
+      failureReason:
+        type: string
+      id:
+        type: string
+      invoiceNumber:
+        example: NXL7Q2K9M4X1C
+        type: string
+      kind:
+        example: NEW
+        type: string
+      needsReview:
+        type: boolean
+      paidAt:
+        type: string
+      paymentMethod:
+        example: BANK_TRANSFER
+        type: string
+      periodDays:
+        example: 30
+        type: integer
+      status:
+        example: PENDING
+        type: string
+      tier:
+        $ref: '#/definitions/TierRef'
+      updatedAt:
+        type: string
+    type: object
+  OrderCheckout:
+    properties:
+      checkout:
+        $ref: '#/definitions/Checkout'
+      order:
+        $ref: '#/definitions/Order'
+    type: object
+  OrderOnly:
+    properties:
+      order:
+        $ref: '#/definitions/Order'
+    type: object
+  OrderView:
+    properties:
+      order:
+        $ref: '#/definitions/Order'
+      subscription:
+        $ref: '#/definitions/Sub'
+    type: object
+  Page-Order:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Order'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Page-Payout:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Payout'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Page-Sub:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Sub'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Page-internal_controller_restapi_v1_AdminOrder:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/AdminOrder'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Page-internal_controller_restapi_v1_AdminPayout:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/AdminPayout'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Page-internal_controller_restapi_v1_LedgerEntry:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/LedgerEntry'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Page-internal_controller_restapi_v1_StudioTier:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/StudioTier'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Page-internal_controller_restapi_v1_Tier:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/Tier'
+        type: array
+      nextCursor:
+        type: string
+    type: object
+  Payout:
+    properties:
+      amount:
+        $ref: '#/definitions/Money'
+      bank:
+        $ref: '#/definitions/Bank'
+      code:
+        example: PO-0001
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      rejectReason:
+        type: string
+      reviewedAt:
+        type: string
+      status:
+        example: REQUESTED
+        type: string
+    type: object
+  PayoutChannel:
+    properties:
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      handle:
+        type: string
+      id:
+        type: string
+      ownerId:
+        type: string
+    type: object
+  PayoutRequest:
+    properties:
+      accountName:
+        example: Nguyen Van An
+        type: string
+      accountNumber:
+        example: "0123456789"
+        type: string
+      amount:
+        example: 100000
+        type: integer
+      bankCode:
+        example: VCB
+        type: string
+    type: object
+  PendingCount:
+    properties:
+      requested:
+        type: integer
+    type: object
+  Ref:
+    properties:
+      id:
+        type: string
+    type: object
+  RejectRequest:
+    properties:
+      reason:
+        example: Account name does not match the channel owner
+        type: string
+    type: object
+  StudioTier:
+    properties:
+      active:
+        type: boolean
+      activeSubscribers:
+        type: integer
+      channelId:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      level:
+        example: 1
+        type: integer
+      name:
+        example: Tier 1
+        type: string
+      periodDays:
+        example: 30
+        type: integer
+      price:
+        $ref: '#/definitions/Money'
+      updatedAt:
+        type: string
+    type: object
+  Sub:
+    properties:
+      cancelledAt:
+        type: string
+      channel:
+        $ref: '#/definitions/ChannelRef'
+      createdAt:
+        type: string
+      currentPeriodEnd:
+        type: string
+      currentPeriodStart:
+        type: string
+      expiredReason:
+        type: string
+      id:
+        type: string
+      remindRenewal:
+        type: boolean
+      renewable:
+        type: boolean
+      status:
+        example: ACTIVE
+        type: string
+      tier:
+        $ref: '#/definitions/TierRef'
+    type: object
+  Subscribers:
+    properties:
+      tier1:
+        type: integer
+      tier2:
+        type: integer
+      tier3:
+        type: integer
+      total:
+        type: integer
+    type: object
+  Summary:
+    properties:
+      available:
+        $ref: '#/definitions/Money'
+      balance:
+        $ref: '#/definitions/Money'
+      feeBps:
+        example: 500
+        type: integer
+      from:
+        type: string
+      gross:
+        $ref: '#/definitions/Money'
+      net:
+        $ref: '#/definitions/Money'
+      payoutMin:
+        $ref: '#/definitions/Money'
+      pendingPayout:
+        $ref: '#/definitions/Money'
+      platformFee:
+        $ref: '#/definitions/Money'
+      range:
+        example: 7d
+        type: string
+      subscribers:
+        $ref: '#/definitions/Subscribers'
+      to:
+        type: string
+      todayNet:
+        $ref: '#/definitions/Money'
+      tz:
+        example: Asia/Ho_Chi_Minh
+        type: string
+    type: object
+  SyncRequest:
+    properties:
+      outcome:
+        enum:
+        - SUCCESS
+        - ERROR
+        - CANCEL
+        example: SUCCESS
+        type: string
+    type: object
+  Tier:
+    properties:
+      active:
+        type: boolean
+      channelId:
+        type: string
+      description:
+        type: string
+      id:
+        type: string
+      level:
+        example: 1
+        type: integer
+      name:
+        example: Tier 1
+        type: string
+      periodDays:
+        example: 30
+        type: integer
+      price:
+        $ref: '#/definitions/Money'
+    type: object
+  TierChannel:
+    properties:
+      avatarUrl:
+        type: string
+      displayName:
+        type: string
+      handle:
+        type: string
+      id:
+        type: string
+      ownerId:
+        type: string
+      status:
+        example: ACTIVE
+        type: string
+    type: object
+  TierContext:
+    properties:
+      channel:
+        $ref: '#/definitions/TierChannel'
+      tierId:
+        type: string
+      tiers:
+        items:
+          $ref: '#/definitions/Tier'
+        type: array
+    type: object
+  TierPatchRequest:
+    properties:
+      active:
+        type: boolean
+      description:
+        type: string
+    type: object
+  TierRef:
+    properties:
+      active:
+        type: boolean
+      id:
+        type: string
+      level:
+        example: 1
+        type: integer
+      name:
+        example: Tier 1
+        type: string
+      price:
+        $ref: '#/definitions/Money'
+    type: object
+info:
+  contact: {}
+  description: Subscription tiers, checkout (SePay Payment Gateway or the dev fake),
+    the SePay IPN webhook, the viewer's subscriptions and payments, Studio monetization
+    (tiers, overview, ledger, payouts) and the admin payout queue. Get a token from
+    identity-svc (http://localhost:8090/swagger/index.html → /auth/login; admin@nexuslive.dev
+    for /admin) and paste "Bearer <accessToken>" into Authorize.
+  title: NexusLive billing-svc API
+  version: "1.0"
+paths:
+  /admin/checkout-orders:
+    get:
+      description: Newest first. needsReview=true lists paid orders that could not
+        be applied (another tier was live); status CSV; q = invoice number prefix
+        (case-insensitive).
+      parameters:
+      - description: true | false
+        in: query
+        name: needsReview
+        type: boolean
+      - description: CSV of order statuses
+        in: query
+        name: status
+        type: string
+      - description: invoice number prefix
+        in: query
+        name: q
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–50, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_AdminOrder'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Checkout orders (review page)
+      tags:
+      - admin-billing
+  /admin/payouts:
+    get:
+      description: status REQUESTED (default, oldest first), APPROVED, REJECTED or
+        ALL (newest first); each row carries the channel balance.
+      parameters:
+      - description: REQUESTED | APPROVED | REJECTED | ALL
+        in: query
+        name: status
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–50, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_AdminPayout'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Payout queue
+      tags:
+      - admin-billing
+  /admin/payouts/{id}:
+    get:
+      parameters:
+      - description: payout id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminPayout'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: A payout request
+      tags:
+      - admin-billing
+  /admin/payouts/{id}/approve:
+    post:
+      description: REQUESTED → APPROVED with a PAYOUT debit in the ledger (no money
+        is moved). A reviewed payout → 409.
+      parameters:
+      - description: payout id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminPayout'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Approve a payout
+      tags:
+      - admin-billing
+  /admin/payouts/{id}/bank-account:
+    get:
+      description: Decrypted on demand; every view is written to the audit log (PAYOUT_BANK_INFO_VIEWED).
+        Not cached.
+      parameters:
+      - description: payout id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_BankAccount'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "500":
+          description: INTERNAL_ERROR (cannot decrypt)
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The full bank account of a payout
+      tags:
+      - admin-billing
+  /admin/payouts/{id}/reject:
+    post:
+      consumes:
+      - application/json
+      description: reason 10–500 characters after trim; the amount is available again.
+        A reviewed payout → 409.
+      parameters:
+      - description: payout id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/RejectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminPayout'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Reject a payout
+      tags:
+      - admin-billing
+  /admin/payouts/pending-count:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_PendingCount'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Requested payouts (admin menu badge)
+      tags:
+      - admin-billing
+  /channels/{channelId}/subscription-tiers:
+    get:
+      description: Active tiers by level (AC-H01). Unknown channel → 404, suspended
+        channel → 403.
+      parameters:
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_Tier'
+        "403":
+          description: CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      summary: Subscription tiers of a channel
+      tags:
+      - tiers
+  /checkout/config:
+    get:
+      description: Payment methods offered on the modal (BILLING_SEPAY_METHODS) and
+        the fixed rules.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_CheckoutConfig'
+      summary: Checkout settings
+      tags:
+      - checkout
+  /checkout/orders:
+    post:
+      consumes:
+      - application/json
+      description: 'Creates a PENDING order (30 min) and the signed form to post to
+        the payment page, fields in order. The caller''s pending order of the same
+        tier is returned with 200 (re-signed). Requires Idempotency-Key (UUID): same
+        key and body → the stored answer with Idempotent-Replay: true; same key, other
+        body → 422 IDEMPOTENCY_KEY_REUSED; still running → 409 CONFLICT. 409 INVALID_STATE
+        details.reason: TIER_INACTIVE, TIER_CHANGE (currentTier, currentPeriodEnd),
+        MAX_PREPAID (currentPeriodEnd, maxPeriodEnd), ORDER_PENDING (orderId, tierLevel).
+        409 CONFLICT details.limit = 5 pending orders.'
+      parameters:
+      - description: UUID
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: order
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/CreateOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: pending order of the same tier
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_OrderCheckout'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_OrderCheckout'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE / CONFLICT
+          schema:
+            $ref: '#/definitions/Error'
+        "422":
+          description: CANNOT_SUBSCRIBE_SELF / IDEMPOTENCY_KEY_REUSED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Start a subscription checkout
+      tags:
+      - checkout
+  /checkout/orders/{id}:
+    get:
+      description: With the subscription it created; an order in review shows the
+        caller's current subscription of the channel. Another user's order → 404.
+      parameters:
+      - description: order id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_OrderView'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: A checkout order of the caller
+      tags:
+      - checkout
+  /checkout/orders/{id}/cancel:
+    post:
+      description: Only PENDING orders (else 409). The payment provider is told best
+        effort; money that still arrives wins (the order becomes PAID).
+      parameters:
+      - description: order id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_OrderOnly'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Cancel a pending order
+      tags:
+      - checkout
+  /checkout/orders/{id}/sync:
+    post:
+      consumes:
+      - application/json
+      description: Called by /checkout/result. Paid at the provider → PAID; outcome
+        CANCEL → CANCELLED; ERROR → FAILED (reason from the lookup); SUCCESS and not
+        paid yet → stays PENDING (poll GET). The redirect alone never marks an order
+        paid. At most 10 calls a minute per order (429 details.retryAfterSec).
+      parameters:
+      - description: order id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: redirect outcome
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/SyncRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_OrderView'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "429":
+          description: RATE_LIMITED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Check a pending order with the payment provider
+      tags:
+      - checkout
+  /checkout/tiers/{tierId}:
+    get:
+      description: The channel and its active tiers; the requested tier is included
+        even when inactive.
+      parameters:
+      - description: tier id
+        in: path
+        name: tierId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_TierContext'
+        "403":
+          description: CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      summary: A tier with its channel (for /checkout?tierId=)
+      tags:
+      - checkout
+  /me/payments:
+    get:
+      description: Checkout orders, newest first; status is an optional CSV of PENDING,
+        PAID, CANCELLED, FAILED, EXPIRED, VOIDED.
+      parameters:
+      - description: CSV of order statuses
+        in: query
+        name: status
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–50, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-Order'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The caller's payment history
+      tags:
+      - subscriptions
+  /me/subscriptions:
+    get:
+      description: 'status=current (default, by period end ascending) or expired (newest
+        first). With channelId and no status: at most one row — the current subscription
+        of that channel, else the most recently ended one (Subscribe button state).'
+      parameters:
+      - description: current | expired
+        in: query
+        name: status
+        type: string
+      - description: channel id
+        in: query
+        name: channelId
+        type: string
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–50, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-Sub'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The caller's subscriptions
+      tags:
+      - subscriptions
+  /me/subscriptions/{id}/cancel:
+    post:
+      description: ACTIVE → CANCELLED_PENDING_END; benefits stay until currentPeriodEnd.
+        Requires Idempotency-Key. A second cancel → 409.
+      parameters:
+      - description: UUID
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: subscription id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-Sub'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE / CONFLICT
+          schema:
+            $ref: '#/definitions/Error'
+        "422":
+          description: IDEMPOTENCY_KEY_REUSED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Stop renewal reminders
+      tags:
+      - subscriptions
+  /me/subscriptions/{id}/resume:
+    post:
+      description: CANCELLED_PENDING_END → ACTIVE while the period runs; otherwise
+        409.
+      parameters:
+      - description: subscription id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-Sub'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Turn renewal reminders back on
+      tags:
+      - subscriptions
+  /studio/monetization/ledger:
+    get:
+      description: 'Append-only entries, newest first: SUB_REVENUE / PLATFORM_FEE
+        of each payment (reversed by a void) and PAYOUT debits.'
+      parameters:
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–50, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_LedgerEntry'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The channel ledger
+      tags:
+      - studio-monetization
+  /studio/monetization/payouts:
+    get:
+      parameters:
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–50, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-Payout'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The channel's payout requests
+      tags:
+      - studio-monetization
+    post:
+      consumes:
+      - application/json
+      description: 'amount: integer 100000–1000000000 (REQUIRED / MIN / MAX); bankCode
+        one of VCB, TCB, BIDV, VTB, ACB, MB, VPB, TPB, STB, VIB, SHB, HDB (ENUM);
+        accountNumber 6–20 digits (FORMAT); accountName is trimmed, spaces collapsed,
+        upper-cased, 2–100 chars (LENGTH), A–Z and spaces only (FORMAT). 409 INVALID_STATE
+        details.reason: INSUFFICIENT_BALANCE (+ available) or PAYOUT_PENDING. Requires
+        Idempotency-Key.'
+      parameters:
+      - description: UUID
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: payout
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/PayoutRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-Payout'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR / CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE / CONFLICT
+          schema:
+            $ref: '#/definitions/Error'
+        "422":
+          description: IDEMPOTENCY_KEY_REUSED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Request a payout
+      tags:
+      - studio-monetization
+  /studio/monetization/summary:
+    get:
+      description: Gross, platform fee (5%, rounded down) and net over the range (days
+        start at 00:00 in tz), today's net for the dashboard tile, the ledger balance,
+        pending payouts and live subscribers.
+      parameters:
+      - description: 7d (default) | 28d
+        in: query
+        name: range
+        type: string
+      - description: IANA time zone, default Asia/Ho_Chi_Minh
+        in: query
+        name: tz
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Summary'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Monetization overview
+      tags:
+      - studio-monetization
+  /studio/monetization/tiers:
+    get:
+      description: Every tier of the caller's channel, inactive ones included, with
+        live subscriber counts. No channel → 403 NOT_CREATOR.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_StudioTier'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The Creator's tiers
+      tags:
+      - studio-monetization
+  /studio/monetization/tiers/{level}:
+    patch:
+      consumes:
+      - application/json
+      description: Prices are fixed. Tier 1 cannot be turned off (active = INVALID);
+        description ≤ 200 characters after trim; an empty body → body = REQUIRED.
+      parameters:
+      - description: 1–3
+        in: path
+        name: level
+        required: true
+        type: integer
+      - description: changes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/TierPatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-StudioTier'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: NOT_CREATOR / CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Turn a tier on / off or edit its description
+      tags:
+      - studio-monetization
+  /webhooks/sepay:
+    post:
+      consumes:
+      - application/json
+      description: Called by SePay with X-Secret-Key. 200 {"success":true} when applied,
+        a duplicate, ignored, not approved, an unknown invoice or an amount mismatch
+        (the order becomes FAILED AMOUNT_MISMATCH); 401 wrong secret; 400 malformed
+        or over 64 KB; 500 temporary error (SePay retries).
+      parameters:
+      - description: IPN secret
+        in: header
+        name: X-Secret-Key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: Bad Request
+        "401":
+          description: Unauthorized
+        "500":
+          description: Internal Server Error
+      summary: SePay IPN
+      tags:
+      - webhooks
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
