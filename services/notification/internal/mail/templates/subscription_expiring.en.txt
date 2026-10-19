@@ -1,0 +1,11 @@
+{{define "subject"}}Your Sub Tier {{.Tier}} on {{.Channel}} ends at {{.When}}{{end}}{{define "body"}}Hi {{.Name}},
+
+Your Sub Tier {{.Tier}} on {{.Channel}} ends at {{.When}}. After that you lose the badge, the channel emotes and chatting in Subs-only mode.
+
+{{if .Renewable}}Renew for {{.Price}}: {{.Link}}{{else}}You have already prepaid the maximum, so it cannot be renewed yet.{{end}}
+
+You receive this e-mail because Subscription notifications are on.
+Don't want these e-mails? Unsubscribe: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

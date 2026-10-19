@@ -1,0 +1,11 @@
+{{define "subject"}}Payment {{.Invoice}} was voided{{end}}{{define "body"}}Hi {{.Name}},
+
+The payment provider voided payment {{.Invoice}} ({{.Amount}}) for Sub Tier {{.Tier}} on {{.Channel}}.
+
+{{if .Ended}}Your subscription has ended.{{else}}It is now valid until {{.Until}}.{{end}}
+
+View payment history: {{.Link}}
+
+This is a mandatory transactional e-mail.
+— NexusLive
+{{end}}

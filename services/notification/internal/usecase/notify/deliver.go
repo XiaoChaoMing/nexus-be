@@ -30,9 +30,12 @@ type spec struct {
 	data func(r entity.Recipient) map[string]string
 	// liveChannel turns on the CREATOR_LIVE cooldowns of that channel (BR-E11).
 	liveChannel string
+	// mandatory sends the e-mail whatever the settings and the daily cap (payment receipts), still only to a
+	// verified address.
+	mandatory bool
 }
 
-func (s spec) forced() bool { return entity.DefaultOf(s.n.Type).EmailForced }
+func (s spec) forced() bool { return s.mandatory || entity.DefaultOf(s.n.Type).EmailForced }
 
 // emailFor builds the e-mail of a recipient, with the unsubscribe link of non-mandatory types.
 func (uc *UseCase) emailFor(s spec, r entity.Recipient) entity.Email {
@@ -77,7 +80,7 @@ func (g gate) setting(t entity.Type, userID string) entity.Setting {
 func (uc *UseCase) choose(s spec, r entity.Recipient, g gate) (inApp, email bool) {
 	t := s.n.Type
 	set := g.setting(t, r.UserID)
-	inApp, email = set.InApp, s.template != "" && set.Email
+	inApp, email = set.InApp, s.template != "" && (set.Email || s.mandatory)
 
 	if !inApp && !email {
 		uc.obs.Suppressed(t, usecase.SuppressSettings)

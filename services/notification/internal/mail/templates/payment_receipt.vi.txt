@@ -1,0 +1,16 @@
+{{define "subject"}}{{if .Review}}Đã nhận thanh toán {{.Invoice}} — đang được xem xét{{else}}Biên nhận {{.Invoice}}: Sub Tier {{.Tier}} kênh {{.Channel}}{{end}}{{end}}{{define "body"}}Chào {{.Name}},
+
+{{if .Review}}NexusLive đã nhận thanh toán của bạn cho kênh {{.Channel}}. Đơn đang được xem xét nên subscription chưa thay đổi; chúng tôi sẽ liên hệ nếu cần.{{else}}Cảm ơn bạn đã subscribe kênh {{.Channel}}.{{end}}
+
+Mã đơn: {{.Invoice}}
+Thời điểm: {{.When}}
+Gói: Sub Tier {{.Tier}} · {{if eq .SubAction "RENEW"}}Gia hạn{{else}}Mua mới{{end}}
+Hiệu lực tới: {{if .Until}}{{.Until}}{{else}}—{{end}}
+Phương thức: {{.Method}}
+Tổng: {{.Amount}}
+
+Về kênh: {{.Link}}
+
+Đây là email giao dịch bắt buộc.
+— NexusLive
+{{end}}

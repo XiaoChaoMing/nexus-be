@@ -66,6 +66,18 @@ type (
 		AccountLocked(ctx context.Context, eventID string, e events.UserLocked) error
 		ChannelStatus(ctx context.Context, eventID string, suspended bool, e events.ChannelSuspended) error
 		StreamTakedown(ctx context.Context, eventID string, e events.StreamTakedown) error
+		BillingSources
+	}
+
+	// BillingSources turns billing-svc's payment and subscription events into SUBSCRIPTION notifications.
+	BillingSources interface {
+		PaymentSucceeded(ctx context.Context, eventID string, e events.PaymentSucceeded) error
+		PaymentFailed(ctx context.Context, eventID string, e events.PaymentFailed) error
+		PaymentVoided(ctx context.Context, eventID string, e events.PaymentVoided) error
+		SubExpiring(ctx context.Context, eventID string, e events.SubscriptionExpiring) error
+		SubExpired(ctx context.Context, eventID string, e events.SubscriptionExpired) error
+		// NewSubscriber tells the channel owner (grouped per channel); a replayed activation is ignored.
+		NewSubscriber(ctx context.Context, eventID string, e events.SubscriptionActivated) error
 	}
 
 	// Replica keeps the copies of users, channels, follows and blocks (durable notification-replica).

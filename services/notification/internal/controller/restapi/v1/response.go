@@ -28,7 +28,7 @@ type ErrorBody struct {
 // Notification is one item of the center; the client builds the sentence from type + payload (NXL-E §7.4).
 type Notification struct {
 	ID         string          `json:"id"`
-	Type       string          `json:"type" enums:"CREATOR_LIVE,STREAM_STARTING,SCHEDULE,MENTION,NEW_FOLLOWER,CREATOR_APPLICATION,REPORT_RESULT,SYSTEM"`
+	Type       string          `json:"type" enums:"CREATOR_LIVE,STREAM_STARTING,SCHEDULE,MENTION,NEW_FOLLOWER,CREATOR_APPLICATION,REPORT_RESULT,SYSTEM,SUBSCRIPTION"`
 	Payload    json.RawMessage `json:"payload" swaggertype:"object"`
 	Link       *string         `json:"link"`
 	GroupCount int             `json:"groupCount"`
@@ -71,12 +71,12 @@ type Settings struct {
 
 // SettingPatch changes one type; an omitted switch keeps its value.
 type SettingPatch struct {
-	Type  string `json:"type" enums:"CREATOR_LIVE,STREAM_STARTING,SCHEDULE,MENTION,NEW_FOLLOWER,CREATOR_APPLICATION,REPORT_RESULT,SYSTEM"`
+	Type  string `json:"type" enums:"CREATOR_LIVE,STREAM_STARTING,SCHEDULE,MENTION,NEW_FOLLOWER,CREATOR_APPLICATION,REPORT_RESULT,SYSTEM,SUBSCRIPTION"`
 	InApp *bool  `json:"inApp"`
 	Email *bool  `json:"email"`
 }
 
-// SettingsRequest is PUT /v1/me/notification-settings (1–8 rows).
+// SettingsRequest is PUT /v1/me/notification-settings (1–9 rows).
 type SettingsRequest struct {
 	Items []SettingPatch `json:"items"`
 }

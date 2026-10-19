@@ -22,7 +22,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "The 8 types in a fixed order. Locked switches (CREATOR_APPLICATION, SYSTEM) cannot change; NEW_FOLLOWER has no e-mail. emailVerified=false means no e-mail is sent until the address is verified.",
+                "description": "The 9 types in a fixed order (SUBSCRIPTION last). Locked switches (CREATOR_APPLICATION, SYSTEM) cannot change; NEW_FOLLOWER has no e-mail. emailVerified=false means no e-mail is sent until the address is verified.",
                 "produces": [
                     "application/json"
                 ],
@@ -51,7 +51,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Send only the rows that change (1–8); an omitted switch keeps its value. Turning a locked switch off or e-mail on for NEW_FOLLOWER → 400 details.\u003cTYPE\u003e=INVALID. Returns the whole table.",
+                "description": "Send only the rows that change (1–9); an omitted switch keeps its value. Turning a locked switch off or e-mail on for NEW_FOLLOWER → 400 details.\u003cTYPE\u003e=INVALID. Payment receipts and voided-payment e-mails of SUBSCRIPTION are sent whatever its e-mail switch. Returns the whole table.",
                 "consumes": [
                     "application/json"
                 ],
@@ -436,7 +436,8 @@ const docTemplate = `{
                         "NEW_FOLLOWER",
                         "CREATOR_APPLICATION",
                         "REPORT_RESULT",
-                        "SYSTEM"
+                        "SYSTEM",
+                        "SUBSCRIPTION"
                     ]
                 },
                 "updatedAt": {
@@ -508,7 +509,8 @@ const docTemplate = `{
                         "NEW_FOLLOWER",
                         "CREATOR_APPLICATION",
                         "REPORT_RESULT",
-                        "SYSTEM"
+                        "SYSTEM",
+                        "SUBSCRIPTION"
                     ]
                 }
             }

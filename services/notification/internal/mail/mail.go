@@ -26,12 +26,12 @@ var ErrUnknownTemplate = errors.New("unknown e-mail template")
 // _missingKey makes a template fail instead of printing "<no value>" when its data lacks a key.
 const _missingKey = "missingkey=error"
 
-// Templates are the names of every template (13), each in vi and en.
+// Templates are the names of every template (16), each in vi and en.
 func Templates() []string {
 	return []string{
 		"verify_email", "reset_password", "security_lock", "live_started", "stream_starting", "schedule_changed",
 		"mention", "creator_application_result", "report_result", "account_locked", "channel_suspended",
-		"channel_restored", "stream_taken_down",
+		"channel_restored", "stream_taken_down", "payment_receipt", "subscription_expiring", "payment_voided",
 	}
 }
 

@@ -1,0 +1,16 @@
+{{define "subject"}}{{if .Review}}Payment {{.Invoice}} received — under review{{else}}Receipt {{.Invoice}}: Sub Tier {{.Tier}} for {{.Channel}}{{end}}{{end}}{{define "body"}}Hi {{.Name}},
+
+{{if .Review}}NexusLive received your payment for {{.Channel}}. The order is under review, so your subscription has not changed yet; we will contact you if needed.{{else}}Thank you for subscribing to {{.Channel}}.{{end}}
+
+Order: {{.Invoice}}
+Date: {{.When}}
+Plan: Sub Tier {{.Tier}} · {{if eq .SubAction "RENEW"}}Renewal{{else}}New{{end}}
+Valid until: {{if .Until}}{{.Until}}{{else}}—{{end}}
+Payment method: {{.Method}}
+Total: {{.Amount}}
+
+Go to channel: {{.Link}}
+
+This is a mandatory transactional e-mail.
+— NexusLive
+{{end}}

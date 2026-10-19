@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -37,6 +38,24 @@ func (f *fakeSources) CreatorLive(_ context.Context, id string, _ events.StreamS
 
 func (f *fakeSources) ChannelStatus(_ context.Context, _ string, suspended bool, _ events.ChannelSuspended) error {
 	f.calls = append(f.calls, map[bool]string{true: "suspended", false: "restored"}[suspended])
+
+	return f.err
+}
+
+func (f *fakeSources) PaymentSucceeded(_ context.Context, _ string, e events.PaymentSucceeded) error {
+	f.calls = append(f.calls, "paid:"+e.Applied)
+
+	return f.err
+}
+
+func (f *fakeSources) NewSubscriber(_ context.Context, _ string, e events.SubscriptionActivated) error {
+	f.calls = append(f.calls, fmt.Sprintf("new-sub:%t", e.Replay))
+
+	return f.err
+}
+
+func (f *fakeSources) SubExpiring(_ context.Context, _ string, _ events.SubscriptionExpiring) error {
+	f.calls = append(f.calls, "expiring")
 
 	return f.err
 }
@@ -82,6 +101,26 @@ func TestSourcesHandler(t *testing.T) { //nolint:funlen // table
 			call: "live:" + id1,
 		},
 		{name: "channel.restored", typ: events.TypeChannelRestored, payload: restored, call: "restored"},
+		{
+			name: "payment.succeeded", typ: events.TypePaymentSucceeded, call: "paid:ACTIVATED",
+			payload: events.PaymentSucceeded{OrderID: id1, UserID: id2, ChannelID: id1, Tier: 1, Applied: events.PaymentAppliedActivated},
+		},
+		{
+			name: "payment.succeeded tier 0 is skipped", typ: events.TypePaymentSucceeded, skip: true,
+			payload: events.PaymentSucceeded{OrderID: id1, UserID: id2, ChannelID: id1},
+		},
+		{
+			name: "subscription.activated", typ: events.TypeSubscriptionActivated, call: "new-sub:true",
+			payload: events.SubscriptionActivated{SubscriptionID: id1, UserID: id2, ChannelID: id1, Tier: 3, Replay: true},
+		},
+		{
+			name: "subscription.expiring bad user", typ: events.TypeSubscriptionExpiring, skip: true,
+			payload: events.SubscriptionExpiring{SubscriptionID: id1, UserID: "x", ChannelID: id1, Tier: 1},
+		},
+		{
+			name: "subscription.expiring", typ: events.TypeSubscriptionExpiring, call: "expiring",
+			payload: events.SubscriptionExpiring{SubscriptionID: id1, UserID: id2, ChannelID: id1, Tier: 2},
+		},
 		{
 			name: "not JSON", skip: true,
 			raw: &eventbus.Event{ID: id1, Type: events.TypeChannelSuspended, Payload: []byte("{")},

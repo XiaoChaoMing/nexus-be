@@ -20,14 +20,15 @@ const (
 	TypeCreatorApplication Type = "CREATOR_APPLICATION"
 	TypeReportResult       Type = "REPORT_RESULT"
 	TypeSystem             Type = "SYSTEM"
+	TypeSubscription       Type = "SUBSCRIPTION"
 )
 
-// Types are the settable types in the order of BR-E01 (SUBSCRIPTION comes with GĐ6). The index of a type is
-// also its byte in unsubscribe tokens, so the order must never change.
+// Types are the settable types in the order of BR-E01, SUBSCRIPTION (GĐ6) last. The index of a type is also its
+// byte in unsubscribe tokens, so the order must never change and new types are appended.
 func Types() []Type {
 	return []Type{
 		TypeCreatorLive, TypeStreamStarting, TypeSchedule, TypeMention, TypeNewFollower, TypeCreatorApplication,
-		TypeReportResult, TypeSystem,
+		TypeReportResult, TypeSystem, TypeSubscription,
 	}
 }
 
@@ -56,6 +57,8 @@ func defaults() map[Type]Default {
 		TypeCreatorApplication: {InApp: true, Email: true, InAppLocked: true, EmailLocked: true, EmailAvailable: true, EmailForced: true},
 		TypeReportResult:       {InApp: true, EmailAvailable: true},
 		TypeSystem:             {InApp: true, Email: true, InAppLocked: true, EmailLocked: true, EmailAvailable: true, EmailForced: true},
+		// The receipt and voided e-mails are mandatory per notification (spec.mandatory), not per type.
+		TypeSubscription: {InApp: true, Email: true, EmailAvailable: true},
 	}
 }
 

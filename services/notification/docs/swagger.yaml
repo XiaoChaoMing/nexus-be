@@ -60,6 +60,7 @@ definitions:
         - CREATOR_APPLICATION
         - REPORT_RESULT
         - SYSTEM
+        - SUBSCRIPTION
         type: string
       updatedAt:
         type: string
@@ -109,6 +110,7 @@ definitions:
         - CREATOR_APPLICATION
         - REPORT_RESULT
         - SYSTEM
+        - SUBSCRIPTION
         type: string
     type: object
   Settings:
@@ -153,9 +155,9 @@ info:
 paths:
   /me/notification-settings:
     get:
-      description: The 8 types in a fixed order. Locked switches (CREATOR_APPLICATION,
-        SYSTEM) cannot change; NEW_FOLLOWER has no e-mail. emailVerified=false means
-        no e-mail is sent until the address is verified.
+      description: The 9 types in a fixed order (SUBSCRIPTION last). Locked switches
+        (CREATOR_APPLICATION, SYSTEM) cannot change; NEW_FOLLOWER has no e-mail. emailVerified=false
+        means no e-mail is sent until the address is verified.
       produces:
       - application/json
       responses:
@@ -175,9 +177,10 @@ paths:
     put:
       consumes:
       - application/json
-      description: Send only the rows that change (1–8); an omitted switch keeps its
+      description: Send only the rows that change (1–9); an omitted switch keeps its
         value. Turning a locked switch off or e-mail on for NEW_FOLLOWER → 400 details.<TYPE>=INVALID.
-        Returns the whole table.
+        Payment receipts and voided-payment e-mails of SUBSCRIPTION are sent whatever
+        its e-mail switch. Returns the whole table.
       parameters:
       - description: rows to change
         in: body

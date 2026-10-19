@@ -20,7 +20,7 @@ func TestSettingsDefaults(t *testing.T) {
 	v, err := e.uc.Get(context.Background(), viewerID)
 	require.NoError(t, err)
 	require.True(t, v.EmailVerified)
-	require.Len(t, v.Items, 8)
+	require.Len(t, v.Items, 9)
 
 	got := map[entity.Type][2]bool{}
 	for _, it := range v.Items {
@@ -31,8 +31,11 @@ func TestSettingsDefaults(t *testing.T) {
 	require.Equal(t, map[entity.Type][2]bool{
 		entity.TypeCreatorLive: {true, true}, entity.TypeStreamStarting: {true, true}, entity.TypeSchedule: {true, true},
 		entity.TypeMention: {true, false}, entity.TypeNewFollower: {true, false}, entity.TypeCreatorApplication: {true, true},
-		entity.TypeReportResult: {true, false}, entity.TypeSystem: {true, true},
+		entity.TypeReportResult: {true, false}, entity.TypeSystem: {true, true}, entity.TypeSubscription: {true, true},
 	}, got)
+	require.Equal(t, entity.TypeSubscription, v.Items[8].Setting.Type, "SUBSCRIPTION is appended last")
+	require.False(t, v.Items[8].Default.InAppLocked)
+	require.False(t, v.Items[8].Default.EmailLocked)
 	require.Equal(t, entity.TypeCreatorLive, v.Items[0].Setting.Type, "order of BR-E01")
 	require.False(t, v.Items[4].Default.EmailAvailable, "NEW_FOLLOWER has no e-mail")
 	require.True(t, v.Items[7].Default.InAppLocked)
@@ -84,7 +87,7 @@ func TestSettingsUpdate(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.Len(t, v.Items, 8)
+			require.Len(t, v.Items, 9)
 		})
 	}
 }

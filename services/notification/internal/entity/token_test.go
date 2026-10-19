@@ -84,3 +84,13 @@ func TestEffectiveKeepsLocks(t *testing.T) {
 	require.False(t, s.Email)
 	require.True(t, entity.Setting{Type: entity.TypeMention, InApp: true}.IsDefault())
 }
+
+// Unsubscribe tokens carry the index of the type: existing indexes never move, new types are appended.
+func TestTypeIndexesAreStable(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, []entity.Type{
+		"CREATOR_LIVE", "STREAM_STARTING", "SCHEDULE", "MENTION", "NEW_FOLLOWER", "CREATOR_APPLICATION", "REPORT_RESULT", "SYSTEM",
+		"SUBSCRIPTION",
+	}, entity.Types())
+}

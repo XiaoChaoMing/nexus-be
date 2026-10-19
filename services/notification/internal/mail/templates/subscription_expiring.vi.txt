@@ -1,0 +1,11 @@
+{{define "subject"}}Sub Tier {{.Tier}} kênh {{.Channel}} hết hạn lúc {{.When}}{{end}}{{define "body"}}Chào {{.Name}},
+
+Sub Tier {{.Tier}} của bạn ở kênh {{.Channel}} hết hạn lúc {{.When}}. Sau thời điểm này bạn mất badge, emote kênh và quyền chat ở chế độ Subs-only.
+
+{{if .Renewable}}Gia hạn {{.Price}}: {{.Link}}{{else}}Bạn đã trả trước tối đa nên chưa gia hạn thêm được lúc này.{{end}}
+
+Bạn nhận email này vì đang bật thông báo Subscription.
+Không muốn nhận loại email này? Hủy nhận: {{.UnsubscribeURL}}
+
+— NexusLive
+{{end}}

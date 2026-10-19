@@ -46,6 +46,8 @@ func SourceTypes() []string {
 		events.TypeScheduleOccurrenceChanged, events.TypeChatMention, events.TypeFollowCreated, events.TypeCreatorApproved,
 		events.TypeCreatorRejected, events.TypeReportResolved, events.TypeUserLocked, events.TypeChannelSuspended,
 		events.TypeChannelRestored, events.TypeStreamTakedown,
+		events.TypePaymentSucceeded, events.TypePaymentFailed, events.TypePaymentVoided, events.TypeSubscriptionExpiring,
+		events.TypeSubscriptionExpired, events.TypeSubscriptionActivated,
 	}
 }
 
@@ -263,6 +265,10 @@ func on[T any](ids func(p *T) []*string, call func(uc usecase.Sources, ctx conte
 func source(ctx context.Context, uc usecase.Sources, e eventbus.Event) error {
 	r, ok := sourceRoutes()[e.Type]
 	if !ok {
+		r, ok = billingRoutes()[e.Type]
+	}
+
+	if !ok {
 		return skip(e, fmt.Errorf("%w: type", errBadPayload))
 	}
 
@@ -336,5 +342,41 @@ func AuthMailHandler(uc usecase.AuthMail) eventbus.Handler {
 		}
 
 		return err
+	}
+}
+
+// errBadTier: a billing event whose tier is not 1..3.
+var errBadTier = errors.New("bad tier")
+
+// billed decodes a billing event like on, and also skips a tier outside 1..3.
+func billed[T any](ids func(p *T) []*string, tier func(p *T) int,
+	call func(uc usecase.Sources, ctx context.Context, eventID string, p T) error,
+) route {
+	return on(ids, func(uc usecase.Sources, ctx context.Context, eventID string, p T) error {
+		if t := tier(&p); t < 1 || t > 3 {
+			return fmt.Errorf("%w: %w %d", eventbus.ErrSkip, errBadTier, t)
+		}
+
+		return call(uc, ctx, eventID, p)
+	})
+}
+
+func billingRoutes() map[string]route {
+	return map[string]route{
+		events.TypePaymentSucceeded: billed(func(p *events.PaymentSucceeded) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
+			func(p *events.PaymentSucceeded) int { return p.Tier }, usecase.Sources.PaymentSucceeded),
+		events.TypePaymentFailed: billed(func(p *events.PaymentFailed) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
+			func(p *events.PaymentFailed) int { return p.Tier }, usecase.Sources.PaymentFailed),
+		events.TypePaymentVoided: billed(func(p *events.PaymentVoided) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
+			func(p *events.PaymentVoided) int { return p.Tier }, usecase.Sources.PaymentVoided),
+		events.TypeSubscriptionExpiring: billed(func(p *events.SubscriptionExpiring) []*string {
+			return []*string{&p.SubscriptionID, &p.UserID, &p.ChannelID}
+		}, func(p *events.SubscriptionExpiring) int { return p.Tier }, usecase.Sources.SubExpiring),
+		events.TypeSubscriptionExpired: billed(func(p *events.SubscriptionExpired) []*string {
+			return []*string{&p.SubscriptionID, &p.UserID, &p.ChannelID}
+		}, func(p *events.SubscriptionExpired) int { return p.Tier }, usecase.Sources.SubExpired),
+		events.TypeSubscriptionActivated: billed(func(p *events.SubscriptionActivated) []*string {
+			return []*string{&p.SubscriptionID, &p.UserID, &p.ChannelID}
+		}, func(p *events.SubscriptionActivated) int { return p.Tier }, usecase.Sources.NewSubscriber),
 	}
 }

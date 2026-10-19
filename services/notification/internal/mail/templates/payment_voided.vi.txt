@@ -1,0 +1,11 @@
+{{define "subject"}}Giao dịch {{.Invoice}} đã bị hủy{{end}}{{define "body"}}Chào {{.Name}},
+
+Cổng thanh toán đã hủy giao dịch {{.Invoice}} ({{.Amount}}) cho Sub Tier {{.Tier}} kênh {{.Channel}}.
+
+{{if .Ended}}Subscription đã kết thúc.{{else}}Hiệu lực mới: tới {{.Until}}.{{end}}
+
+Xem lịch sử giao dịch: {{.Link}}
+
+Đây là email giao dịch bắt buộc.
+— NexusLive
+{{end}}

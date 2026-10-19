@@ -11,7 +11,7 @@ import (
 // getSettings -.
 //
 //	@Summary     My notification settings
-//	@Description The 8 types in a fixed order. Locked switches (CREATOR_APPLICATION, SYSTEM) cannot change; NEW_FOLLOWER has no e-mail. emailVerified=false means no e-mail is sent until the address is verified.
+//	@Description The 9 types in a fixed order (SUBSCRIPTION last). Locked switches (CREATOR_APPLICATION, SYSTEM) cannot change; NEW_FOLLOWER has no e-mail. emailVerified=false means no e-mail is sent until the address is verified.
 //	@Tags        notification-settings
 //	@Produce     json
 //	@Security    BearerAuth
@@ -35,7 +35,7 @@ func (r *routes) getSettings(ctx *fiber.Ctx) error {
 // putSettings -.
 //
 //	@Summary     Change my notification settings
-//	@Description Send only the rows that change (1–8); an omitted switch keeps its value. Turning a locked switch off or e-mail on for NEW_FOLLOWER → 400 details.<TYPE>=INVALID. Returns the whole table.
+//	@Description Send only the rows that change (1–9); an omitted switch keeps its value. Turning a locked switch off or e-mail on for NEW_FOLLOWER → 400 details.<TYPE>=INVALID. Payment receipts and voided-payment e-mails of SUBSCRIPTION are sent whatever its e-mail switch. Returns the whole table.
 //	@Tags        notification-settings
 //	@Accept      json
 //	@Produce     json
