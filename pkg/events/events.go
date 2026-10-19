@@ -76,6 +76,38 @@ const (
 	// Published by notification-svc (outbox); chat-svc relays them on user:{userId}.
 	TypeNotificationCreated       = "notification.created.v1"
 	TypeNotificationUnreadChanged = "notification.unread_changed.v1"
+
+	// Published by billing-svc (outbox): chat-svc keeps the subscription copy, notification-svc notifies.
+	TypeSubscriptionActivated = "subscription.activated.v1"
+	TypeSubscriptionRenewed   = "subscription.renewed.v1"
+	TypeSubscriptionUpdated   = "subscription.updated.v1"
+	TypeSubscriptionExpiring  = "subscription.expiring.v1"
+	TypeSubscriptionExpired   = "subscription.expired.v1"
+	TypePaymentSucceeded      = "payment.succeeded.v1"
+	TypePaymentFailed         = "payment.failed.v1"
+	TypePaymentVoided         = "payment.voided.v1"
+)
+
+// Values of SubscriptionUpdated.Change.
+const (
+	SubChangeCancelled     = "CANCELLED"
+	SubChangeResumed       = "RESUMED"
+	SubChangePeriodReduced = "PERIOD_REDUCED"
+)
+
+// Values of SubscriptionExpired.Reason.
+const (
+	SubExpiredPeriodEnded = "PERIOD_ENDED"
+	SubExpiredVoided      = "VOIDED"
+)
+
+// Values of PaymentSucceeded.Applied and PaymentSucceeded.Source.
+const (
+	PaymentAppliedActivated   = "ACTIVATED"
+	PaymentAppliedRenewed     = "RENEWED"
+	PaymentAppliedNeedsReview = "NEEDS_REVIEW"
+	PaymentSourceIPN          = "IPN"
+	PaymentSourceReconcile    = "RECONCILE"
 )
 
 // EndReasonAdminTakedown ends a stream an admin took down (stream.ended.v1 endReason).
@@ -578,4 +610,103 @@ type NotificationCreated struct {
 type NotificationUnreadChanged struct {
 	UserID      string `json:"userId"`
 	UnreadCount int    `json:"unreadCount"`
+}
+
+// SubscriptionActivated is published when a paid order creates a subscription. Replay marks the copies
+// rebuilt by `billing republish-entitlements`: consumers refresh their state but send no message or
+// notification.
+type SubscriptionActivated struct {
+	SubscriptionID     string    `json:"subscriptionId"`
+	UserID             string    `json:"userId"`
+	ChannelID          string    `json:"channelId"`
+	Tier               int       `json:"tier"`
+	CurrentPeriodStart time.Time `json:"currentPeriodStart"`
+	CurrentPeriodEnd   time.Time `json:"currentPeriodEnd"`
+	OrderID            *string   `json:"orderId"`
+	Replay             bool      `json:"replay"`
+}
+
+// SubscriptionRenewed is published when a paid order of the same tier extends a live subscription.
+type SubscriptionRenewed struct {
+	SubscriptionID   string    `json:"subscriptionId"`
+	UserID           string    `json:"userId"`
+	ChannelID        string    `json:"channelId"`
+	Tier             int       `json:"tier"`
+	CurrentPeriodEnd time.Time `json:"currentPeriodEnd"`
+	OrderID          string    `json:"orderId"`
+}
+
+// SubscriptionUpdated is published when the viewer cancels or resumes renewal reminders, or a voided
+// payment shortens the period (Change).
+type SubscriptionUpdated struct {
+	SubscriptionID   string    `json:"subscriptionId"`
+	UserID           string    `json:"userId"`
+	ChannelID        string    `json:"channelId"`
+	Tier             int       `json:"tier"`
+	Status           string    `json:"status"`
+	CurrentPeriodEnd time.Time `json:"currentPeriodEnd"`
+	Change           string    `json:"change"`
+}
+
+// SubscriptionExpiring is published once per period when a subscription has a few days left.
+type SubscriptionExpiring struct {
+	SubscriptionID   string    `json:"subscriptionId"`
+	UserID           string    `json:"userId"`
+	ChannelID        string    `json:"channelId"`
+	Tier             int       `json:"tier"`
+	CurrentPeriodEnd time.Time `json:"currentPeriodEnd"`
+	Price            int64     `json:"price"`
+	Renewable        bool      `json:"renewable"`
+}
+
+// SubscriptionExpired is published when a period ends or a voided payment ends it.
+type SubscriptionExpired struct {
+	SubscriptionID   string    `json:"subscriptionId"`
+	UserID           string    `json:"userId"`
+	ChannelID        string    `json:"channelId"`
+	Tier             int       `json:"tier"`
+	Reason           string    `json:"reason"`
+	CurrentPeriodEnd time.Time `json:"currentPeriodEnd"`
+}
+
+// PaymentSucceeded is published when a checkout order becomes PAID. Amount is in VND.
+type PaymentSucceeded struct {
+	OrderID          string     `json:"orderId"`
+	InvoiceNumber    string     `json:"invoiceNumber"`
+	UserID           string     `json:"userId"`
+	ChannelID        string     `json:"channelId"`
+	Tier             int        `json:"tier"`
+	Kind             string     `json:"kind"`
+	Amount           int64      `json:"amount"`
+	PaymentMethod    *string    `json:"paymentMethod"`
+	PaidAt           time.Time  `json:"paidAt"`
+	Applied          string     `json:"applied"`
+	SubscriptionID   *string    `json:"subscriptionId"`
+	CurrentPeriodEnd *time.Time `json:"currentPeriodEnd"`
+	Late             bool       `json:"late"`
+	Source           string     `json:"source"`
+}
+
+// PaymentFailed is published when a checkout order becomes FAILED, CANCELLED or EXPIRED.
+type PaymentFailed struct {
+	OrderID       string `json:"orderId"`
+	InvoiceNumber string `json:"invoiceNumber"`
+	UserID        string `json:"userId"`
+	ChannelID     string `json:"channelId"`
+	Tier          int    `json:"tier"`
+	Status        string `json:"status"`
+	FailureReason string `json:"failureReason"`
+}
+
+// PaymentVoided is published when the provider voids a paid order.
+type PaymentVoided struct {
+	OrderID            string     `json:"orderId"`
+	InvoiceNumber      string     `json:"invoiceNumber"`
+	UserID             string     `json:"userId"`
+	ChannelID          string     `json:"channelId"`
+	Tier               int        `json:"tier"`
+	Amount             int64      `json:"amount"`
+	SubscriptionID     *string    `json:"subscriptionId"`
+	SubscriptionStatus *string    `json:"subscriptionStatus"`
+	CurrentPeriodEnd   *time.Time `json:"currentPeriodEnd"`
 }
