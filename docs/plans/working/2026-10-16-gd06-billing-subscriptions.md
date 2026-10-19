@@ -2,7 +2,7 @@
 
 | Track | Trạng thái | Ngày |
 | --- | --- | --- |
-| Full (service mới billing, migration, sự kiện mới, env bắt buộc mới, Nginx, tích hợp bên thứ ba, cross-repo web + admin) | Draft | 2026-10-16 |
+| Full (service mới billing, migration, sự kiện mới, env bắt buộc mới, Nginx, tích hợp bên thứ ba, cross-repo web + admin) | **Approved** (19/10: G6-Q1…Q11 theo đề xuất; design GĐ6 đã có trên pen.dev) | 2026-10-16 |
 
 Lịch lộ trình GĐ6: 25/01 → 05/02 (tuần 16–17), mốc **M5**. GĐ5 xong 16/10 nên bắt đầu sớm ~14 tuần. Spec chính:
 NXL-H v1.0 (PSP đã chốt: SePay Payment Gateway sandbox — DL-19). `nxl_billing` đã có migration GĐ0 (`init_billing`:
