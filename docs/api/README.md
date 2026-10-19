@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.8 |
-| **Cập nhật** | 2026-10-16 |
+| **Phiên bản** | 1.9 |
+| **Cập nhật** | 2026-10-20 |
 | **Phạm vi** | REST công khai, API nội bộ giữa service, RTMP/HLS, sự kiện NATS. Gồm API đã chạy và API dự kiến theo lộ trình |
 
 Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, trạng thái nào, quy ước chung là gì.
@@ -32,7 +32,7 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | chat-svc (realtime gateway + chat), 2 instance | 8095 (`chat-1`), 8096 (`chat-2`) | `ws://localhost:8080/v1/ws` (qua cổng vào), `http://localhost:8095/v1` | <http://localhost:8095/swagger/index.html> | GĐ3 🔧 |
 | safety-svc | 8099 | `http://localhost:8099/v1` | <http://localhost:8099/swagger/index.html> | GĐ5 🔧 |
 | notification-svc | 8097 | `http://localhost:8097/v1` | <http://localhost:8097/swagger/index.html> | GĐ5 🔧 |
-| billing-svc | 8098 📋 | | 📋 | GĐ6 |
+| billing-svc | 8098 | `http://localhost:8098/v1`; ⛔ `http://localhost:8098/dev/fake-psp` (không qua cổng vào) | <http://localhost:8098/swagger/index.html> | GĐ6 🔧 |
 | NATS JetStream | 4222 (client), 8222 (monitor) | `nats://guest:guest@localhost:4222` | — | ✅ |
 | Web người dùng `nexuslive-web` | 5173 | Vite proxy `/v1`, `/hls` → cổng vào | — | ✅ |
 | Web quản trị `nexuslive-admin` | 5174 | Vite proxy `/v1` → cổng vào | — | GĐ1 🔧 |
@@ -46,9 +46,14 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | Đường dẫn | Tới | Ghi chú |
 | --- | --- | --- |
 | `/v1/auth/{login,register,password/forgot,password/reset,verify-email,verify-email/resend}` | identity-svc :8090 | Vùng rate limit chặt (§1.1) |
+| `= /v1/webhooks/sepay` | billing-svc :8098 | GĐ6: chỉ `POST` (khác → `403`), body ≤ 64 KB (`413`), vùng `nxl_webhook` (`NXL_EDGE_WEBHOOK_RATE`, mặc định `60r/m`, burst 20); không JWT / CORS |
 | `/v1/ws` | chat-svc (upstream `nxl_chat`: `chat-1`, `chat-2`) | WebSocket (`Upgrade`), `proxy_read_timeout 75s`, không rate limit theo request (GĐ3) |
 | `/v1/chat/*`, `/v1/channels/{id}/(chat-settings\|timeouts\|bans\|restrictions\|blocked-terms\|roles\|users)*` | chat-svc | Đặt trước route channel-svc (GĐ3; GĐ5 thêm hành động mod, từ khóa chặn, vai trò, thẻ người dùng) |
 | `/v1/me/channel-roles` | chat-svc | Exact match (GĐ5) |
+| `/v1/channels/{id}/subscription-tiers` | billing-svc | GĐ6, trước route channel-svc |
+| `/v1/me/(subscriptions\|payments)*`, `/v1/checkout*` | billing-svc | GĐ6; `/v1/me` còn lại về identity |
+| `/v1/admin/(payouts\|checkout-orders)*` | billing-svc | GĐ6, trước route admin của identity / safety |
+| `/v1/studio/monetization*` | billing-svc | GĐ6, trước route Studio của channel-svc / stream-svc |
 | `/v1/me/notification-settings`, `/v1/notifications*` | notification-svc :8097 | GĐ5 (`/v1/notifications/unsubscribe` không cần token); service dừng → `503 SERVICE_UNAVAILABLE` của cổng vào |
 | `/v1/reports` | safety-svc :8099 | Exact match (GĐ5) |
 | `/v1/admin/creator-applications*`, `GET /v1/admin/users/{id}` | identity-svc | GĐ5: `…/users/{id}/lock` không khớp, đi safety |
@@ -158,14 +163,18 @@ Từ GĐ1 bỏ giả định `channelId = userId`: kênh do channel-svc tạo kh
 | 403 | Đã đăng nhập nhưng không được phép (`FORBIDDEN`, `ACCOUNT_LOCKED`, `EMAIL_NOT_VERIFIED`, `NOT_CREATOR`, `INVALID_STREAM_KEY` nội bộ) |
 | 404 | `NOT_FOUND` — ID sai định dạng cũng trả 404, không 400 |
 | 409 | Xung đột trạng thái (`USERNAME_TAKEN`, `EMAIL_TAKEN`, `CONFLICT`, `APPLICATION_PENDING`, `ALREADY_CREATOR`, `INVALID_STATE`, `ALREADY_LIVE`, `RECENTLY_ENDED`, `NOT_LIVE`) |
-| 422 | `UNDERAGE` |
+| 422 | `UNDERAGE`; GĐ6: `CANNOT_SUBSCRIBE_SELF`, `IDEMPOTENCY_KEY_REUSED` |
 | 429 | `RATE_LIMITED` — cổng vào (§1.1) hoặc identity (gửi lại email) |
 | 500 | `INTERNAL_ERROR` — chi tiết chỉ nằm trong log |
 
-### 3.6 Idempotency 📋
+### 3.6 Idempotency (GĐ6 🔧)
 
-- Thao tác tạo giao dịch tiền (billing) bắt buộc header `Idempotency-Key` (UUID do client sinh). Gửi lại cùng key → cùng kết quả (kiến trúc §6.4).
-- Webhook từ cổng thanh toán xử lý trùng an toàn.
+- `POST /v1/checkout/orders`, `POST /v1/me/subscriptions/{id}/cancel`, `POST /v1/studio/monetization/payouts` bắt buộc header
+  `Idempotency-Key` (UUID do client sinh; thiếu → `400 details.idempotencyKey = REQUIRED`, sai dạng → `FORMAT`).
+- Cùng key + cùng body (so sánh JSON đã chuẩn hóa) → trả lại đúng response `2xx` đã lưu, header `Idempotent-Replay: true`; cùng
+  key, body khác → `422 IDEMPOTENCY_KEY_REUSED`; request đầu chưa xong → `409 CONFLICT` (treo quá 60 s thì được chạy lại).
+  Chỉ lưu `2xx`: lỗi được tính lại khi gửi lại cùng key. Key giữ 24 giờ, theo (người dùng, method, đường dẫn).
+- Webhook SePay xử lý trùng an toàn: unique `(psp_ref, type)` + khóa dòng đơn (§6E).
 
 ## 4. identity-svc — tài khoản và phiên
 
@@ -378,6 +387,52 @@ khởi động lại identity (identity xóa durable `identity-mailer`) — `mak
 thể gửi trùng, không mất. Rollback: `make nxl-mailer-rollback` (identity bật lại trước, durable tạo lại DeliverNew). Compose
 và `.env.example` đã ở trạng thái sau chuyển giao; mặc định trong code: identity `true`, notification `false`.
 
+## 6E. billing-svc — tier, checkout, IPN SePay, subscription, Thu nhập, rút tiền (GĐ6 🔧)
+
+Cổng 8098, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (`billing_ipn_total{type,result}`,
+`billing_ipn_duration_seconds`, `billing_checkout_orders_total{status,method,reason}`, `billing_provider_requests_total{op,result}`,
+`billing_provider_duration_seconds{op}`, `billing_reconcile_runs_total{job,result}`, `billing_reconcile_mismatches_total{kind}`,
+`billing_orders_needs_review`, `billing_subscriptions_active{tier}`, `billing_voids_total`, `billing_payouts_total{status}`,
+`billing_idempotency_total{result}`). Hợp đồng đầy đủ (DTO, ví dụ JSON, state machine): TSD
+`docs/plans/technical/2026-10-16-gd06-billing-subscriptions.md` §5. Auth: `—` không cần · `B` Bearer · `C` Bearer, kênh của
+người gọi (không có → `403 NOT_CREATOR`) · `A` Bearer `role = ADMIN` (khác → `403 FORBIDDEN`) · `IK` bắt buộc `Idempotency-Key`
+(§3.6). Phân trang `limit` 1–50 (20), `cursor` mờ, `nextCursor`. Tiền: `Money {amount: int64, currency: "VND"}`.
+
+| Method | Path | Auth | Mô tả |
+| --- | --- | --- | --- |
+| GET | `/v1/channels/{id}/subscription-tiers` | — | `{items: Tier[], nextCursor: null}` — tier đang bật theo level; kênh không có → `404`, bị khóa → `403 CHANNEL_SUSPENDED` |
+| GET | `/v1/checkout/config` | — | `{provider: SEPAY\|FAKE, paymentMethods, periodDays: 30, renewReminderDays: 3, maxPrepaidDays: 365, orderTtlSec: 1800, maxPending: 5}` |
+| GET | `/v1/checkout/tiers/{tierId}` | — | `{tierId, channel: ChannelRef + ownerId + status, tiers}` cho `/checkout?tierId=` (tier tắt vẫn trả) |
+| POST | `/v1/checkout/orders` | B, IK | `{tierId, paymentMethod?}` → `201 {order, checkout: {actionUrl, method: POST, fields[]}}` (form ký HMAC, POST đúng thứ tự `fields`); đơn chờ cùng tier → `200` đơn đó; `422 CANNOT_SUBSCRIBE_SELF`; `409 INVALID_STATE details.reason` `TIER_INACTIVE` / `TIER_CHANGE` / `MAX_PREPAID` / `ORDER_PENDING`; `409 CONFLICT details.limit = 5` |
+| GET | `/v1/checkout/orders/{id}` | B | `{order, subscription \| null}`; của người khác → `404` |
+| POST | `/v1/checkout/orders/{id}/sync` | B | `{outcome: SUCCESS\|ERROR\|CANCEL}` — hỏi SePay: đã trả → `PAID`; chưa trả: `CANCEL` → `CANCELLED`, `ERROR` → `FAILED` (`DECLINED` / `PROVIDER_ERROR` / `UNKNOWN`), `SUCCESS` → giữ `PENDING`; > 10 / phút → `429` |
+| POST | `/v1/checkout/orders/{id}/cancel` | B | Chỉ đơn `PENDING` (khác → `409`) |
+| GET | `/v1/me/subscriptions?status=current\|expired&channelId=` | B | Có `channelId`, không `status` → ≤ 1 dòng (đang có, không thì hết hạn gần nhất) |
+| POST | `/v1/me/subscriptions/{id}/cancel` · `/resume` | B (+ IK cho cancel) | Tắt / bật nhắc gia hạn (`ACTIVE` ↔ `CANCELLED_PENDING_END`), sai trạng thái → `409` |
+| GET | `/v1/me/payments?status=` | B | Đơn của người gọi, mới nhất trước (`status` CSV) |
+| GET · PATCH | `/v1/studio/monetization/tiers` · `/tiers/{level}` | C | Mọi tier + `activeSubscribers`; `PATCH {active?, description?}` (Tier 1 không tắt được → `active = INVALID`; mô tả ≤ 200) |
+| GET | `/v1/studio/monetization/summary?range=7d\|28d&tz=` | C | `gross, platformFee (5 %, làm tròn xuống), net, todayNet, balance, available, pendingPayout, subscribers{tier1..3,total}, feeBps, payoutMin` |
+| GET | `/v1/studio/monetization/ledger` | C | Sổ cái chỉ-thêm: `SUB_REVENUE` / `PLATFORM_FEE` / `PAYOUT`, `source` `CHARGE` / `VOID` / `PAYOUT` |
+| GET · POST | `/v1/studio/monetization/payouts` | C (+ IK cho POST) | `{amount, bankCode, accountNumber, accountName}` → `201 Payout` (`code PO-0001`, số tài khoản mã hóa AES-256-GCM, chỉ trả `last4`); `MIN` 100.000 / `MAX`; `409 INSUFFICIENT_BALANCE details.available` / `PAYOUT_PENDING` |
+| GET | `/v1/admin/payouts?status=` · `/pending-count` · `/{id}` | A | Hàng đợi (`REQUESTED` cũ trước; `APPROVED` / `REJECTED` / `ALL` mới trước), kèm số dư kênh |
+| GET | `/v1/admin/payouts/{id}/bank-account` | A | Số tài khoản đầy đủ, `Cache-Control: no-store`, mỗi lần xem ghi audit `PAYOUT_BANK_INFO_VIEWED` |
+| POST | `/v1/admin/payouts/{id}/approve` · `/reject` | A | `APPROVED` (ghi `DEBIT PAYOUT`, không chuyển tiền thật) / `REJECTED {reason 10–500}`; đã duyệt → `409` |
+| GET | `/v1/admin/checkout-orders?needsReview=&status=&q=` | A | Đơn (mới nhất trước), `q` = tiền tố mã hóa đơn |
+| POST | `/v1/webhooks/sepay` | `X-Secret-Key` | IPN SePay (không envelope): `200 {"success": true}` (đã áp, trùng, bỏ qua, chưa duyệt, hóa đơn lạ, lệch tiền → đơn `FAILED AMOUNT_MISMATCH`), `401` sai secret, `400` hỏng, `500` lỗi tạm |
+
+Dev (⛔, `BILLING_PAYMENT_PROVIDER=fake`, `NXL_ENV=dev`): `POST http://localhost:8098/dev/fake-psp` nhận form checkout (kiểm chữ ký)
+và hiện 3 nút; `/dev/fake-psp/{invoice}/pay` gửi IPN `ORDER_PAID` đúng định dạng SePay tới webhook rồi `303` về
+`success_url`; `/cancel`, `/fail` → `303` `cancel_url` / `error_url` (không IPN). CLI cùng binary (`make nxl-billing CMD=…`):
+`backfill-channels`, `republish-entitlements [--channel]`, `dev-ipn replay --transaction <id> [--times N]`,
+`dev-ipn synth --invoice <NXL…> [--type ORDER_PAID|TRANSACTION_VOID]`, `dev-void --invoice` (chỉ sepay).
+
+Job (khóa Redis, một instance chạy): `reconcile-pending` mỗi `BILLING_RECONCILE_INTERVAL` (đơn chờ > 2 phút: tra cứu → `PAID`;
+quá hạn → `EXPIRED`), `subscription-expiry` mỗi phút (nhắc một lần mỗi kỳ khi còn ≤ 3 ngày, hết kỳ → `EXPIRED`),
+`reconcile-daily` sau 02:00 giờ VN (đối soát ngày trước), dọn `idempotency_keys` mỗi giờ.
+
+Sự kiện: nghe `channel.created/updated/suspended/restored` (durable `billing-svc`, DeliverAll; bản sao kênh + 3 tier mặc định);
+phát qua outbox `subscription.*`, `payment.*` (§8), `audit.recorded` (nguồn billing).
+
 ## 7. Dịch vụ dự kiến
 
 Đường dẫn dưới đây là **bản nháp** để giữ chỗ và kiểm tra trùng lặp. Spec tương ứng chốt chi tiết trước khi làm (roadmap §4).
@@ -387,17 +442,10 @@ và `.env.example` đã ở trạng thái sau chuyển giao; mặc định trong
 Đã chạy ở GĐ4 (§6A). Không làm: `GET /v1/home` (trang chủ gọi API theo từng khối, G4-Q3), `GET /v1/search/trending`,
 `GET /v1/channels/recommended` (sidebar Guest dùng `GET /v1/streams/recommended`), follow danh mục.
 
-### 7.5 billing-svc — subscription, thanh toán sandbox (GĐ6, NXL-H)
+### 7.5 billing-svc
 
-| Method | Path | Mô tả |
-| --- | --- | --- |
-| GET | `/v1/channels/{id}/tiers` | 3 tier subscription của kênh (H1) |
-| POST | `/v1/checkout` | Tạo đơn, trả URL thanh toán PSP — bắt buộc `Idempotency-Key` |
-| GET | `/v1/checkout/{id}` | Trạng thái đơn sau khi PSP redirect về |
-| POST | `/v1/webhooks/{psp}` | Webhook PSP (xác minh chữ ký, chống trùng) |
-| GET | `/v1/me/subscriptions` · POST `/v1/me/subscriptions/{id}/cancel` | Quản lý / hủy (H1) |
-| GET | `/v1/me/transactions` | Lịch sử giao dịch (H4) |
-| GET | `/v1/studio/balance` · POST `/v1/studio/payout-requests` | Số dư Creator, yêu cầu rút tiền (H2) |
+Đã chạy ở GĐ6 (§6E); bản nháp cũ (`/v1/channels/{id}/tiers`, `/v1/checkout`, `/v1/me/transactions`, `/v1/studio/balance`) thay
+bằng đường dẫn của TSD GĐ6 §5.2.
 
 ## 8. Sự kiện (NATS JetStream)
 
@@ -439,7 +487,14 @@ và `.env.example` đã ở trạng thái sau chuyển giao; mặc định trong
 | `chat.message_sent.v1` · `chat.mention.v1` · `chat.mod_action.v1` | chat | notification, safety | | 📋 GĐ3 |
 | `safety.stream_takedown.v1` · `safety.user_actioned.v1` · `safety.report_resolved.v1` | safety | stream, identity, notification | | 📋 GĐ5 |
 | `notification.created.v1` · `notification.unread_changed.v1` | notification (outbox) | chat (đẩy `user:{id}` `notification` + `unread_count`) | TSD GĐ5 §5.9 (`unreadCount` sau thay đổi) | 🔧 GĐ5 |
-| `subscription.activated/renewed/expired/cancelled.v1` | billing (outbox) | chat, notification | | 📋 GĐ6 |
+| `subscription.activated.v1` | billing (outbox) | chat, notification (GĐ6 phần B) | `subscriptionId, userId, channelId, tier, currentPeriodStart, currentPeriodEnd, orderId \| null, replay` (`replay` = `republish-entitlements`: chỉ dựng lại bản sao) | 🔧 GĐ6 |
+| `subscription.renewed.v1` | billing (outbox) | chat | `subscriptionId, userId, channelId, tier, currentPeriodEnd, orderId` | 🔧 GĐ6 |
+| `subscription.updated.v1` | billing (outbox) | chat | `subscriptionId, userId, channelId, tier, status, currentPeriodEnd, change (CANCELLED\|RESUMED\|PERIOD_REDUCED)` | 🔧 GĐ6 |
+| `subscription.expiring.v1` | billing (outbox) | notification | `subscriptionId, userId, channelId, tier, currentPeriodEnd, price, renewable` — một lần mỗi kỳ | 🔧 GĐ6 |
+| `subscription.expired.v1` | billing (outbox) | chat, notification | `subscriptionId, userId, channelId, tier, reason (PERIOD_ENDED\|VOIDED), currentPeriodEnd` | 🔧 GĐ6 |
+| `payment.succeeded.v1` | billing (outbox) | chat (`payment_updated`), notification | `orderId, invoiceNumber, userId, channelId, tier, kind, amount, paymentMethod, paidAt, applied (ACTIVATED\|RENEWED\|NEEDS_REVIEW), subscriptionId, currentPeriodEnd, late, source (IPN\|RECONCILE)` | 🔧 GĐ6 |
+| `payment.failed.v1` | billing (outbox) | chat, notification | `orderId, invoiceNumber, userId, channelId, tier, status (FAILED\|CANCELLED\|EXPIRED), failureReason` | 🔧 GĐ6 |
+| `payment.voided.v1` | billing (outbox) | chat, notification | `orderId, invoiceNumber, userId, channelId, tier, amount, subscriptionId, subscriptionStatus, currentPeriodEnd` | 🔧 GĐ6 |
 
 Consumer bền hiện có:
 
@@ -452,6 +507,8 @@ Consumer bền hiện có:
 - GĐ5 🔧: `notification-replica` (DeliverAll: `user.*`, `channel.*`, `follow.*` → bản sao, kèm backfill một lần qua API
   snapshot nội bộ), `notification-svc` (**DeliverNew**: nguồn thông báo TSD §3.2), `notification-auth-mailer` (**DeliverNew**:
   `auth.email_requested`); `identity-mailer` bị xóa khi `IDENTITY_MAILER_ENABLED=false`, tạo lại với DeliverNew khi bật.
+
+- GĐ6 🔧: `billing-svc` (DeliverAll: `channel.created/updated/suspended/restored`; kênh có trước lấy bằng `billing backfill-channels`).
 
 Xem tồn đọng: `http://localhost:8222/jsz?consumers=1`.
 
@@ -472,6 +529,7 @@ Phá vỡ tương thích REST: xem §3.1.
 
 | Ngày | Thay đổi |
 | --- | --- |
+| 2026-10-20 | v1.9 — GĐ6 phần A: billing-svc (§6E: tier, checkout + `Idempotency-Key`, IPN SePay / trang thanh toán giả, sync, subscription, Thu nhập Studio, rút tiền, Admin), route cổng vào + vùng `nxl_webhook`, 8 sự kiện `subscription.*` / `payment.*` (§8), mã `CANNOT_SUBSCRIBE_SELF`, `IDEMPOTENCY_KEY_REUSED` |
 | 2026-10-16 | v1.8 — GĐ5 close-out (chỉ thêm, trừ refresh): refresh của tài khoản bị khóa → `403 ACCOUNT_LOCKED`; `CHANNEL_SUSPENDED` của hồ sơ kèm `details`; `UserCard.createdAt`; `AdminReportDetail.channelId`, `evidence[].username/displayName`, `actions[]` có hạn chế chat + `actorRole`/`channelId`; audit `actor=`; `NEW_FOLLOWER` link `/studio` |
 | 2026-10-15 | v1.7 — GĐ5 phần B: notification-svc (§6D: trung tâm thông báo, cài đặt, hủy nhận email, `user:` `notification` / `unread_count`), chuyển email xác thực từ identity (`IDENTITY_MAILER_ENABLED`, `make nxl-mailer-cutover`) |
 | 2026-10-15 | v1.6 — GĐ4 backend: channel-svc (follow, hồ sơ + ảnh, danh mục, tìm kiếm, lịch sử tìm kiếm, lịch phát, nhắc lịch, Studio kênh); stream-svc (lọc / sắp xếp danh sách, gợi ý, VOD theo danh mục và kênh, `SCHEDULED`/`CANCELLED`, Dashboard, Studio VOD, VOD ẩn); chat `sidebar:{userId}`; media xóa file VOD; Nginx tách route + `/media/`; sự kiện mới §8 |

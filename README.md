@@ -13,11 +13,12 @@ web app in `../nexuslive-admin`.
 | `services/chat` | Realtime gateway `GET /v1/ws` (chat, stream status, viewer counts), live chat with modes and limits, history, emotes, moderation (delete, pin, timeout, ban, blocked terms, link blocking, Mod / VIP roles); two instances in compose (`chat-1`, `chat-2`) sharing Redis | 8095 (`chat-1`), 8096 (`chat-2`), 8085 internal |
 | `services/safety` | Reports with chat evidence, the admin report queue, admin actions (lock / unlock account, suspend / restore channel, take a stream down) applied by the owning services, admin lookups, append-only audit log | 8099 |
 | `services/notification` | Notification center and settings, realtime notifications through chat-svc (`user:{id}`), e-mails (outbox + worker with retries, daily cap, unsubscribe links) and the account e-mails (verification, password reset) since the GĐ5 mailer cutover | 8097 |
+| `services/billing` | Subscription tiers (3 per channel), checkout through the SePay Payment Gateway sandbox (signed form, IPN webhook with `X-Secret-Key`, order lookup / cancel) or a dev fake payment page, prepaid 30-day subscriptions with renewal reminders, append-only ledger with the 5 % platform fee, Studio monetization, payout requests and the admin payout queue | 8098 |
 
 Services share `pkg/` (event bus, transactional outbox, JWT, HTTP server and metrics, logger,
 Postgres, Redis) through `go.work`, and talk over NATS JetStream events and internal HTTP; chat-svc
-instances fan realtime events out to each other over core NATS. More services (billing) join phase
-by phase — see `docs/product/roadmap.md`.
+instances fan realtime events out to each other over core NATS. The roadmap is in
+`docs/product/roadmap.md`.
 
 ## Quick start
 
@@ -33,7 +34,8 @@ make nxl-up-all           # everything: infra, services, Nginx edge, Prometheus,
 | --- | --- |
 | http://localhost:8080 | Nginx edge — the API (`/v1/*`), the WebSocket gateway (`ws://localhost:8080/v1/ws`), HLS (`/hls/*`) and emotes (`/emotes/*`) for the browser; rate limits, CORS for the web and admin apps |
 | rtmp://localhost:1935/live | OBS server; the stream key comes from Studio (`POST /v1/studio/stream-key`) |
-| http://localhost:8090/swagger/index.html · http://localhost:8094/swagger/index.html · http://localhost:8092/swagger/index.html · http://localhost:8095/swagger/index.html · http://localhost:8099/swagger/index.html · http://localhost:8097/swagger/index.html | Swagger of identity, channel, stream, chat, safety and notification |
+| http://localhost:8090/swagger/index.html · http://localhost:8094/swagger/index.html · http://localhost:8092/swagger/index.html · http://localhost:8095/swagger/index.html · http://localhost:8099/swagger/index.html · http://localhost:8097/swagger/index.html · http://localhost:8098/swagger/index.html | Swagger of identity, channel, stream, chat, safety, notification and billing |
+| http://localhost:8098/dev/fake-psp | Fake payment page of billing-svc (`BILLING_PAYMENT_PROVIDER=fake`, dev only, not through the edge): the checkout form posts here; Pay / Cancel / Fail like SePay |
 | http://localhost:8091/dev/player | media-svc test player |
 | http://localhost:3000 | Grafana — dashboards "NexusLive — Livestream" and "NexusLive — Chat" (anonymous view, admin/admin) |
 | http://localhost:9090 · http://localhost:16686 | Prometheus · Jaeger |
@@ -69,6 +71,19 @@ Signed HLS (GĐ5): playback URLs become `/hls/t/{expires}/{md5}/streams/{id}/…
 segments (`403`). `NXL_HLS_SECRET` is shared by the edge and stream-svc (`openssl rand -hex 32`). Outside
 dev, do not publish MinIO's port 9000: `streams/` stays public-read for the edge.
 
+Payments (GĐ6): billing-svc starts with `BILLING_PAYMENT_PROVIDER=fake`, so subscribing works without
+any SePay account — the web checkout posts to the fake page, "Pay" sends a SePay-format IPN to
+`/v1/webhooks/sepay`. For the SePay sandbox, put `BILLING_PAYMENT_PROVIDER=sepay` and the three secrets
+(`BILLING_SEPAY_MERCHANT_ID`, `BILLING_SEPAY_SECRET_KEY`, `BILLING_SEPAY_IPN_SECRET`, from my.sepay.vn →
+Payment Gateway, IPN auth type `SECRET_KEY`) in `.env`; billing refuses to start if one is missing or a URL
+is not a sandbox host. Without a public URL the IPN cannot arrive: the result page calls `sync` and the
+`reconcile-pending` job (every minute) finds the payment through the SePay order API anyway. To receive
+IPNs, `make nxl-tunnel` (cloudflared quick tunnel, only while testing or demoing) and paste
+`https://<name>.trycloudflare.com/v1/webhooks/sepay` in the dashboard. Maintenance commands run in the
+container: `make nxl-billing CMD=backfill-channels` (tiers for channels created before billing ran),
+`CMD=republish-entitlements` (rebuild chat's subscription copy), `CMD="dev-ipn replay --transaction <id> --times 2"`
+/ `CMD="dev-ipn synth --invoice NXL… [--type TRANSACTION_VOID]"` (dev; needs `BILLING_SEPAY_IPN_SECRET` set).
+
 Compose profiles: none = infrastructure (`make nxl-infra-up`), `nxl` = services + edge, `obs` =
 Prometheus, Grafana, Jaeger (`make nxl-obs-up`). `make nxl-down` stops everything; volumes are kept.
 
@@ -79,8 +94,9 @@ Prometheus, Grafana, Jaeger (`make nxl-obs-up`). `make nxl-down` stops everythin
 | `make nxl-lint` | golangci-lint on every Go module |
 | `make nxl-test` | unit tests of every module (`-race`; on Windows without gcc: `make nxl-test NXL_TEST_FLAGS=`) |
 | `make format` | gofumpt + gci + goimports |
-| `make nxl-swag` | regenerate Swagger of identity, channel, stream, chat, safety and notification (runs in Docker) |
-| `make nxl-channel-test` · `make nxl-stream-test` · `make nxl-chat-test` | one service's tests |
+| `make nxl-swag` | regenerate Swagger of identity, channel, stream, chat, safety, notification and billing (runs in Docker) |
+| `make nxl-channel-test` · `make nxl-stream-test` · `make nxl-chat-test` · `make nxl-billing-test` | one service's tests |
+| `make nxl-billing CMD="…"` · `make nxl-tunnel` | a billing-svc command in its container · a public URL for SePay IPNs |
 | `make nxl-chat-up` | identity, channel, stream, Redis, `chat-1` and `chat-2` behind the edge |
 | `make nxl-promote-admin EMAIL=…` | give an existing account the ADMIN role |
 | `make nxl-migrate-create SVC=stream NAME=add_x` | new migration for one service |
@@ -91,6 +107,8 @@ Prometheus, Grafana, Jaeger (`make nxl-obs-up`). `make nxl-down` stops everythin
 Repository tests need Postgres with the service's migrations applied:
 `NXL_TEST_PG_URL_STREAM=postgres://...nxl_stream NXL_TEST_PG_URL_CHANNEL=postgres://...nxl_channel NXL_TEST_PG_URL_CHAT=postgres://...nxl_chat make nxl-test`;
 chat-svc's Redis tests need `NXL_TEST_REDIS_ADDR=localhost:6379` (they use database 15 of that Redis).
+billing-svc's repository tests (`NXL_TEST_PG_URL_BILLING`) include concurrent duplicate IPNs, `sync` and
+reconcile on one order.
 CI (`.github/workflows/ci.yml`) runs lint and tests per module and builds each service image.
 
 ## Layout
