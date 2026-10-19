@@ -28,6 +28,10 @@ scrape_configs:
     static_configs:
       - targets: ["notification:8097"]
 
+  - job_name: billing
+    static_configs:
+      - targets: ["billing:8098"]
+
   - job_name: media
     static_configs:
       - targets: ["media:8091"]

@@ -353,6 +353,64 @@ services:
         aliases:
           - notification.lvh.me
 
+  # Tiers, checkout (SePay sandbox or the dev fake), IPN webhook, subscriptions, Studio monetization, payouts (GĐ6, NXL-H).
+  # Fake payment page (dev): http://localhost:8098/dev/fake-psp. CLI: docker compose exec billing /billing <command>.
+  billing:
+    container_name: billing
+    profiles: ["nxl"]
+    build:
+      context: .
+      dockerfile: services/billing/Dockerfile
+    environment:
+      NXL_ENV: "dev"
+      BILLING_LOG_LEVEL: "debug"
+      BILLING_HTTP_PORT: "8098"
+      NXL_PG_URL_BILLING: "postgres://user:myAwEsOm3pa55%40w0rd@db:5432/nxl_billing?sslmode=disable"
+      NATS_URL: "nats://guest:guest@nats:4222/"
+      BILLING_REDIS_ADDR: "redis:6379"
+      BILLING_JWKS_URL: "http://identity:8090/v1/auth/.well-known/jwks.json"
+      NXL_INTERNAL_SECRET: "${NXL_INTERNAL_SECRET:-dev-internal-secret}"
+      # fake until the SePay sandbox secrets are in .env (then BILLING_PAYMENT_PROVIDER=sepay).
+      BILLING_PAYMENT_PROVIDER: "${BILLING_PAYMENT_PROVIDER:-fake}"
+      BILLING_SEPAY_ENV: "${BILLING_SEPAY_ENV:-sandbox}"
+      BILLING_SEPAY_CHECKOUT_URL: "${BILLING_SEPAY_CHECKOUT_URL:-https://pay-sandbox.sepay.vn/v1/checkout/init}"
+      BILLING_SEPAY_API_URL: "${BILLING_SEPAY_API_URL:-https://pgapi-sandbox.sepay.vn}"
+      BILLING_SEPAY_MERCHANT_ID: "${BILLING_SEPAY_MERCHANT_ID:-}"
+      BILLING_SEPAY_SECRET_KEY: "${BILLING_SEPAY_SECRET_KEY:-}"
+      BILLING_SEPAY_IPN_SECRET: "${BILLING_SEPAY_IPN_SECRET:-}"
+      BILLING_SEPAY_IPN_VERIFY_VIA_API: "${BILLING_SEPAY_IPN_VERIFY_VIA_API:-false}"
+      BILLING_SEPAY_METHODS: "${BILLING_SEPAY_METHODS:-BANK_TRANSFER}"
+      BILLING_SEPAY_API_TIMEOUT: "${BILLING_SEPAY_API_TIMEOUT:-3s}"
+      BILLING_WEB_BASE_URL: "${BILLING_WEB_BASE_URL:-${NXL_WEB_ORIGIN:-http://localhost:5173}}"
+      # Dev-only key; set your own in .env for any shared environment.
+      BILLING_PAYOUT_ENC_KEY: "${BILLING_PAYOUT_ENC_KEY:-bnhsLWRldi1wYXlvdXQta2V5LTAxMjM0NTY3ODlhYmM=}"
+      BILLING_TIER_PRICES: "${BILLING_TIER_PRICES:-59000,119000,299000}"
+      BILLING_PLATFORM_FEE_BPS: "${BILLING_PLATFORM_FEE_BPS:-500}"
+      BILLING_PAYOUT_MIN: "${BILLING_PAYOUT_MIN:-100000}"
+      BILLING_ORDER_TTL: "${BILLING_ORDER_TTL:-30m}"
+      BILLING_RECONCILE_AFTER: "${BILLING_RECONCILE_AFTER:-2m}"
+      BILLING_RECONCILE_INTERVAL: "${BILLING_RECONCILE_INTERVAL:-1m}"
+      BILLING_RECONCILE_GIVEUP: "${BILLING_RECONCILE_GIVEUP:-30m}"
+      BILLING_RENEW_REMINDER_DAYS: "${BILLING_RENEW_REMINDER_DAYS:-3}"
+      BILLING_CHANNEL_INTERNAL_URL: "http://channel:8088"
+      # The browser opens the fake page on the host; its IPN goes to billing inside the network.
+      BILLING_FAKE_PSP_URL: "http://localhost:8098/dev/fake-psp"
+      BILLING_FAKE_IPN_URL: "http://billing:8098/v1/webhooks/sepay"
+      BILLING_DEV_IPN_URL: "http://nginx/v1/webhooks/sepay"
+    ports:
+      - "8098:8098"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      app_network:
+        aliases:
+          - billing.lvh.me
+
   # RTMP ingest + ffmpeg ABR + HLS upload (docs/plans/technical/2026-10-11-core-livestream-rtmp-hls.md).
   # OBS -> rtmp://localhost:1935/live, key from POST /v1/studio/stream-key; test page http://localhost:8091/dev/player
   media:
@@ -499,6 +557,7 @@ services:
       NXL_EDGE_AUTH_RATE: "${NXL_EDGE_AUTH_RATE:-10r/m}"
       NXL_EDGE_WRITE_RATE: "${NXL_EDGE_WRITE_RATE:-60r/m}"
       NXL_EDGE_READ_RATE: "${NXL_EDGE_READ_RATE:-600r/m}"
+      NXL_EDGE_WEBHOOK_RATE: "${NXL_EDGE_WEBHOOK_RATE:-60r/m}"
       # Signed HLS (GĐ5 TSD §9.3): same secret as stream-svc; 1 keeps unsigned /hls/ playlists working.
       NXL_HLS_SECRET: "${NXL_HLS_SECRET:-dev-hls-secret-0123456789abcdef0123456789abcdef}"
       NXL_HLS_ALLOW_UNSIGNED: "${NXL_HLS_ALLOW_UNSIGNED:-1}"

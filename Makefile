@@ -11,7 +11,7 @@ BASE_STACK = docker compose -f docker-compose.yml
 ALL_PROFILES = --profile nxl --profile obs
 
 # Go modules of the workspace (go.work). Add a service here when it gets its own module.
-NXL_GO_MODULES := . services/identity services/channel services/stream services/media services/chat services/safety services/notification
+NXL_GO_MODULES := . services/identity services/channel services/stream services/media services/chat services/safety services/notification services/billing
 # -race needs cgo (gcc). Without a C compiler on Windows: make nxl-test NXL_TEST_FLAGS=
 NXL_TEST_FLAGS ?= -race
 
@@ -61,7 +61,7 @@ nxl-lint: ### golangci-lint on every Go module of the workspace
 	$(foreach m,$(NXL_GO_MODULES),go -C $(m) tool golangci-lint run ./...$(nl))
 .PHONY: nxl-lint
 
-nxl-test: ### unit tests of every Go module; repository tests also need NXL_TEST_PG_URL_<SVC> (stream, channel, chat, identity, safety, notification), Redis tests NXL_TEST_REDIS_ADDR
+nxl-test: ### unit tests of every Go module; repository tests also need NXL_TEST_PG_URL_<SVC> (stream, channel, chat, identity, safety, notification, billing), Redis tests NXL_TEST_REDIS_ADDR
 	$(foreach m,$(NXL_GO_MODULES),go -C $(m) test $(NXL_TEST_FLAGS) -covermode atomic ./...$(nl))
 .PHONY: nxl-test
 
@@ -169,6 +169,24 @@ nxl-channel-test: ### channel-svc tests (repository tests need NXL_TEST_PG_URL_C
 	go test -v -race -covermode atomic ./services/channel/... ./pkg/eventbus/... ./pkg/outbox/...
 .PHONY: nxl-channel-test
 
+nxl-billing-test: ### billing-svc tests (repository tests need NXL_TEST_PG_URL_BILLING, Redis tests NXL_TEST_REDIS_ADDR)
+	go test -v -race -covermode atomic ./services/billing/... ./pkg/eventbus/... ./pkg/outbox/...
+.PHONY: nxl-billing-test
+
+nxl-billing: ### run a billing-svc command in the running container: make nxl-billing CMD="dev-ipn replay --transaction <id>"
+	@test -n "$(CMD)" || { echo 'CMD is required: backfill-channels | republish-entitlements [--channel ID] | dev-ipn replay|synth ... | dev-void --invoice NXL...'; exit 1; }
+	$(BASE_STACK) --profile nxl exec billing /billing $(CMD)
+.PHONY: nxl-billing
+
+nxl-tunnel: ### public HTTPS URL of the edge for SePay IPN (cloudflared quick tunnel; only while testing or demoing): make nxl-tunnel [ARGS=-Web]
+ifeq ($(OS),Windows_NT)
+	powershell -ExecutionPolicy Bypass -File scripts/tunnel.ps1 $(ARGS)
+else
+	@echo "Run: cloudflared tunnel --url http://localhost:$${NXL_EDGE_PORT:-8080}  (scripts/tunnel.ps1 does this on Windows)"
+	@echo "Then paste https://<name>.trycloudflare.com/v1/webhooks/sepay as the IPN URL on my.sepay.vn; Ctrl+C closes it."
+endif
+.PHONY: nxl-tunnel
+
 nxl-media-test: ### unit tests of media-svc
 	go test -v -race -covermode atomic ./services/media/...
 .PHONY: nxl-media-test
@@ -177,8 +195,8 @@ nxl-bench: ### transcode load test through the edge: make nxl-bench COUNTS="1 2 
 	COUNTS="$(or $(COUNTS),1 2 3)" bash scripts/bench-transcode.sh
 .PHONY: nxl-bench
 
-nxl-swag: ### regenerate Swagger specs of identity-svc, channel-svc, stream-svc, chat-svc, safety-svc and notification-svc (runs swag in Docker, no local Go needed)
-	docker run --rm -v "$(CURDIR):/src" -w /src golang:1.27-alpine3.23 sh -c 'for s in identity channel stream chat safety notification; do \
+nxl-swag: ### regenerate Swagger specs of identity-svc, channel-svc, stream-svc, chat-svc, safety-svc, notification-svc and billing-svc (runs swag in Docker, no local Go needed)
+	docker run --rm -v "$(CURDIR):/src" -w /src golang:1.27-alpine3.23 sh -c 'for s in identity channel stream chat safety notification billing; do \
 		(cd services/$$s && go tool swag init -q -g internal/controller/restapi/router.go -o docs \
 			--parseInternal --parseDependency --parseDepth 2 --useStructName) || exit 1; done'
 .PHONY: nxl-swag
