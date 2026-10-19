@@ -26,3 +26,6 @@ coverage.txt
 
 # Benchmark output (make nxl-bench)
 bench-out/
+
+# Cloudflare quick tunnel state (scripts/tunnel.ps1)
+.tunnel/
