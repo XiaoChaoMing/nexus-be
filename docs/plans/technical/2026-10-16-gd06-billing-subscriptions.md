@@ -1421,7 +1421,9 @@ Lệnh `dev-*` thoát lỗi ngay khi `NXL_ENV ≠ dev`. Không in secret.
   `updated` có thể giảm `until` khi VOID). `expired` → Lua:
   `local v = redis.call('HGET', KEYS[1], ARGV[1]); if not v then return 0 end; local u = tonumber(string.match(v, ':(%d+)$') or
   '0'); if u <= tonumber(ARGV[2]) then return redis.call('HDEL', KEYS[1], ARGV[1]) end; return 0` (`ARGV[2]` =
-  `currentPeriodEnd` Unix; giá trị cũ không có `:` → `u = 0` → xóa).
+  `currentPeriodEnd` Unix; giá trị cũ không có `:` → `u = 0` → xóa). **`reason = VOIDED`** (v1.1): sự kiện mang kỳ đã rút ngắn
+  (`GREATEST(now, start + 1 ms)`) còn bản sao vẫn giữ `end` trước VOID (lớn hơn đúng một kỳ) → chat so với `currentPeriodEnd +
+  30 ngày` (`entity.SubPeriod`); sub mua mới sau VOID luôn hết hạn sau mốc đó nên không bị xóa nhầm.
 - **Đọc:** `Audience` / `SubTiers` trả `SubGrant`; `Standing.SubTier = grant.Tier` khi `grant.Active(now)`, ngược lại 0 —
   badge, Subs-only, `me.subTier` cùng một nguồn. Lịch sử tin dùng badge đã lưu theo tin (như GĐ3).
 - **Emote:** `emoteCodes(ctx, channelID, emoteTier)` = toàn cục + emote kênh có `tier_required ≤ emoteTier` (cache danh sách emote
@@ -1722,3 +1724,4 @@ SePay: IPN (đọc lại 20/10), Tổng quan API, SDK Node (E-32…E-37); `servi
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
 | 1.0 | 2026-10-20 | Bản đầu sau khi duyệt Working Plan (G6-Q1…Q11 theo đề xuất, 19/10); chờ duyệt |
+| 1.1 | 2026-10-20 | Phần B (chat, notification) as-shipped: `subscription.expired` `VOIDED` xóa bản sao `sub:` khi `until ≤ currentPeriodEnd + 30 ngày` (§6.11; so trực tiếp không bao giờ xóa vì VOID gửi kỳ đã rút ngắn); durable chat giữ tên `chat-svc`; `GET /v1/chat/emotes` `Cache-Control: max-age=60` (khớp cache 1 phút) |

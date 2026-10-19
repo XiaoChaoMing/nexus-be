@@ -308,7 +308,7 @@ Hợp đồng đầy đủ (khung WebSocket, snapshot, sự kiện, khóa Redis)
 | --- | --- | --- | --- | --- |
 | WS | `/v1/ws` | Tin đầu `{"op":"auth","token":<JWT>\|null,"anonId"?}` trong 5 s | Một kết nối cho mọi chủ đề: `chat:{streamId}`, `stream:{streamId}`, `user:{userId}` (chỉ khung), GĐ4 `sidebar:{userId}` (chỉ chính user: `channel_live`, `channel_offline`, `viewer_count_batch` mỗi 5 s không có `seq`; `stream:` thêm `status_changed` `CANCELLED` / `SCHEDULED` + `scheduledStartAt`). `subscribe` kèm `lastSeq` để resume; quá bộ đệm → `resync`. Mã đóng `1012` (instance tắt), `4001`, `4008`, `4029` (NXL-00 §10) | GĐ3 🔧 |
 | GET | `/v1/chat/rooms/{streamId}/messages?before=&limit=` | — | Lịch sử, mới nhất trước: `{items: Message[], nextCursor}`; `Message` cùng dạng `data` của event `message` | GĐ3 🔧 |
-| GET | `/v1/chat/emotes?channelId=` | — | Emote toàn cầu `{items: [{id, code, imageUrl, animated, scope}]}` (`channelId` bỏ qua tới GĐ6) | GĐ3 🔧 |
+| GET | `/v1/chat/emotes?channelId=` | — | `{items: [{id, code, imageUrl, animated, scope (GLOBAL\|CHANNEL), channelId \| null, tierRequired (1–3) \| null}]}`: có `channelId` hợp lệ → emote kênh trước (theo `tierRequired`, `code`) rồi emote toàn cầu; kênh không có emote / không biết / `channelId` sai dạng → chỉ toàn cầu. Emote kênh **khóa** với người có `me.emoteTier < tierRequired` (gửi đi thành chữ, không lỗi). `Cache-Control: public, max-age=60` | GĐ3 🔧 · GĐ6 |
 | GET | `/v1/channels/{channelId}/chat-settings` | — | `{slowSec, followersMin, subsOnly, updatedAt}`; kênh chưa biết → `404` | GĐ3 🔧 |
 | PUT | `/v1/channels/{channelId}/chat-settings` | Bearer (chủ kênh, Mod, Admin) | Đổi chế độ; mọi phòng đang mở của kênh nhận `mode_change` + `system`. `VALIDATION_FAILED` (`ENUM`), `FORBIDDEN`, `UNAUTHORIZED` | GĐ3 🔧 |
 | DELETE | `/v1/chat/rooms/{streamId}/messages/{messageId}` | Bearer (chủ kênh, Mod, Admin) | Xóa tin → `chat:` nhận `message_deleted`; `FORBIDDEN` (`details.target = PROTECTED`) | GĐ5 🔧 |
@@ -320,6 +320,24 @@ Hợp đồng đầy đủ (khung WebSocket, snapshot, sự kiện, khóa Redis)
 | GET · POST · PUT · DELETE | `/v1/channels/{channelId}/roles[/{userId}]` | Bearer (chủ kênh; Admin) | Gán / gỡ `MODERATOR` / `VIP` (≤ 50 mỗi vai trò) | GĐ5 🔧 |
 | GET | `/v1/me/channel-roles` | Bearer | `{items: ModChannel[]}` — kênh mình là Mod / VIP | GĐ5 🔧 |
 | GET | `/metrics` (không qua cổng vào) | — | `chat_ws_connections`, `chat_ws_subscriptions`, `chat_messages_sent_total`, `chat_events_delivered_total`, `chat_fanout_latency_seconds`, `chat_send_rejects_total{code}`, `chat_ws_resyncs_total`, `http_*` | GĐ3 🔧 |
+
+**GĐ6 — quyền lợi Sub** (TSD `docs/plans/technical/2026-10-16-gd06-billing-subscriptions.md` §5.6, §6.11):
+
+- Snapshot `chat:` `me` thêm `subTier` (0–3, đã xét hạn) và `emoteTier` (0–3: chủ kênh 3; Mod / VIP / Admin `max(subTier, 1)`;
+  còn lại `subTier`). Badge `SUB_T1..3` trong `me.badges` và `user.badges` của tin (tối đa 3 badge, sau STREAMER / MODERATOR / VIP).
+- Subs-only: qua khi `subTier > 0` (sub còn hạn) hoặc chủ kênh / Mod / Admin; sub hết hạn → `CHAT_SUBS_ONLY` ngay, không chờ sự kiện.
+- `chat:` `system` thêm `data.type` `SUB_NEW` / `SUB_RENEW`: `{type, text: "@an vừa subscribe Tier 1" | "@an đã gia hạn Tier 1", meta:
+  {userId, username, tier}}` — một lần mỗi sự kiện, vào mọi phòng `OPEN` của kênh; không có khi `republish-entitlements`
+  (`replay`), không có cho kênh không phát; không lưu vào lịch sử.
+- `user:{userId}` thêm `payment_updated`: `{orderId, invoiceNumber, status (PAID|FAILED|CANCELLED|EXPIRED|VOIDED), failureReason |
+  null, needsReview, subscription: {id, channelId, tier, status, currentPeriodEnd} | null}` (chỉ khi người mua đang có kết nối;
+  đơn `needsReview` → `subscription = null`).
+- Bản sao Redis `sub:{channelId}` field `userId` = `"{tier}:{untilUnix}"` (consumer `subscription.activated|renewed|updated` ghi đè,
+  `expired` xóa bằng Lua chỉ khi `until ≤ currentPeriodEnd`); giá trị cũ `"{tier}"` vẫn đọc được (không hạn).
+- CLI: `chat emote add --channel <uuid> --tier 1-3 --code <code> --image </emotes/channel/x.webp|/media/...> [--animated]`,
+  `chat emote remove --channel --code`, `chat emote seed-demo --channel <uuid>` (5 emote `kaelenGG`, `kaelenHi` T1, `kaelenHype`,
+  `kaelenClutch` T2, `kaelenGOAT` T3; ảnh `deploy/emotes/channel/*.webp`, cổng vào phục vụ ở `/emotes/channel/`). `chat dev-grant
+  sub --tier N [--minutes M]` ghi `"{N}:{now + M phút}"` (M = 0 → 30 ngày).
 
 Mã lỗi (REST và frame `error`): `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `RATE_LIMITED`, `EMAIL_NOT_VERIFIED`, `CHAT_CLOSED`, `CHAT_READ_ONLY`, `CHAT_DISABLED`, `CHAT_DUPLICATE`, `CHAT_SLOW_MODE`, `CHAT_FOLLOWERS_ONLY`, `CHAT_SUBS_ONLY`, `CHAT_TIMED_OUT`, `CHAT_BANNED`, `INTERNAL_ERROR`. `details` là chuỗi (`retryAfterSec: "5"`).
 
@@ -360,7 +378,7 @@ Cổng 8097, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (`notificatio
 | POST | `/v1/notifications/{id}/read` | B | `204`; đã đọc → `204`; của người khác / đã xóa / không có → `404` |
 | POST | `/v1/notifications/read-all` | B | `{before?}` (RFC 3339, mặc định `now`; chỉ mục `updatedAt ≤ before`) → `204`; `before = FORMAT` |
 | DELETE | `/v1/notifications/{id}` | B | Xóa mềm → `204` (đã xóa → `204`); của người khác → `404` |
-| GET · PUT | `/v1/me/notification-settings` | B | `{items: [{type, inApp, email, inAppLocked, emailLocked, emailAvailable}] (8 loại, thứ tự BR-E01), emailVerified}`; `PUT {items: [{type, inApp?, email?}]}` (1–8 dòng, chỉ dòng đổi) → bảng đầy đủ; tắt `SYSTEM` / `CREATOR_APPLICATION` hoặc bật email `NEW_FOLLOWER` → `400 details.<TYPE> = INVALID`; `type = ENUM`, `items = REQUIRED` |
+| GET · PUT | `/v1/me/notification-settings` | B | `{items: [{type, inApp, email, inAppLocked, emailLocked, emailAvailable}] (9 loại, thứ tự BR-E01, GĐ6 thêm `SUBSCRIPTION` ở cuối ✓/✓ không khóa), emailVerified}`; `PUT {items: [{type, inApp?, email?}]}` (1–9 dòng, chỉ dòng đổi) → bảng đầy đủ; tắt `SYSTEM` / `CREATOR_APPLICATION` hoặc bật email `NEW_FOLLOWER` → `400 details.<TYPE> = INVALID`; `type = ENUM`, `items = REQUIRED` |
 | POST | `/v1/notifications/unsubscribe` | — | `{token}` (từ liên kết `{WEB}/notifications/unsubscribe?token=…` trong email) → `{type}`; sai / sửa / loại không có email → `400 TOKEN_INVALID`; thiếu → `token = REQUIRED` |
 
 `Notification` = `{id, type, payload, link | null, groupCount, read, createdAt, updatedAt}`; `payload` theo loại:
@@ -370,6 +388,21 @@ occurrenceAt, title}` · `SCHEDULE {channel, scheduleId, title, occurrenceAt, ne
 `NEW_FOLLOWER {channelId, lastFollower{id,username,displayName}}` (link `/studio`) · `CREATOR_APPLICATION {applicationId, result, reason}` ·
 `REPORT_RESULT {reportId, targetType, result (RESOLVED|DISMISSED)}` · `SYSTEM {kind (CHANNEL_SUSPENDED|CHANNEL_RESTORED|
 STREAM_TAKEDOWN), channelId, reason, streamId?, title?}`.
+
+GĐ6 — `SUBSCRIPTION` (`payload.kind`; `channel` = `{id, handle, displayName, avatarUrl}` từ bản sao kênh; TSD GĐ6 §6.12):
+
+| `kind` | Nguồn | Người nhận | `payload` | `link` | Email |
+| --- | --- | --- | --- | --- | --- |
+| `PAYMENT_SUCCEEDED` · `PAYMENT_CONFIRMED_LATE` (`late`) | `payment.succeeded` | người mua | `{kind, orderId, invoiceNumber, channel, tier, subAction (NEW\|RENEW), applied, amount, currentPeriodEnd}` | `/{handle}` | `payment_receipt` (bắt buộc) |
+| `PAYMENT_UNDER_REVIEW` (`applied = NEEDS_REVIEW`) | `payment.succeeded` | người mua | như trên, `currentPeriodEnd = null` | `/settings/payments` | `payment_receipt` (bắt buộc, "đang được xem xét") |
+| `PAYMENT_FAILED` | `payment.failed` | người mua | `{kind, orderId, invoiceNumber, channel, tier, status, failureReason}` | `/settings/payments` | — |
+| `PAYMENT_VOIDED` | `payment.voided` | người mua | `{kind, orderId, invoiceNumber, channel, tier, amount, subscriptionStatus, currentPeriodEnd}` | `/settings/payments` | `payment_voided` (bắt buộc) |
+| `SUB_EXPIRING` | `subscription.expiring` | người mua | `{kind, subscriptionId, channel, tier, currentPeriodEnd, price, renewable}` | `/{handle}?subscribe=renew` | `subscription_expiring` (theo cài đặt, có link hủy nhận) |
+| `SUB_EXPIRED` | `subscription.expired` | người mua | `{kind, subscriptionId, channel, tier, reason (PERIOD_ENDED\|VOIDED)}` | `/{handle}` | — |
+| `NEW_SUBSCRIBER` | `subscription.activated` (không `replay`) | chủ kênh | `{kind, channelId, lastSubscriber {id, username, displayName}, tier}`; gộp theo kênh 60 phút (`groupCount`) | `/studio/monetization` | — |
+
+Email bắt buộc (`payment_receipt`, `payment_voided`) bỏ qua công tắc email và trần 10 / ngày, không có link hủy nhận, nhưng vẫn
+chỉ gửi tới địa chỉ đã xác minh. Tiền hiển thị `59.000 ₫` (vi) / `59,000 ₫` (en). In-app `SUBSCRIPTION` theo công tắc `inApp`.
 
 Realtime: chat-svc chuyển `notification.created.v1` thành frame `notification` (`data` = `Notification`, client upsert theo
 `id`) rồi `unread_count {count}` trên `user:{userId}`; `notification.unread_changed.v1` → `unread_count`. Chỉ người đang có
@@ -487,7 +520,7 @@ bằng đường dẫn của TSD GĐ6 §5.2.
 | `chat.message_sent.v1` · `chat.mention.v1` · `chat.mod_action.v1` | chat | notification, safety | | 📋 GĐ3 |
 | `safety.stream_takedown.v1` · `safety.user_actioned.v1` · `safety.report_resolved.v1` | safety | stream, identity, notification | | 📋 GĐ5 |
 | `notification.created.v1` · `notification.unread_changed.v1` | notification (outbox) | chat (đẩy `user:{id}` `notification` + `unread_count`) | TSD GĐ5 §5.9 (`unreadCount` sau thay đổi) | 🔧 GĐ5 |
-| `subscription.activated.v1` | billing (outbox) | chat, notification (GĐ6 phần B) | `subscriptionId, userId, channelId, tier, currentPeriodStart, currentPeriodEnd, orderId \| null, replay` (`replay` = `republish-entitlements`: chỉ dựng lại bản sao) | 🔧 GĐ6 |
+| `subscription.activated.v1` | billing (outbox) | chat (`sub:` + `SUB_NEW`), notification (`NEW_SUBSCRIBER`) | `subscriptionId, userId, channelId, tier, currentPeriodStart, currentPeriodEnd, orderId \| null, replay` (`replay` = `republish-entitlements`: chỉ dựng lại bản sao) | 🔧 GĐ6 |
 | `subscription.renewed.v1` | billing (outbox) | chat | `subscriptionId, userId, channelId, tier, currentPeriodEnd, orderId` | 🔧 GĐ6 |
 | `subscription.updated.v1` | billing (outbox) | chat | `subscriptionId, userId, channelId, tier, status, currentPeriodEnd, change (CANCELLED\|RESUMED\|PERIOD_REDUCED)` | 🔧 GĐ6 |
 | `subscription.expiring.v1` | billing (outbox) | notification | `subscriptionId, userId, channelId, tier, currentPeriodEnd, price, renewable` — một lần mỗi kỳ | 🔧 GĐ6 |
@@ -508,7 +541,10 @@ Consumer bền hiện có:
   snapshot nội bộ), `notification-svc` (**DeliverNew**: nguồn thông báo TSD §3.2), `notification-auth-mailer` (**DeliverNew**:
   `auth.email_requested`); `identity-mailer` bị xóa khi `IDENTITY_MAILER_ENABLED=false`, tạo lại với DeliverNew khi bật.
 
-- GĐ6 🔧: `billing-svc` (DeliverAll: `channel.created/updated/suspended/restored`; kênh có trước lấy bằng `billing backfill-channels`).
+- GĐ6 🔧: `billing-svc` (DeliverAll: `channel.created/updated/suspended/restored`; kênh có trước lấy bằng `billing backfill-channels`);
+  `chat-svc` thêm `subscription.activated/renewed/updated/expired`, `payment.succeeded/failed/voided`; `notification-svc` thêm
+  `payment.succeeded/failed/voided`, `subscription.expiring/expired/activated`. Triển khai chat mới **trước** khi billing phát
+  sự kiện (chat cũ đọc `"{tier}:{until}"` thành không sub).
 
 Xem tồn đọng: `http://localhost:8222/jsz?consumers=1`.
 
@@ -529,6 +565,7 @@ Phá vỡ tương thích REST: xem §3.1.
 
 | Ngày | Thay đổi |
 | --- | --- |
+| 2026-10-20 | v1.10 — GĐ6 phần B: chat (§6B: emote kênh theo tier trong `GET /v1/chat/emotes?channelId=`, snapshot `me.subTier` / `me.emoteTier`, `system` `SUB_NEW` / `SUB_RENEW`, `user:` `payment_updated`, `sub:` có hạn, CLI `chat emote`); notification (§6D: loại thứ 9 `SUBSCRIPTION`, 8 dạng payload, email `payment_receipt` / `payment_voided` bắt buộc, `subscription_expiring`) |
 | 2026-10-20 | v1.9 — GĐ6 phần A: billing-svc (§6E: tier, checkout + `Idempotency-Key`, IPN SePay / trang thanh toán giả, sync, subscription, Thu nhập Studio, rút tiền, Admin), route cổng vào + vùng `nxl_webhook`, 8 sự kiện `subscription.*` / `payment.*` (§8), mã `CANNOT_SUBSCRIBE_SELF`, `IDEMPOTENCY_KEY_REUSED` |
 | 2026-10-16 | v1.8 — GĐ5 close-out (chỉ thêm, trừ refresh): refresh của tài khoản bị khóa → `403 ACCOUNT_LOCKED`; `CHANNEL_SUSPENDED` của hồ sơ kèm `details`; `UserCard.createdAt`; `AdminReportDetail.channelId`, `evidence[].username/displayName`, `actions[]` có hạn chế chat + `actorRole`/`channelId`; audit `actor=`; `NEW_FOLLOWER` link `/studio` |
 | 2026-10-15 | v1.7 — GĐ5 phần B: notification-svc (§6D: trung tâm thông báo, cài đặt, hủy nhận email, `user:` `notification` / `unread_count`), chuyển email xác thực từ identity (`IDENTITY_MAILER_ENABLED`, `make nxl-mailer-cutover`) |
