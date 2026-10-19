@@ -7,6 +7,7 @@ package realtime_test
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -155,21 +156,23 @@ func TestAudienceAndConnections(t *testing.T) { //nolint:funlen // one story ove
 	at := time.Now().Add(-time.Hour).Truncate(time.Second).UTC()
 
 	require.NoError(t, s.SetFollow(ctx, ch, u1, at, "ALL"))
-	require.NoError(t, s.SetSub(ctx, ch, u2, 2))
 
-	followed, tier, err := s.Audience(ctx, ch, u1)
+	until := time.Now().Add(time.Hour).Truncate(time.Second).UTC()
+	require.NoError(t, s.SetSub(ctx, ch, u2, entity.SubGrant{Tier: 2, Until: until}))
+
+	followed, grant, err := s.Audience(ctx, ch, u1)
 	require.NoError(t, err)
 	require.Equal(t, at, *followed)
-	require.Zero(t, tier)
+	require.Zero(t, grant)
 
-	followed, tier, err = s.Audience(ctx, ch, u2)
+	followed, grant, err = s.Audience(ctx, ch, u2)
 	require.NoError(t, err)
 	require.Nil(t, followed)
-	require.Equal(t, 2, tier)
+	require.Equal(t, entity.SubGrant{Tier: 2, Until: until}, grant)
 
-	tiers, err := s.SubTiers(ctx, ch, []string{u1, u2})
+	grants, err := s.SubGrants(ctx, ch, []string{u1, u2})
 	require.NoError(t, err)
-	require.Equal(t, map[string]int{u2: 2}, tiers)
+	require.Equal(t, map[string]entity.SubGrant{u2: {Tier: 2, Until: until}}, grants)
 
 	followers, err := s.Followers(ctx, ch)
 	require.NoError(t, err)
@@ -187,10 +190,10 @@ func TestAudienceAndConnections(t *testing.T) { //nolint:funlen // one story ove
 	require.NoError(t, err)
 	require.Empty(t, following)
 
-	followed, tier, err = s.Audience(ctx, ch, u1)
+	followed, grant, err = s.Audience(ctx, ch, u1)
 	require.NoError(t, err)
 	require.Nil(t, followed)
-	require.Zero(t, tier)
+	require.Zero(t, grant)
 
 	for i := range 2 {
 		ok, aerr := s.AddConn(ctx, u1, "c"+string(rune('0'+i)), 2)
@@ -308,4 +311,53 @@ func TestLiveAndOnline(t *testing.T) {
 	counts, err := s.ViewerCounts(ctx, []string{st})
 	require.NoError(t, err)
 	require.Empty(t, counts)
+}
+
+func TestSubGrantFormats(t *testing.T) {
+	t.Parallel()
+
+	addr := os.Getenv("NXL_TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("NXL_TEST_REDIS_ADDR not set")
+	}
+
+	ctx := context.Background()
+	rdb, err := redis.New(ctx, "redis://"+addr+"/15")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rdb.Close() }) // test teardown
+
+	s := realtime.New(rdb, realtime.Options{})
+	ch, legacy, current, broken := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	end := time.Now().Add(time.Hour).Truncate(time.Second).UTC()
+
+	// A "{tier}" value written by the old dev CLI still reads (no expiry); a broken one is no subscription.
+	require.NoError(t, rdb.HSet(ctx, "sub:"+ch, legacy, "3", broken, "x:1").Err())
+	require.NoError(t, s.SetSub(ctx, ch, current, entity.SubGrant{Tier: 1, Until: end}))
+
+	stored, err := rdb.HGet(ctx, "sub:"+ch, current).Result()
+	require.NoError(t, err)
+	require.Equal(t, "1:"+strconv.FormatInt(end.Unix(), 10), stored)
+
+	grants, err := s.SubGrants(ctx, ch, []string{legacy, current, broken})
+	require.NoError(t, err)
+	require.Equal(t, map[string]entity.SubGrant{legacy: {Tier: 3}, current: {Tier: 1, Until: end}}, grants)
+
+	// An older expired event leaves the newer period alone; the matching one removes it.
+	require.NoError(t, s.RemoveSubIfNotNewer(ctx, ch, current, end.Add(-time.Minute)))
+	_, grant, err := s.Audience(ctx, ch, current)
+	require.NoError(t, err)
+	require.Equal(t, 1, grant.Tier)
+
+	require.NoError(t, s.RemoveSubIfNotNewer(ctx, ch, current, end))
+	_, grant, err = s.Audience(ctx, ch, current)
+	require.NoError(t, err)
+	require.Zero(t, grant)
+
+	// A legacy value has no period: any expired event removes it; a missing field is a no-op.
+	require.NoError(t, s.RemoveSubIfNotNewer(ctx, ch, legacy, time.Unix(1, 0)))
+	require.NoError(t, s.RemoveSubIfNotNewer(ctx, ch, legacy, end))
+
+	n, err := rdb.HExists(ctx, "sub:"+ch, legacy).Result()
+	require.NoError(t, err)
+	require.False(t, n)
 }

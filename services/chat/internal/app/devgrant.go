@@ -26,6 +26,7 @@ const _devGrantTimeout = 15 * time.Second
 var (
 	errDevOnly   = errors.New("dev-grant runs only with NXL_ENV=dev")
 	errUsage     = errors.New("usage: chat dev-grant follow|sub|mod|vip|owner --channel <uuid> --user <uuid> [--tier 1-3] [--minutes N] [--revoke]")
+	errBadMins   = errors.New("--minutes must not be negative")
 	errBadTier   = errors.New("--tier must be 1, 2 or 3")
 	errBadUUIDs  = errors.New("--channel and --user must be uuids")
 	errBadAction = errors.New("unknown grant")
@@ -89,7 +90,7 @@ func parseGrant(args []string) (grantArgs, error) {
 	fs.StringVar(&a.channel, "channel", "", "channel id")
 	fs.StringVar(&a.user, "user", "", "user id")
 	fs.IntVar(&a.tier, "tier", 1, "subscription tier (sub)")
-	fs.IntVar(&a.minutes, "minutes", 0, "followed this many minutes ago (follow)")
+	fs.IntVar(&a.minutes, "minutes", 0, "follow: followed this many minutes ago; sub: lasts this many minutes (0 = 30 days)")
 	fs.BoolVar(&a.revoke, "revoke", false, "remove instead of grant")
 
 	if err := fs.Parse(args[1:]); err != nil {
@@ -104,8 +105,12 @@ func parseGrant(args []string) (grantArgs, error) {
 		return grantArgs{}, errBadUUIDs
 	}
 
-	if a.tier < 1 || a.tier > 3 {
+	if !entity.ValidSubTier(a.tier) {
 		return grantArgs{}, errBadTier
+	}
+
+	if a.minutes < 0 {
+		return grantArgs{}, errBadMins
 	}
 
 	return a, nil
@@ -124,7 +129,7 @@ func applyGrant(ctx context.Context, g usecase.Grants, a grantArgs) error {
 			return g.Unsubscribe(ctx, a.channel, a.user)
 		}
 
-		return g.Subscribe(ctx, a.channel, a.user, a.tier)
+		return g.Subscribe(ctx, a.channel, a.user, entity.SubGrant{Tier: a.tier, Until: subUntil(time.Now(), a.minutes)})
 	case "mod", "vip":
 		if a.revoke {
 			return g.RevokeRole(ctx, a.channel, a.user)
@@ -141,4 +146,13 @@ func applyGrant(ctx context.Context, g usecase.Grants, a grantArgs) error {
 	}
 
 	return fmt.Errorf("%w %q: %w", errBadAction, a.what, errUsage)
+}
+
+// subUntil is when a dev grant of minutes ends (0 = one billing period).
+func subUntil(now time.Time, minutes int) time.Time {
+	if minutes == 0 {
+		return now.Add(entity.SubPeriod)
+	}
+
+	return now.Add(time.Duration(minutes) * time.Minute)
 }

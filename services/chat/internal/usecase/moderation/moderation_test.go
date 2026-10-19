@@ -237,8 +237,8 @@ func (f fakeTerms) Terms(context.Context, string) ([]entity.BlockedTerm, error) 
 
 type fakeAudience struct{ repo.AudienceStore }
 
-func (fakeAudience) Audience(context.Context, string, string) (*time.Time, int, error) {
-	return nil, 2, nil
+func (fakeAudience) Audience(context.Context, string, string) (*time.Time, entity.SubGrant, error) {
+	return nil, entity.SubGrant{Tier: 2}, nil
 }
 
 type fakeLive struct{ repo.LiveStore }

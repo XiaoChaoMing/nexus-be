@@ -232,3 +232,55 @@ func TestSettingsAndEmotes(t *testing.T) { //nolint:paralleltest // shared datab
 	got.CreatedAt = got.CreatedAt.UTC()
 	require.Equal(t, entity.User{ID: user, Username: "a1", DisplayName: "Shown", CreatedAt: registered}, got)
 }
+
+func TestChannelEmotesAndClaims(t *testing.T) { //nolint:paralleltest // shared database
+	r, pg := setup(t)
+	ctx := context.Background()
+	channel := uuid.NewString()
+
+	_, err := pg.Pool.Exec(ctx, `DELETE FROM emotes WHERE scope = 'CHANNEL'`)
+	require.NoError(t, err)
+
+	add := func(code string, tier int, image string) {
+		t.Helper()
+		require.NoError(t, r.AddChannelEmote(ctx, entity.Emote{
+			Code: code, ImageURL: image, Scope: entity.EmoteChannel, ChannelID: &channel, TierRequired: &tier,
+		}))
+	}
+
+	add("kaelenHype", 2, "/emotes/channel/old.webp")
+	add("kaelenGG", 1, "/emotes/channel/kaelenGG.webp")
+	add("kaelenHype", 3, "/emotes/channel/kaelenHype.webp") // same code: updated in place
+
+	list, err := r.ChannelEmotes(ctx, channel)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	require.Equal(t, "kaelenGG", list[0].Code)
+	require.Equal(t, channel, *list[0].ChannelID)
+	require.Equal(t, 1, *list[0].TierRequired)
+	require.Equal(t, "kaelenHype", list[1].Code)
+	require.Equal(t, 3, *list[1].TierRequired)
+	require.Equal(t, "/emotes/channel/kaelenHype.webp", list[1].ImageURL)
+
+	global, err := r.GlobalEmotes(ctx)
+	require.NoError(t, err)
+	require.Nil(t, global[0].ChannelID)
+	require.Nil(t, global[0].TierRequired)
+
+	removed, err := r.RemoveChannelEmote(ctx, channel, "kaelenGG")
+	require.NoError(t, err)
+	require.True(t, removed)
+
+	removed, err = r.RemoveChannelEmote(ctx, channel, "kaelenGG")
+	require.NoError(t, err)
+	require.False(t, removed)
+
+	ev := uuid.NewString()
+	first, err := r.Claim(ctx, ev, "chat-sub-system")
+	require.NoError(t, err)
+	require.True(t, first)
+
+	first, err = r.Claim(ctx, ev, "chat-sub-system")
+	require.NoError(t, err)
+	require.False(t, first)
+}

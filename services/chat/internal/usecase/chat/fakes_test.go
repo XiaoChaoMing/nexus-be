@@ -25,6 +25,8 @@ type world struct {
 	users    map[string]entity.User
 	follows  map[string]time.Time
 	tiers    map[string]int
+	// grants override tiers with a period (tiers are legacy grants without one).
+	grants map[string]entity.SubGrant
 
 	inserted  []entity.Message
 	accepted  map[string]string
@@ -48,7 +50,7 @@ func newWorld() *world {
 		room:     &entity.Room{StreamID: streamID, ChannelID: channelID, Status: entity.RoomOpen},
 		settings: entity.ChatSettings{ChannelID: channelID},
 		roles:    map[string]entity.ChannelRole{}, banned: map[string]bool{}, timeouts: map[string]time.Time{},
-		users: map[string]entity.User{}, follows: map[string]time.Time{}, tiers: map[string]int{},
+		users: map[string]entity.User{}, follows: map[string]time.Time{}, tiers: map[string]int{}, grants: map[string]entity.SubGrant{},
 		accepted: map[string]string{}, lastBody: map[string]string{}, buckets: map[string]int{},
 		slowUntil: map[string]time.Time{},
 	}
@@ -183,10 +185,25 @@ func (f fakeRoles) Roles(_ context.Context, _ string, ids []string) (map[string]
 	return out, nil
 }
 
-type fakeEmotes struct{}
+type fakeEmotes struct{ repo.EmoteRepo }
 
 func (fakeEmotes) GlobalEmotes(context.Context) ([]entity.Emote, error) {
 	return []entity.Emote{{ID: "e1", Code: "nxGG", ImageURL: "/emotes/nxGG.webp", Scope: "GLOBAL"}}, nil
+}
+
+// ChannelEmotes: Tier 1 kaelenGG, Tier 2 kaelenHype, Tier 3 kaelenGOAT.
+func (fakeEmotes) ChannelEmotes(_ context.Context, ch string) ([]entity.Emote, error) {
+	if ch != channelID {
+		return nil, nil
+	}
+
+	emote := func(id, code string, tier int) entity.Emote {
+		return entity.Emote{
+			ID: id, Code: code, ImageURL: "/emotes/channel/" + code + ".webp", Scope: "CHANNEL", ChannelID: &ch, TierRequired: &tier,
+		}
+	}
+
+	return []entity.Emote{emote("c1", "kaelenGG", 1), emote("c2", "kaelenHype", 2), emote("c3", "kaelenGOAT", 3)}, nil
 }
 
 type fakeUsers struct {
@@ -289,7 +306,15 @@ type fakeAudience struct {
 	w *world
 }
 
-func (f fakeAudience) Audience(_ context.Context, _, userID string) (*time.Time, int, error) {
+func (w *world) grant(userID string) entity.SubGrant {
+	if g, ok := w.grants[userID]; ok {
+		return g
+	}
+
+	return entity.SubGrant{Tier: w.tiers[userID]}
+}
+
+func (f fakeAudience) Audience(_ context.Context, _, userID string) (*time.Time, entity.SubGrant, error) {
 	f.w.mu.Lock()
 	defer f.w.mu.Unlock()
 
@@ -298,15 +323,18 @@ func (f fakeAudience) Audience(_ context.Context, _, userID string) (*time.Time,
 		at = &t
 	}
 
-	return at, f.w.tiers[userID], nil
+	return at, f.w.grant(userID), nil
 }
 
-func (f fakeAudience) SubTiers(_ context.Context, _ string, ids []string) (map[string]int, error) {
-	out := map[string]int{}
+func (f fakeAudience) SubGrants(_ context.Context, _ string, ids []string) (map[string]entity.SubGrant, error) {
+	f.w.mu.Lock()
+	defer f.w.mu.Unlock()
+
+	out := map[string]entity.SubGrant{}
 
 	for _, id := range ids {
-		if t := f.w.tiers[id]; t > 0 {
-			out[id] = t
+		if g := f.w.grant(id); g.Tier > 0 {
+			out[id] = g
 		}
 	}
 

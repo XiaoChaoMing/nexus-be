@@ -64,13 +64,16 @@ type MessagePage struct {
 	NextCursor *string   `json:"nextCursor"`
 }
 
-// Emote -.
+// Emote is a global emote (channelId and tierRequired null) or a channel emote: a sender whose emote tier
+// (chat snapshot me.emoteTier) is below tierRequired sends its code as text.
 type Emote struct {
-	ID       string `json:"id"`
-	Code     string `json:"code"`
-	ImageURL string `json:"imageUrl"`
-	Animated bool   `json:"animated"`
-	Scope    string `json:"scope"`
+	ID           string  `json:"id"`
+	Code         string  `json:"code"`
+	ImageURL     string  `json:"imageUrl"`
+	Animated     bool    `json:"animated"`
+	Scope        string  `json:"scope" enums:"GLOBAL,CHANNEL"`
+	ChannelID    *string `json:"channelId"`
+	TierRequired *int    `json:"tierRequired" minimum:"1" maximum:"3"`
 }
 
 // EmoteList -.

@@ -359,13 +359,14 @@ func (uc *UseCase) standingCard(ctx context.Context, ch entity.Channel, u entity
 		return entity.UserCard{}, err
 	}
 
-	followedAt, tier, err := uc.r.Audience.Audience(ctx, ch.ID, u.ID)
+	followedAt, grant, err := uc.r.Audience.Audience(ctx, ch.ID, u.ID)
 	if err != nil {
 		uc.l.Warn("moderation - card audience of %s: %v", u.ID, err)
 	}
 
 	st := entity.Standing{
-		Streamer: u.ID == ch.OwnerID, Moderator: role == entity.ChannelRoleModerator, VIP: role == entity.ChannelRoleVIP, SubTier: tier,
+		Streamer: u.ID == ch.OwnerID, Moderator: role == entity.ChannelRoleModerator, VIP: role == entity.ChannelRoleVIP,
+		SubTier: grant.TierAt(uc.now()),
 	}
 
 	card := entity.UserCard{

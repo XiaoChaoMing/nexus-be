@@ -111,13 +111,26 @@ type Channel struct {
 	AvatarURL   *string
 }
 
-// Emote is a global (channel emotes come later) emote.
+// Emote scopes.
+const (
+	EmoteGlobal  = "GLOBAL"
+	EmoteChannel = "CHANNEL"
+)
+
+// Emote is a global emote or a channel emote locked to a sub tier (ChannelID and TierRequired set).
 type Emote struct {
-	ID       string `json:"id"`
-	Code     string `json:"code"`
-	ImageURL string `json:"imageUrl"`
-	Animated bool   `json:"animated"`
-	Scope    string `json:"scope"`
+	ID           string  `json:"id"`
+	Code         string  `json:"code"`
+	ImageURL     string  `json:"imageUrl"`
+	Animated     bool    `json:"animated"`
+	Scope        string  `json:"scope"`
+	ChannelID    *string `json:"channelId"`
+	TierRequired *int    `json:"tierRequired"`
+}
+
+// UsableAt reports whether a sender with emoteTier may send the emote (BR17, BR-H16).
+func (e Emote) UsableAt(emoteTier int) bool {
+	return e.TierRequired == nil || *e.TierRequired <= emoteTier
 }
 
 // Fragment types.
@@ -262,9 +275,10 @@ const (
 	EventUserRestored = "user_restored"
 	EventPin          = "pin"
 	EventUnpin        = "unpin"
-	// user:{userId}: relayed from notification-svc.
-	EventNotification = "notification"
-	EventUnreadCount  = "unread_count"
+	// user:{userId}: relayed from notification-svc; payment_updated from billing-svc's payment events.
+	EventNotification   = "notification"
+	EventUnreadCount    = "unread_count"
+	EventPaymentUpdated = "payment_updated"
 )
 
 // Stream statuses relayed on stream:{id}.

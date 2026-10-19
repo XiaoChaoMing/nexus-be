@@ -39,7 +39,8 @@ type (
 		History(ctx context.Context, streamID string, before *string, limit int) ([]entity.Message, *string, error)
 		Settings(ctx context.Context, channelID string) (entity.ChatSettings, error)
 		UpdateSettings(ctx context.Context, p entity.Principal, s entity.ChatSettings) (entity.ChatSettings, error)
-		Emotes(ctx context.Context) ([]entity.Emote, error)
+		// Emotes returns the channel's emotes (channelID set) before the global ones; an unknown channel has none.
+		Emotes(ctx context.Context, channelID *string) ([]entity.Emote, error)
 		// Snapshot is the chat:{streamId} snapshot: the room and what the caller may do.
 		Snapshot(ctx context.Context, p entity.Principal, streamID string) (ChatSnapshot, error)
 	}
@@ -65,11 +66,26 @@ type (
 		Follow(ctx context.Context, channelID, userID string, at time.Time, notifyLevel string) error
 		SetNotifyLevel(ctx context.Context, channelID, userID, notifyLevel string) error
 		Unfollow(ctx context.Context, channelID, userID string) error
-		Subscribe(ctx context.Context, channelID, userID string, tier int) error
+		Subscribe(ctx context.Context, channelID, userID string, g entity.SubGrant) error
 		Unsubscribe(ctx context.Context, channelID, userID string) error
 		GrantRole(ctx context.Context, channelID, userID string, role entity.ChannelRole) error
 		RevokeRole(ctx context.Context, channelID, userID string) error
 		SetOwner(ctx context.Context, channelID, ownerID string) error
+	}
+
+	// Entitlements keeps the subscription copy from billing-svc's events (sub:{channelId}), announces new
+	// subscribers in the channel's open rooms and relays payment results to the buyer (user:{userId}).
+	Entitlements interface {
+		// Activated stores the grant and, unless e.Replay, announces SUB_NEW once per eventID.
+		Activated(ctx context.Context, eventID string, e events.SubscriptionActivated) error
+		// Renewed stores the extended grant and announces SUB_RENEW once per eventID.
+		Renewed(ctx context.Context, eventID string, e events.SubscriptionRenewed) error
+		// Updated overwrites the grant (cancel / resume keep the period, a void may shorten it).
+		Updated(ctx context.Context, e events.SubscriptionUpdated) error
+		// Expired removes the grant unless a newer period replaced it.
+		Expired(ctx context.Context, e events.SubscriptionExpired) error
+		// PaymentUpdated sends payment_updated to the buyer when they are connected.
+		PaymentUpdated(ctx context.Context, userID string, data entity.PaymentUpdate) error
 	}
 
 	// Moderation is what the channel owner, its moderators and admins do in chat (NXL-F §3.1–3.6). Every
@@ -163,8 +179,11 @@ type (
 
 	// MeSnapshot: reason is the error code a send would get now; retryAfterSec is set for slow mode.
 	// CanModerate opens the moderation tools; Restriction is the caller's ban or running timeout.
+	// SubTier is the caller's sub tier in force (0–3), EmoteTier the highest channel-emote tier they may send.
 	MeSnapshot struct {
 		Role          string                   `json:"role"`
+		SubTier       int                      `json:"subTier"`
+		EmoteTier     int                      `json:"emoteTier"`
 		Badges        []string                 `json:"badges"`
 		Color         string                   `json:"color"`
 		CanSend       bool                     `json:"canSend"`

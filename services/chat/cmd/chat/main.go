@@ -23,5 +23,14 @@ func main() {
 		return
 	}
 
+	// chat emote add|remove|seed-demo --channel <id> ... (channel emotes locked to a sub tier)
+	if len(os.Args) > 1 && os.Args[1] == "emote" {
+		if err = app.Emote(cfg, os.Args[2:], os.Stdout); err != nil {
+			log.Fatalf("emote: %s", err)
+		}
+
+		return
+	}
+
 	app.Run(cfg)
 }

@@ -2,6 +2,7 @@ package events_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -18,7 +19,40 @@ type rec struct {
 	usecase.Rooms
 	usecase.Grants
 	usecase.Safety
-	calls []string
+	usecase.Entitlements
+	calls   []string
+	payment entity.PaymentUpdate
+}
+
+func (r *rec) Activated(_ context.Context, _ string, e pkgevents.SubscriptionActivated) error {
+	r.calls = append(r.calls, fmt.Sprintf("activated %d replay=%t", e.Tier, e.Replay))
+
+	return nil
+}
+
+func (r *rec) Renewed(_ context.Context, _ string, e pkgevents.SubscriptionRenewed) error {
+	r.calls = append(r.calls, fmt.Sprintf("renewed %d", e.Tier))
+
+	return nil
+}
+
+func (r *rec) Updated(_ context.Context, e pkgevents.SubscriptionUpdated) error {
+	r.calls = append(r.calls, "updated "+e.Change)
+
+	return nil
+}
+
+func (r *rec) Expired(_ context.Context, e pkgevents.SubscriptionExpired) error {
+	r.calls = append(r.calls, "expired "+e.Reason)
+
+	return nil
+}
+
+func (r *rec) PaymentUpdated(_ context.Context, _ string, data entity.PaymentUpdate) error {
+	r.calls = append(r.calls, "payment "+data.Status)
+	r.payment = data
+
+	return nil
 }
 
 func (r *rec) StreamStarted(context.Context, pkgevents.StreamStarted) error {
@@ -118,7 +152,7 @@ func TestHandler(t *testing.T) { //nolint:funlen // one table of event types
 			t.Parallel()
 
 			r := &rec{}
-			err := events.Handler(r, r, r)(context.Background(), eventbus.Event{ID: uuid.NewString(), Type: tc.typ, Payload: []byte(tc.payload)})
+			err := events.Handler(r, r, r, r)(context.Background(), eventbus.Event{ID: uuid.NewString(), Type: tc.typ, Payload: []byte(tc.payload)})
 
 			if tc.wantSkip {
 				require.ErrorIs(t, err, eventbus.ErrSkip)
@@ -142,7 +176,7 @@ func TestHandlerRejectsBadEventID(t *testing.T) {
 	t.Parallel()
 
 	r := &rec{}
-	err := events.Handler(r, r, r)(context.Background(), eventbus.Event{
+	err := events.Handler(r, r, r, r)(context.Background(), eventbus.Event{
 		ID: "x", Type: pkgevents.TypeStreamEnded, Payload: []byte(`{"streamId":"` + uuid.NewString() + `"}`),
 	})
 	require.ErrorIs(t, err, eventbus.ErrSkip)
@@ -170,7 +204,7 @@ func TestSafetyEvents(t *testing.T) {
 	t.Parallel()
 
 	r := &rec{}
-	h := events.Handler(r, r, r)
+	h := events.Handler(r, r, r, r)
 	ctx := context.Background()
 	user, ch, n := uuid.NewString(), uuid.NewString(), uuid.NewString()
 
@@ -188,3 +222,85 @@ func TestSafetyEvents(t *testing.T) {
 	err := h(ctx, eventbus.Event{ID: uuid.NewString(), Type: pkgevents.TypeUserLocked, Payload: []byte(`{"userId":"x"}`)})
 	require.ErrorIs(t, err, eventbus.ErrSkip)
 }
+
+func TestBillingEvents(t *testing.T) { //nolint:funlen // one table of event types
+	t.Parallel()
+
+	ch, user, order, sub := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	ids := `"userId":"` + user + `","channelId":"` + ch + `"`
+	pay := `"orderId":"` + order + `","invoiceNumber":"NXL1",` + ids
+	end := "2026-11-20T10:00:00Z"
+
+	tests := []struct {
+		name        string
+		typ         string
+		payload     string
+		wantCall    string
+		wantSkip    bool
+		wantPayment *entity.PaymentUpdate
+	}{
+		{name: "activated", typ: pkgevents.TypeSubscriptionActivated, payload: `{` + ids + `,"tier":1}`, wantCall: "activated 1 replay=false"},
+		{name: "activated replay", typ: pkgevents.TypeSubscriptionActivated, payload: `{` + ids + `,"tier":2,"replay":true}`, wantCall: "activated 2 replay=true"},
+		{name: "activated tier 4", typ: pkgevents.TypeSubscriptionActivated, payload: `{` + ids + `,"tier":4}`, wantSkip: true},
+		{name: "activated bad channel", typ: pkgevents.TypeSubscriptionActivated, payload: `{"userId":"` + user + `","channelId":"x","tier":1}`, wantSkip: true},
+		{name: "renewed", typ: pkgevents.TypeSubscriptionRenewed, payload: `{` + ids + `,"tier":3}`, wantCall: "renewed 3"},
+		{name: "renewed tier 0", typ: pkgevents.TypeSubscriptionRenewed, payload: `{` + ids + `,"tier":0}`, wantSkip: true},
+		{name: "updated", typ: pkgevents.TypeSubscriptionUpdated, payload: `{` + ids + `,"tier":1,"change":"PERIOD_REDUCED"}`, wantCall: "updated PERIOD_REDUCED"},
+		{name: "expired", typ: pkgevents.TypeSubscriptionExpired, payload: `{` + ids + `,"tier":1,"reason":"VOIDED"}`, wantCall: "expired VOIDED"},
+		{
+			name: "succeeded", typ: pkgevents.TypePaymentSucceeded,
+			payload:  `{` + pay + `,"tier":1,"applied":"ACTIVATED","subscriptionId":"` + sub + `","currentPeriodEnd":"` + end + `"}`,
+			wantCall: "payment PAID",
+			wantPayment: &entity.PaymentUpdate{OrderID: order, InvoiceNumber: "NXL1", Status: "PAID", Subscription: &entity.PaymentSubState{
+				ID: sub, ChannelID: ch, Tier: 1, Status: "ACTIVE", CurrentPeriodEnd: time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC),
+			}},
+		},
+		{
+			name: "succeeded under review", typ: pkgevents.TypePaymentSucceeded,
+			payload:     `{` + pay + `,"tier":2,"applied":"NEEDS_REVIEW","subscriptionId":null}`,
+			wantCall:    "payment PAID",
+			wantPayment: &entity.PaymentUpdate{OrderID: order, InvoiceNumber: "NXL1", Status: "PAID", NeedsReview: true},
+		},
+		{
+			name: "failed", typ: pkgevents.TypePaymentFailed, payload: `{` + pay + `,"tier":1,"status":"CANCELLED","failureReason":"CANCELLED_BY_USER"}`,
+			wantCall:    "payment CANCELLED",
+			wantPayment: &entity.PaymentUpdate{OrderID: order, InvoiceNumber: "NXL1", Status: "CANCELLED", FailureReason: ptr("CANCELLED_BY_USER")},
+		},
+		{
+			name: "voided", typ: pkgevents.TypePaymentVoided,
+			payload:  `{` + pay + `,"tier":1,"subscriptionId":"` + sub + `","subscriptionStatus":"EXPIRED","currentPeriodEnd":"` + end + `"}`,
+			wantCall: "payment VOIDED",
+			wantPayment: &entity.PaymentUpdate{OrderID: order, InvoiceNumber: "NXL1", Status: "VOIDED", Subscription: &entity.PaymentSubState{
+				ID: sub, ChannelID: ch, Tier: 1, Status: "EXPIRED", CurrentPeriodEnd: time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC),
+			}},
+		},
+		{name: "payment bad order", typ: pkgevents.TypePaymentFailed, payload: `{"orderId":"x",` + ids + `}`, wantSkip: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &rec{}
+			err := events.Handler(r, r, r, r)(context.Background(), eventbus.Event{ID: uuid.NewString(), Type: tc.typ, Payload: []byte(tc.payload)})
+
+			if tc.wantSkip {
+				require.ErrorIs(t, err, eventbus.ErrSkip)
+				require.Empty(t, r.calls)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, []string{tc.wantCall}, r.calls)
+
+			if tc.wantPayment != nil {
+				require.Equal(t, *tc.wantPayment, r.payment)
+			}
+		})
+	}
+
+	require.Contains(t, events.Types, pkgevents.TypePaymentVoided)
+}
+
+func ptr[T any](v T) *T { return &v }

@@ -15,13 +15,13 @@ import (
 // ---- follow / sub copies -------------------------------------------------------------------------
 
 // Audience -.
-func (s *Store) Audience(ctx context.Context, channelID, userID string) (*time.Time, int, error) {
+func (s *Store) Audience(ctx context.Context, channelID, userID string) (*time.Time, entity.SubGrant, error) {
 	pipe := s.rdb.Pipeline()
 	f := pipe.HGet(ctx, _followKey+channelID, userID)
 	t := pipe.HGet(ctx, _subKey+channelID, userID)
 
 	if _, err := pipe.Exec(ctx); err != nil && !errors.Is(err, goredis.Nil) {
-		return nil, 0, fmt.Errorf("realtime - Audience: %w", err)
+		return nil, entity.SubGrant{}, fmt.Errorf("realtime - Audience: %w", err)
 	}
 
 	var followedAt *time.Time
@@ -31,24 +31,21 @@ func (s *Store) Audience(ctx context.Context, channelID, userID string) (*time.T
 		followedAt = &at
 	}
 
-	tier, err := t.Int()
-	if err != nil {
-		tier = 0
-	}
+	g, _ := entity.ParseSub(t.Val()) // a malformed value is no subscription
 
-	return followedAt, tier, nil
+	return followedAt, g, nil
 }
 
-// SubTiers -.
-func (s *Store) SubTiers(ctx context.Context, channelID string, userIDs []string) (map[string]int, error) {
-	out := map[string]int{}
+// SubGrants -.
+func (s *Store) SubGrants(ctx context.Context, channelID string, userIDs []string) (map[string]entity.SubGrant, error) {
+	out := map[string]entity.SubGrant{}
 	if len(userIDs) == 0 {
 		return out, nil
 	}
 
 	vals, err := s.rdb.HMGet(ctx, _subKey+channelID, userIDs...).Result()
 	if err != nil {
-		return nil, fmt.Errorf("realtime - SubTiers: %w", err)
+		return nil, fmt.Errorf("realtime - SubGrants: %w", err)
 	}
 
 	for i, v := range vals {
@@ -57,8 +54,8 @@ func (s *Store) SubTiers(ctx context.Context, channelID string, userIDs []string
 			continue
 		}
 
-		if tier, perr := strconv.Atoi(str); perr == nil && tier > 0 {
-			out[userIDs[i]] = tier
+		if g, ok := entity.ParseSub(str); ok {
+			out[userIDs[i]] = g
 		}
 	}
 
@@ -123,9 +120,27 @@ func (s *Store) Following(ctx context.Context, userID string) ([]string, error) 
 }
 
 // SetSub -.
-func (s *Store) SetSub(ctx context.Context, channelID, userID string, tier int) error {
-	if err := s.rdb.HSet(ctx, _subKey+channelID, userID, tier).Err(); err != nil {
+func (s *Store) SetSub(ctx context.Context, channelID, userID string, g entity.SubGrant) error {
+	if err := s.rdb.HSet(ctx, _subKey+channelID, userID, g.Encode()).Err(); err != nil {
 		return fmt.Errorf("realtime - SetSub: %w", err)
+	}
+
+	return nil
+}
+
+// _removeSubLua deletes the field when its until (0 for a legacy "{tier}" value) is not after ARGV[2].
+const _removeSubLua = `
+local v = redis.call('HGET', KEYS[1], ARGV[1])
+if not v then return 0 end
+local u = tonumber(string.match(v, ':(%d+)$') or '0')
+if u <= tonumber(ARGV[2]) then return redis.call('HDEL', KEYS[1], ARGV[1]) end
+return 0`
+
+// RemoveSubIfNotNewer -.
+func (s *Store) RemoveSubIfNotNewer(ctx context.Context, channelID, userID string, until time.Time) error {
+	err := s.scripts.removeSub.Run(ctx, s.rdb, []string{_subKey + channelID}, userID, until.Unix()).Err()
+	if err != nil && !errors.Is(err, goredis.Nil) {
+		return fmt.Errorf("realtime - RemoveSubIfNotNewer: %w", err)
 	}
 
 	return nil

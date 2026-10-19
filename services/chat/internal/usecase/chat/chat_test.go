@@ -422,9 +422,129 @@ func TestHistoryAndSettings(t *testing.T) {
 	_, err = uc.Settings(ctx, uuid.NewString())
 	require.ErrorIs(t, err, entity.ErrNotFound)
 
-	emotes, err := uc.Emotes(ctx)
+	emotes, err := uc.Emotes(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, emotes, 1)
+
+	ch := channelID
+	emotes, err = uc.Emotes(ctx, &ch)
+	require.NoError(t, err)
+	require.Equal(t, []string{"kaelenGG", "kaelenHype", "kaelenGOAT", "nxGG"}, codes(emotes))
+
+	other := uuid.NewString()
+	emotes, err = uc.Emotes(ctx, &other)
+	require.NoError(t, err)
+	require.Equal(t, []string{"nxGG"}, codes(emotes))
+}
+
+func codes(list []entity.Emote) []string {
+	out := make([]string, 0, len(list))
+	for _, e := range list {
+		out = append(out, e.Code)
+	}
+
+	return out
+}
+
+// Channel emotes become emote fragments only up to the sender's emote tier (BR17, BR-H16); the sub period
+// decides the tier, a legacy grant has none (BR-H13).
+func TestSendSubTierEntitlements(t *testing.T) { //nolint:funlen // one table of standings
+	t.Parallel()
+
+	const body = "kaelenGG kaelenHype kaelenGOAT"
+
+	vip := "0199d4a2-0000-7000-8000-000000000005"
+	now := newWorld().now
+
+	tests := []struct {
+		name       string
+		who        string
+		setup      func(w *world)
+		subsOnly   bool
+		wantEmotes []string
+		wantBadges []string
+		wantErr    error
+	}{
+		{name: "no sub", who: viewer, wantEmotes: []string{}, wantBadges: []string{}},
+		{
+			name: "tier 2 running", who: viewer, setup: func(w *world) { w.grants[viewer] = entity.SubGrant{Tier: 2, Until: now.Add(time.Hour)} },
+			subsOnly: true, wantEmotes: []string{"kaelenGG", "kaelenHype"}, wantBadges: []string{"SUB_T2"},
+		},
+		{
+			name: "tier 3 expired", who: viewer, setup: func(w *world) { w.grants[viewer] = entity.SubGrant{Tier: 3, Until: now} },
+			subsOnly: true, wantErr: entity.ErrSubsOnly,
+		},
+		{
+			name: "tier 3 expired, room open to all", who: viewer, setup: func(w *world) { w.grants[viewer] = entity.SubGrant{Tier: 3, Until: now} },
+			wantEmotes: []string{}, wantBadges: []string{},
+		},
+		{
+			name: "legacy tier 1", who: viewer, setup: func(w *world) { w.tiers[viewer] = 1 },
+			subsOnly: true, wantEmotes: []string{"kaelenGG"}, wantBadges: []string{"SUB_T1"},
+		},
+		{name: "streamer", who: owner, subsOnly: true, wantEmotes: []string{"kaelenGG", "kaelenHype", "kaelenGOAT"}, wantBadges: []string{"STREAMER"}},
+		{
+			name: "vip gets tier 1", who: vip, setup: func(w *world) { w.roles[vip] = entity.ChannelRoleVIP },
+			wantEmotes: []string{"kaelenGG"}, wantBadges: []string{"VIP"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := newWorld()
+			w.ownerID = owner
+			w.settings.SubsOnly = tc.subsOnly
+
+			if tc.setup != nil {
+				tc.setup(w)
+			}
+
+			uc, _ := newUC(w, defaultConfig())
+
+			res, err := uc.Send(context.Background(), user(tc.who), streamID, msg(body))
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			got := []string{}
+
+			for _, f := range res.Message.Fragments {
+				if f.Type == entity.FragmentEmote {
+					got = append(got, f.Emote.Code)
+				}
+			}
+
+			require.Equal(t, tc.wantEmotes, got)
+			require.Equal(t, tc.wantBadges, res.Message.User.Badges)
+		})
+	}
+}
+
+func TestSnapshotSubTier(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld()
+	w.ownerID = owner
+	w.grants[viewer] = entity.SubGrant{Tier: 2, Until: w.now.Add(time.Minute)}
+	w.roles[other] = entity.ChannelRoleModerator
+	uc, _ := newUC(w, defaultConfig())
+
+	snap, err := uc.Snapshot(context.Background(), user(viewer), streamID)
+	require.NoError(t, err)
+	require.Equal(t, 2, snap.Me.SubTier)
+	require.Equal(t, 2, snap.Me.EmoteTier)
+	require.Equal(t, []string{"SUB_T2"}, snap.Me.Badges)
+
+	snap, err = uc.Snapshot(context.Background(), user(other), streamID)
+	require.NoError(t, err)
+	require.Equal(t, 0, snap.Me.SubTier)
+	require.Equal(t, 1, snap.Me.EmoteTier)
 }
 
 type terms []string

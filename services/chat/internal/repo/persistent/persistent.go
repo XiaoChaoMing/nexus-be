@@ -32,6 +32,7 @@ var (
 	_ repo.RoleRepo     = (*Repo)(nil)
 	_ repo.EmoteRepo    = (*Repo)(nil)
 	_ repo.UserRepo     = (*Repo)(nil)
+	_ repo.EventLog     = (*Repo)(nil)
 )
 
 // New -.
@@ -343,22 +344,87 @@ func (r *Repo) RevokeRole(ctx context.Context, channelID, userID string) error {
 
 // ---- emotes --------------------------------------------------------------------------------------
 
-// GlobalEmotes -.
-func (r *Repo) GlobalEmotes(ctx context.Context) ([]entity.Emote, error) {
-	rows, err := r.Pool.Query(ctx,
-		`SELECT id::text, code, image_url, animated, scope FROM emotes WHERE scope = 'GLOBAL' ORDER BY code`)
-	if err != nil {
-		return nil, fmt.Errorf("Repo - GlobalEmotes: %w", err)
+// _emoteColumns are scanned by scanEmote.
+const _emoteColumns = `id::text, code, image_url, animated, scope, channel_id::text, tier_required`
+
+func scanEmote(row pgx.CollectableRow) (entity.Emote, error) {
+	var (
+		e    entity.Emote
+		tier *int16
+	)
+
+	if err := row.Scan(&e.ID, &e.Code, &e.ImageURL, &e.Animated, &e.Scope, &e.ChannelID, &tier); err != nil {
+		return e, err //nolint:wrapcheck // wrapped by the caller
 	}
 
-	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (entity.Emote, error) {
-		var e entity.Emote
+	if tier != nil {
+		t := int(*tier)
+		e.TierRequired = &t
+	}
 
-		return e, row.Scan(&e.ID, &e.Code, &e.ImageURL, &e.Animated, &e.Scope)
-	})
+	return e, nil
+}
+
+func (r *Repo) emotes(ctx context.Context, op, query string, args ...any) ([]entity.Emote, error) {
+	rows, err := r.Pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("Repo - GlobalEmotes: %w", err)
+		return nil, fmt.Errorf("Repo - %s: %w", op, err)
+	}
+
+	out, err := pgx.CollectRows(rows, scanEmote)
+	if err != nil {
+		return nil, fmt.Errorf("Repo - %s: %w", op, err)
 	}
 
 	return out, nil
+}
+
+// GlobalEmotes -.
+func (r *Repo) GlobalEmotes(ctx context.Context) ([]entity.Emote, error) {
+	return r.emotes(ctx, "GlobalEmotes", `SELECT `+_emoteColumns+` FROM emotes WHERE scope = 'GLOBAL' ORDER BY code`)
+}
+
+// ChannelEmotes -.
+func (r *Repo) ChannelEmotes(ctx context.Context, channelID string) ([]entity.Emote, error) {
+	return r.emotes(ctx, "ChannelEmotes", `SELECT `+_emoteColumns+` FROM emotes
+		WHERE scope = 'CHANNEL' AND channel_id = $1 ORDER BY tier_required, code`, channelID)
+}
+
+// AddChannelEmote -.
+func (r *Repo) AddChannelEmote(ctx context.Context, e entity.Emote) error {
+	if e.ChannelID == nil || e.TierRequired == nil {
+		return fmt.Errorf("Repo - AddChannelEmote: %w", entity.ErrValidation)
+	}
+
+	_, err := r.Pool.Exec(ctx, `INSERT INTO emotes (scope, channel_id, code, image_url, animated, tier_required)
+		VALUES ('CHANNEL', $1, $2, $3, $4, $5)
+		ON CONFLICT (channel_id, code) WHERE scope = 'CHANNEL'
+		DO UPDATE SET image_url = EXCLUDED.image_url, animated = EXCLUDED.animated, tier_required = EXCLUDED.tier_required`,
+		*e.ChannelID, e.Code, e.ImageURL, e.Animated, *e.TierRequired)
+	if err != nil {
+		return fmt.Errorf("Repo - AddChannelEmote: %w", err)
+	}
+
+	return nil
+}
+
+// RemoveChannelEmote -.
+func (r *Repo) RemoveChannelEmote(ctx context.Context, channelID, code string) (bool, error) {
+	tag, err := r.Pool.Exec(ctx, `DELETE FROM emotes WHERE scope = 'CHANNEL' AND channel_id = $1 AND code = $2`, channelID, code)
+	if err != nil {
+		return false, fmt.Errorf("Repo - RemoveChannelEmote: %w", err)
+	}
+
+	return tag.RowsAffected() > 0, nil
+}
+
+// Claim -.
+func (r *Repo) Claim(ctx context.Context, eventID, consumer string) (bool, error) {
+	tag, err := r.Pool.Exec(ctx,
+		`INSERT INTO processed_events (event_id, consumer) VALUES ($1, $2) ON CONFLICT DO NOTHING`, eventID, consumer)
+	if err != nil {
+		return false, fmt.Errorf("Repo - Claim: %w", err)
+	}
+
+	return tag.RowsAffected() > 0, nil
 }

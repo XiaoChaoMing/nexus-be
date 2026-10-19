@@ -168,24 +168,36 @@ func (r *routes) history(ctx *fiber.Ctx) error {
 // emotes godoc
 //
 //	@Summary     Emotes usable in chat
-//	@Description Global emotes; channelId is accepted and ignored until channel emotes exist.
+//	@Description Global emotes; with channelId also the channel's emotes, first, ordered by tierRequired then code. A channel emote is
+//	@Description locked for a sender whose snapshot me.emoteTier is below its tierRequired. An unknown or malformed channelId only
+//	@Description returns the global emotes.
 //	@Tags        chat
 //	@Produce     json
-//	@Param       channelId query    string false "channel id (ignored for now)"
+//	@Param       channelId query    string false "channel id"
 //	@Success     200       {object} response.Data[response.EmoteList]
 //	@Router      /chat/emotes [get]
 func (r *routes) emotes(ctx *fiber.Ctx) error {
-	list, err := r.chat.Emotes(ctx.UserContext())
+	var channelID *string
+
+	if id, err := uuid.Parse(ctx.Query("channelId")); err == nil {
+		s := id.String()
+		channelID = &s
+	}
+
+	list, err := r.chat.Emotes(ctx.UserContext(), channelID)
 	if err != nil {
 		return r.fail(ctx, "emotes", err)
 	}
 
 	out := response.EmoteList{Items: make([]response.Emote, 0, len(list))}
 	for _, e := range list {
-		out.Items = append(out.Items, response.Emote{ID: e.ID, Code: e.Code, ImageURL: e.ImageURL, Animated: e.Animated, Scope: e.Scope})
+		out.Items = append(out.Items, response.Emote{
+			ID: e.ID, Code: e.Code, ImageURL: e.ImageURL, Animated: e.Animated, Scope: e.Scope, ChannelID: e.ChannelID,
+			TierRequired: e.TierRequired,
+		})
 	}
 
-	ctx.Set(fiber.HeaderCacheControl, "public, max-age=300")
+	ctx.Set(fiber.HeaderCacheControl, "public, max-age=60")
 
 	return ctx.JSON(response.Data[response.EmoteList]{Data: out})
 }

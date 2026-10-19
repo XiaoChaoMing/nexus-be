@@ -62,7 +62,7 @@ type Store struct {
 }
 
 type scripts struct {
-	appendEvent, take, addConn, lead, refresh *goredis.Script
+	appendEvent, take, addConn, lead, refresh, removeSub *goredis.Script
 }
 
 var (
@@ -81,6 +81,7 @@ func New(rdb *redis.Client, o Options) *Store {
 		addConn:     goredis.NewScript(_addConnLua),
 		lead:        goredis.NewScript(_leadLua),
 		refresh:     goredis.NewScript(_refreshLua),
+		removeSub:   goredis.NewScript(_removeSubLua),
 	}}
 }
 

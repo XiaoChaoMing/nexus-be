@@ -854,7 +854,7 @@ const docTemplate = `{
         },
         "/chat/emotes": {
             "get": {
-                "description": "Global emotes; channelId is accepted and ignored until channel emotes exist.",
+                "description": "Global emotes; with channelId also the channel's emotes, first, ordered by tierRequired then code. A channel emote is\nlocked for a sender whose snapshot me.emoteTier is below its tierRequired. An unknown or malformed channelId only\nreturns the global emotes.",
                 "produces": [
                     "application/json"
                 ],
@@ -865,7 +865,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "channel id (ignored for now)",
+                        "description": "channel id",
                         "name": "channelId",
                         "in": "query"
                     }
@@ -1346,6 +1346,9 @@ const docTemplate = `{
                 "animated": {
                     "type": "boolean"
                 },
+                "channelId": {
+                    "type": "string"
+                },
                 "code": {
                     "type": "string"
                 },
@@ -1356,7 +1359,16 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "GLOBAL",
+                        "CHANNEL"
+                    ]
+                },
+                "tierRequired": {
+                    "type": "integer",
+                    "maximum": 3,
+                    "minimum": 1
                 }
             }
         },

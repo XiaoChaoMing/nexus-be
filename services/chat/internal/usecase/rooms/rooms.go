@@ -37,6 +37,7 @@ type Repos struct {
 	Locks    repo.LockStore
 	Broker   repo.Broker
 	Snapshot repo.ChannelSnapshot
+	Events   repo.EventLog
 }
 
 // UseCase implements usecase.Rooms and usecase.Grants.
@@ -49,8 +50,9 @@ type UseCase struct {
 }
 
 var (
-	_ usecase.Rooms  = (*UseCase)(nil)
-	_ usecase.Grants = (*UseCase)(nil)
+	_ usecase.Rooms        = (*UseCase)(nil)
+	_ usecase.Grants       = (*UseCase)(nil)
+	_ usecase.Entitlements = (*UseCase)(nil)
 )
 
 // New -.
@@ -338,8 +340,8 @@ func (uc *UseCase) Unfollow(ctx context.Context, channelID, userID string) error
 }
 
 // Subscribe -.
-func (uc *UseCase) Subscribe(ctx context.Context, channelID, userID string, tier int) error {
-	return wrap("Subscribe", uc.r.Audience.SetSub(ctx, channelID, userID, tier))
+func (uc *UseCase) Subscribe(ctx context.Context, channelID, userID string, g entity.SubGrant) error {
+	return wrap("Subscribe", uc.r.Audience.SetSub(ctx, channelID, userID, g))
 }
 
 // Unsubscribe -.

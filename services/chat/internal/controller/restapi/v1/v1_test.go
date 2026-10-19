@@ -65,8 +65,17 @@ func (f *fakeChat) UpdateSettings(_ context.Context, p entity.Principal, s entit
 	return s, nil
 }
 
-func (*fakeChat) Emotes(context.Context) ([]entity.Emote, error) {
-	return []entity.Emote{{ID: "e1", Code: "nxGG", ImageURL: "/emotes/nxGG.webp", Scope: "GLOBAL"}}, nil
+func (*fakeChat) Emotes(_ context.Context, channelID *string) ([]entity.Emote, error) {
+	global := entity.Emote{ID: "e1", Code: "nxGG", ImageURL: "/emotes/nxGG.webp", Scope: "GLOBAL"}
+	if channelID == nil {
+		return []entity.Emote{global}, nil
+	}
+
+	tier := 2
+
+	return []entity.Emote{{
+		ID: "e2", Code: "kaelenHype", ImageURL: "/emotes/channel/kaelenHype.webp", Scope: "CHANNEL", ChannelID: channelID, TierRequired: &tier,
+	}, global}, nil
 }
 
 func newApp(c usecase.Chat) *fiber.App {
@@ -210,11 +219,22 @@ func TestSettingsRoutes(t *testing.T) {
 func TestEmotes(t *testing.T) {
 	t.Parallel()
 
+	global := map[string]any{
+		"id": "e1", "code": "nxGG", "imageUrl": "/emotes/nxGG.webp", "animated": false, "scope": "GLOBAL", "channelId": nil,
+		"tierRequired": nil,
+	}
+
+	// A malformed channelId only returns the global emotes.
 	status, body := do(t, newApp(&fakeChat{}), http.MethodGet, "/v1/chat/emotes?channelId=x", "", "")
 	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, map[string]any{"items": []any{global}}, body["data"])
+
+	status, body = do(t, newApp(&fakeChat{}), http.MethodGet, "/v1/chat/emotes?channelId="+streamID, "", "")
+	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, map[string]any{"items": []any{map[string]any{
-		"id": "e1", "code": "nxGG", "imageUrl": "/emotes/nxGG.webp", "animated": false, "scope": "GLOBAL",
-	}}}, body["data"])
+		"id": "e2", "code": "kaelenHype", "imageUrl": "/emotes/channel/kaelenHype.webp", "animated": false, "scope": "CHANNEL",
+		"channelId": streamID, "tierRequired": float64(2),
+	}, global}}, body["data"])
 }
 
 // The REST message and the WebSocket `message` event data must have the same JSON shape.

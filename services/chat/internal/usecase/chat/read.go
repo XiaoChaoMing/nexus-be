@@ -71,10 +71,12 @@ func (uc *UseCase) decorate(ctx context.Context, sc entity.SendContext, msgs []e
 		uc.l.Warn("chat - history roles: %v", err)
 	}
 
-	tiers, err := uc.r.Audience.SubTiers(ctx, sc.Room.ChannelID, ids)
+	grants, err := uc.r.Audience.SubGrants(ctx, sc.Room.ChannelID, ids)
 	if err != nil {
-		uc.l.Warn("chat - history sub tiers: %v", err)
+		uc.l.Warn("chat - history sub grants: %v", err)
 	}
+
+	now := uc.now()
 
 	for i := range msgs {
 		id := msgs[i].User.ID
@@ -82,7 +84,7 @@ func (uc *UseCase) decorate(ctx context.Context, sc entity.SendContext, msgs []e
 			Streamer:  id == sc.OwnerID,
 			Moderator: roles[id] == entity.ChannelRoleModerator,
 			VIP:       roles[id] == entity.ChannelRoleVIP,
-			SubTier:   tiers[id],
+			SubTier:   grants[id].TierAt(now),
 		}
 
 		name := msgs[i].User
@@ -220,8 +222,31 @@ func (uc *UseCase) announceModes(ctx context.Context, s entity.ChatSettings) {
 	}
 }
 
-// Emotes returns the global emotes (channel emotes come later).
-func (uc *UseCase) Emotes(ctx context.Context) ([]entity.Emote, error) {
+// Emotes returns the channel's emotes (by tier, then code) followed by the global ones. A channel with no
+// emotes, or one chat-svc does not know, only has the global set.
+func (uc *UseCase) Emotes(ctx context.Context, channelID *string) ([]entity.Emote, error) {
+	global, err := uc.globalEmotes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if channelID == nil {
+		return global, nil
+	}
+
+	own, err := uc.channelEmotes(ctx, *channelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(own) == 0 {
+		return global, nil
+	}
+
+	return append(append(make([]entity.Emote, 0, len(own)+len(global)), own...), global...), nil
+}
+
+func (uc *UseCase) globalEmotes(ctx context.Context) ([]entity.Emote, error) {
 	uc.emoteMu.Lock()
 	defer uc.emoteMu.Unlock()
 
@@ -245,15 +270,52 @@ func (uc *UseCase) Emotes(ctx context.Context) ([]entity.Emote, error) {
 	return list, nil
 }
 
-func (uc *UseCase) emoteCodes(ctx context.Context) (map[string]entity.Emote, error) {
-	list, err := uc.Emotes(ctx)
+// channelEmotes caches each channel's list for _emoteCacheTTL; a stale list is served when the refresh fails.
+func (uc *UseCase) channelEmotes(ctx context.Context, channelID string) ([]entity.Emote, error) {
+	uc.emoteMu.Lock()
+	defer uc.emoteMu.Unlock()
+
+	cached, ok := uc.channels[channelID]
+	if ok && uc.now().Sub(cached.at) < _emoteCacheTTL {
+		return cached.list, nil
+	}
+
+	list, err := uc.r.Emotes.ChannelEmotes(ctx, channelID)
+	if err != nil {
+		if ok {
+			uc.l.Warn("chat - channel emotes refresh %s: %v", channelID, err)
+
+			return cached.list, nil
+		}
+
+		return nil, fmt.Errorf("ChatUseCase - Emotes - channel: %w", err)
+	}
+
+	if len(uc.channels) >= _emoteCacheMax {
+		clear(uc.channels)
+	}
+
+	uc.channels[channelID] = cachedEmotes{list: list, at: uc.now()}
+
+	return list, nil
+}
+
+// emoteCodes maps the codes a sender may use to their emote: the global set plus the channel emotes their
+// emote tier unlocks; a channel emote wins over a global one with the same code. Locked codes stay text.
+func (uc *UseCase) emoteCodes(ctx context.Context, channelID string, emoteTier int) (map[string]entity.Emote, error) {
+	list, err := uc.Emotes(ctx, &channelID)
 	if err != nil {
 		return nil, err
 	}
 
 	out := make(map[string]entity.Emote, len(list))
-	for _, e := range list {
-		out[e.Code] = e
+
+	for i := len(list) - 1; i >= 0; i-- {
+		if e := list[i]; e.UsableAt(emoteTier) {
+			out[e.Code] = e
+		} else {
+			delete(out, e.Code)
+		}
 	}
 
 	return out, nil
@@ -324,7 +386,10 @@ func me(p entity.Principal, st entity.Standing) usecase.MeSnapshot {
 		return usecase.MeSnapshot{Role: "GUEST", Badges: []string{}, Reason: reasonOf(entity.ErrUnauthenticated)}
 	}
 
-	return usecase.MeSnapshot{Role: st.Role(), Badges: st.Badges(), Color: entity.ColorOf(p.UserID), CanModerate: st.Privileged()}
+	return usecase.MeSnapshot{
+		Role: st.Role(), SubTier: st.SubTier, EmoteTier: st.EmoteTier(), Badges: st.Badges(), Color: entity.ColorOf(p.UserID),
+		CanModerate: st.Privileged(),
+	}
 }
 
 func reasonOf(err error) *string {

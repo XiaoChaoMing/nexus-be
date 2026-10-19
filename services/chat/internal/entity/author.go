@@ -62,6 +62,19 @@ func (s Standing) SkipsSlow() bool { return s.Privileged() || s.VIP }
 // SkipsSubsOnly: privileged roles and subscribers.
 func (s Standing) SkipsSubsOnly() bool { return s.Privileged() || s.SubTier > 0 }
 
+// EmoteTier is the highest channel-emote tier the user may send (BR-H16): every tier for the streamer,
+// at least Tier 1 for moderators, VIPs and admins, the sub tier for everyone else.
+func (s Standing) EmoteTier() int {
+	switch {
+	case s.Streamer:
+		return MaxSubTier
+	case s.Moderator || s.VIP || s.Admin:
+		return max(s.SubTier, MinSubTier)
+	default:
+		return s.SubTier
+	}
+}
+
 // Role is the caller's role in snapshots (me.role).
 func (s Standing) Role() string {
 	switch {

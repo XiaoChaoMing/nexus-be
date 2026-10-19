@@ -112,9 +112,21 @@ type (
 		RemoveTerm(ctx context.Context, channelID, termID string, audit events.AuditRecorded) (bool, error)
 	}
 
-	// EmoteRepo -.
+	// EmoteRepo owns emotes: the global set and the channel emotes locked to a sub tier.
 	EmoteRepo interface {
 		GlobalEmotes(ctx context.Context) ([]entity.Emote, error)
+		// ChannelEmotes lists the channel's emotes by tierRequired, then code.
+		ChannelEmotes(ctx context.Context, channelID string) ([]entity.Emote, error)
+		// AddChannelEmote inserts the emote or updates the one of the same channel and code.
+		AddChannelEmote(ctx context.Context, e entity.Emote) error
+		// RemoveChannelEmote reports false when the channel had no emote with that code.
+		RemoveChannelEmote(ctx context.Context, channelID, code string) (bool, error)
+	}
+
+	// EventLog de-duplicates side effects of an event that are not a database write (processed_events).
+	EventLog interface {
+		// Claim records eventID for consumer; false when it was already claimed (redelivery).
+		Claim(ctx context.Context, eventID, consumer string) (bool, error)
 	}
 
 	// UserRepo is the copy of identity accounts (users) and channel owners (channels).
@@ -182,9 +194,11 @@ type (
 
 	// AudienceStore is the copy of follows and subscriptions (Redis follow:{channelId}, sub:{channelId}).
 	AudienceStore interface {
-		// Audience returns when userID followed the channel (nil = not following) and their sub tier (0 = none).
-		Audience(ctx context.Context, channelID, userID string) (*time.Time, int, error)
-		SubTiers(ctx context.Context, channelID string, userIDs []string) (map[string]int, error)
+		// Audience returns when userID followed the channel (nil = not following) and their sub grant (zero = none).
+		// Callers decide with SubGrant.Active whether the period still runs.
+		Audience(ctx context.Context, channelID, userID string) (*time.Time, entity.SubGrant, error)
+		// SubGrants returns the stored grants of the users that have one.
+		SubGrants(ctx context.Context, channelID string, userIDs []string) (map[string]entity.SubGrant, error)
 		// SetFollow records the follow in both directions (follow:{channelId}, following:{userId}) with its bell.
 		SetFollow(ctx context.Context, channelID, userID string, at time.Time, notifyLevel string) error
 		RemoveFollow(ctx context.Context, channelID, userID string) error
@@ -193,7 +207,11 @@ type (
 		Followers(ctx context.Context, channelID string) ([]string, error)
 		// Following lists the channels the user follows.
 		Following(ctx context.Context, userID string) ([]string, error)
-		SetSub(ctx context.Context, channelID, userID string, tier int) error
+		// SetSub overwrites the user's grant (a voided payment may shorten it).
+		SetSub(ctx context.Context, channelID, userID string, g entity.SubGrant) error
+		// RemoveSubIfNotNewer deletes the grant only when it ends at or before until (a legacy grant always):
+		// a late subscription.expired never removes a newer period.
+		RemoveSubIfNotNewer(ctx context.Context, channelID, userID string, until time.Time) error
 		RemoveSub(ctx context.Context, channelID, userID string) error
 	}
 

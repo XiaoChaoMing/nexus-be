@@ -95,7 +95,7 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	go outbox.New(pg.Pool, bus, l).Run(ctx)
 	go backfill(ctx, uc.rooms, l)
 
-	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc.rooms, uc.rooms, uc.rooms), func(e eventbus.Event, herr error) {
+	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc.rooms, uc.rooms, uc.rooms, uc.rooms), func(e eventbus.Event, herr error) {
 		l.Warn("chat - event %s %s: %v", e.Type, e.ID, herr)
 	})
 	if err != nil {
@@ -239,7 +239,7 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 		}, cfg.WS.MaxConnPerUser, l),
 		rooms: rooms.New(rooms.Repos{
 			Rooms: store, Messages: store, Users: store, Roles: store, Audience: rt, Presence: rt, Live: rt,
-			Locks: rt, Broker: br, Snapshot: snapshot.New(cfg.HTTP.ChannelInternalURL, cfg.HTTP.InternalSecret),
+			Locks: rt, Broker: br, Snapshot: snapshot.New(cfg.HTTP.ChannelInternalURL, cfg.HTTP.InternalSecret), Events: store,
 		}, pub, cfg.Chat.Retention, l),
 		moderation: modUC,
 	}

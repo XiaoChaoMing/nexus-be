@@ -20,7 +20,9 @@ import (
 )
 
 const (
-	_emoteCacheTTL  = time.Minute
+	_emoteCacheTTL = time.Minute
+	// _emoteCacheMax bounds the per-channel emote cache; it is emptied when full.
+	_emoteCacheMax  = 1024
 	_maxHistory     = 100
 	_bodyHashBytes  = 16
 	_fallbackIDRune = 8
@@ -79,9 +81,15 @@ type UseCase struct {
 	l       logger.Interface
 	now     func() time.Time
 
-	emoteMu sync.Mutex
-	emotes  []entity.Emote
-	emoteAt time.Time
+	emoteMu  sync.Mutex
+	emotes   []entity.Emote
+	emoteAt  time.Time
+	channels map[string]cachedEmotes
+}
+
+type cachedEmotes struct {
+	list []entity.Emote
+	at   time.Time
 }
 
 var _ usecase.Chat = (*UseCase)(nil)
@@ -103,7 +111,7 @@ func WithPins(src PinSource) Option { return func(uc *UseCase) { uc.pins = src }
 
 // New -.
 func New(r Repos, pub Publisher, cfg Config, l logger.Interface, opts ...Option) *UseCase {
-	uc := &UseCase{r: r, pub: pub, cfg: cfg, l: l, obs: noopObserver{}, now: time.Now}
+	uc := &UseCase{r: r, pub: pub, cfg: cfg, l: l, obs: noopObserver{}, now: time.Now, channels: map[string]cachedEmotes{}}
 	for _, o := range opts {
 		o(uc)
 	}
@@ -249,12 +257,12 @@ func (uc *UseCase) standing(ctx context.Context, p entity.Principal, sc entity.S
 		return st, nil
 	}
 
-	followedAt, tier, err := uc.r.Audience.Audience(ctx, sc.Room.ChannelID, p.UserID)
+	followedAt, grant, err := uc.r.Audience.Audience(ctx, sc.Room.ChannelID, p.UserID)
 	if err != nil {
 		return entity.Standing{}, fmt.Errorf("ChatUseCase - standing: %w", err)
 	}
 
-	st.SubTier = tier
+	st.SubTier = grant.TierAt(uc.now())
 
 	if followedAt != nil {
 		m := int(uc.now().Sub(*followedAt).Minutes())
@@ -423,7 +431,7 @@ func (uc *UseCase) store(ctx context.Context, p entity.Principal, sc entity.Send
 		}
 	}
 
-	emotes, err := uc.emoteCodes(ctx)
+	emotes, err := uc.emoteCodes(ctx, sc.Room.ChannelID, st.EmoteTier())
 	if err != nil {
 		return entity.Message{}, err
 	}

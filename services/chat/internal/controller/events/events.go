@@ -33,16 +33,26 @@ var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeFollowDeleted,
 	events.TypeUserLocked, events.TypeUserUnlocked, events.TypeChannelSuspended, events.TypeChannelRestored,
 	events.TypeNotificationCreated, events.TypeNotificationUnreadChanged,
+	events.TypeSubscriptionActivated, events.TypeSubscriptionRenewed, events.TypeSubscriptionUpdated,
+	events.TypeSubscriptionExpired, events.TypePaymentSucceeded, events.TypePaymentFailed, events.TypePaymentVoided,
 }
 
-// Handler routes one event to the rooms, grants or safety use case.
-func Handler(rooms usecase.Rooms, grants usecase.Grants, safety usecase.Safety) eventbus.Handler {
+// Handler routes one event to the rooms, grants, safety or entitlements use case.
+func Handler(rooms usecase.Rooms, grants usecase.Grants, safety usecase.Safety, ent usecase.Entitlements) eventbus.Handler {
 	handlers := streamHandlers(rooms)
 	for t, h := range copyHandlers(rooms, grants) {
 		handlers[t] = h
 	}
 
 	for t, h := range safetyHandlers(safety) {
+		handlers[t] = h
+	}
+
+	for t, h := range subscriptionHandlers(ent) {
+		handlers[t] = h
+	}
+
+	for t, h := range paymentHandlers(ent) {
 		handlers[t] = h
 	}
 
