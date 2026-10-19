@@ -475,7 +475,7 @@ services:
   # Catches every e-mail sent in dev (verification, password reset from GĐ1): UI http://localhost:8025
   mailpit:
     container_name: mailpit
-    image: axllent/mailpit:v1.27.0
+    image: axllent/mailpit:v1.31.6
     ports:
       - "1025:1025"   # SMTP
       - "8025:8025"   # Web UI
