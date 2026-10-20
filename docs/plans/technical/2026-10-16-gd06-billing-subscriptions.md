@@ -2,7 +2,7 @@
 
 | Phiên bản | Trạng thái | Ngày | Working Plan |
 | --- | --- | --- | --- |
-| 1.0 | Chờ duyệt | 2026-10-20 | `docs/plans/working/2026-10-16-gd06-billing-subscriptions.md` (Approved 19/10) |
+| 1.2 | **Đã duyệt** (chủ đồ án duyệt kế hoạch cùng G6-Q1…Q11 ngày 19/10; TSD đi theo kế hoạch đó) | 2026-10-21 | `docs/plans/working/2026-10-16-gd06-billing-subscriptions.md` (Approved 19/10) |
 
 Quyết định đã chốt (19/10, chủ đồ án duyệt **G6-Q1…Q11 theo đề xuất**): **G6-Q1** chấp nhận NH-Q1, Q4–Q9, Q11–Q13 của NXL-H
 (trả trước 30 ngày + nhắc gia hạn, không đổi tier khi còn hạn, `order_description` ASCII ≤ 100, một trạng thái chờ `PENDING`,
@@ -428,7 +428,8 @@ sequenceDiagram
 - `GET /v1/admin/payouts/{id}/bank-account` → `200 {bankCode, bankName, accountNumber, accountName}` (giải mã) + audit
   `PAYOUT_BANK_INFO_VIEWED` mỗi lần xem; header `Cache-Control: no-store`. Giải mã lỗi → `500 INTERNAL_ERROR` (UI "Không giải
   mã được thông tin ngân hàng").
-- `GET /v1/admin/checkout-orders?needsReview=true` → danh sách chỉ đọc.
+- `GET /v1/admin/checkout-orders?needsReview=true` → danh sách chỉ đọc; đơn lệch số tiền:
+  `?status=FAILED&failureReason=AMOUNT_MISMATCH` (v1.2). Panel đọc một đơn: `GET /v1/admin/checkout-orders/{id | invoice}` (v1.2).
 
 ### S12 — Provider `fake` và `/dev/fake-psp` (CI, E2E, dự phòng demo)
 
@@ -520,7 +521,8 @@ details.idempotencyKey = REQUIRED`, sai dạng → `= FORMAT`). Phân trang: `li
 | GET | `/v1/admin/payouts/{id}/bank-account` ✚ | A | — | `200 {bankCode, bankName, accountNumber, accountName}` + audit | `NOT_FOUND` |
 | POST | `/v1/admin/payouts/{id}/approve` | A | — | `200 AdminPayout` | `NOT_FOUND`, `INVALID_STATE` |
 | POST | `/v1/admin/payouts/{id}/reject` | A | `{reason}` | `200 AdminPayout` | `VALIDATION_FAILED` (`reason = REQUIRED\|LENGTH`), `NOT_FOUND`, `INVALID_STATE` |
-| GET | `/v1/admin/checkout-orders?needsReview=&status=&q=&cursor=&limit=` | A | `needsReview` bool tùy chọn; `status` CSV; `q` = tiền tố `invoiceNumber` (không phân biệt hoa thường) | `200 {items: AdminOrder[], nextCursor}` (mới nhất trước) | `FORBIDDEN`, `VALIDATION_FAILED` |
+| GET | `/v1/admin/checkout-orders?needsReview=&status=&failureReason=&q=&cursor=&limit=` | A | `needsReview` bool tùy chọn; `status` CSV; `failureReason` CSV (v1.2, AND với `status`); `q` `^[A-Za-z0-9]{1,32}$`, không phân biệt hoa thường: **đủ mã hóa đơn** (`NXL` + 10 ký tự Crockford) → **khớp chính xác** (`=`), ngắn hơn → tiền tố (`LIKE 'q%'`) (v1.2) | `200 {items: AdminOrder[], nextCursor}` (mới nhất trước) | `FORBIDDEN`, `VALIDATION_FAILED` (`status = ENUM`, `failureReason = ENUM`, `q = FORMAT`) |
+| GET | `/v1/admin/checkout-orders/{id}` ✚ (v1.2) | A | `id` = id đơn (UUID) hoặc mã hóa đơn (không phân biệt hoa thường) | `200 AdminOrder` (mọi trạng thái) | `NOT_FOUND` (không có, hoặc không phải UUID / mã hóa đơn), `FORBIDDEN` |
 | POST | `/v1/webhooks/sepay` | `X-Secret-Key` | IPN JSON (§5.4) | `200 {"success": true}` · `400` · `401` · `500` (không envelope NXL-00) | — |
 
 Ràng buộc trường: `paymentMethod` ∈ `BILLING_SEPAY_METHODS` (ngoài danh sách cấu hình → `ENUM`); `description` ≤ 200 ký tự sau
@@ -836,6 +838,7 @@ type (
         Approve(ctx context.Context, adminID, id string) (AdminPayout, error)
         Reject(ctx context.Context, adminID, id, reason string) (AdminPayout, error)
         Orders(ctx context.Context, f AdminOrderFilter, cursor string, limit int) (AdminOrderPage, error)
+        Order(ctx context.Context, ref string) (entity.Order, error) // v1.2: ref = order id or invoice number
     }
     Replica interface { // durable billing-svc + backfill
         ChannelCreated(ctx context.Context, eventID string, at time.Time, e events.ChannelCreated) error
@@ -921,7 +924,7 @@ type (
     OrderRepo interface {
         // CreateOrReuse runs the §6.2.1 checks 7–10 under pg_advisory_xact_lock(user) and inserts the order.
         CreateOrReuse(ctx context.Context, o entity.Order, rules CreateRules) (entity.Order, bool, error)
-        Order(ctx context.Context, id string) (entity.Order, error)
+        Order(ctx context.Context, id string) (entity.Order, error) // as shipped: ByID (admin) + UserOrder (owner)
         ForUser(ctx context.Context, userID string, statuses []entity.OrderStatus, after *Cursor, limit int) ([]entity.Order, error)
         Admin(ctx context.Context, f AdminOrderFilter, after *Cursor, limit int) ([]entity.Order, error)
         // Transition is a conditional UPDATE (status = ANY(from)) + outbox rows in one tx; false = state moved on.
@@ -1709,6 +1712,11 @@ Dư ~14 tuần so với lịch GĐ6; nếu trễ cắt theo thứ tự: `reconci
 15. **Provider mặc định `fake`** trong compose / `.env.example` (stack chạy được khi chưa có credential); `sepay` bật bằng `.env`.
 16. **Mô tả tier mặc định** (§6.3), `order_description` `NexusLive Sub Tier N @handle 30 ngay`.
 17. **Down migration xóa dữ liệu billing** (TRUNCATE) — chấp nhận vì GĐ6 là nơi ghi đầu tiên.
+18. **Close-out (v1.2, chỉ thêm):** `GET /v1/admin/checkout-orders/{id}` (id hoặc mã hóa đơn), lọc `failureReason` trên danh sách
+    đơn Admin, `q` khớp chính xác khi là mã hóa đơn đầy đủ và giữ tiền tố khi ngắn hơn. Lý do: admin trước đó phải tìm một đơn qua
+    `q` rồi so mã ở client và đọc trang `FAILED` (50 dòng, bỏ qua tối đa 4 trang) để lọc `AMOUNT_MISMATCH`. Chọn "chính xác hoặc
+    tiền tố" thay vì chỉ chính xác (design ghi ô "Mã đơn") để giữ tìm theo vài ký tự đầu; mọi mã dài 13 ký tự nên mã đầy đủ chỉ
+    khớp chính nó. Repo thêm `OrderRepo.ByID`, `AdminOrderFilter.FailureReasons`, `Invoice` + `InvoiceExact` (thay `InvoicePfx`).
 
 ## 14. Tham chiếu
 
@@ -1725,3 +1733,4 @@ SePay: IPN (đọc lại 20/10), Tổng quan API, SDK Node (E-32…E-37); `servi
 | --- | --- | --- |
 | 1.0 | 2026-10-20 | Bản đầu sau khi duyệt Working Plan (G6-Q1…Q11 theo đề xuất, 19/10); chờ duyệt |
 | 1.1 | 2026-10-20 | Phần B (chat, notification) as-shipped: `subscription.expired` `VOIDED` xóa bản sao `sub:` khi `until ≤ currentPeriodEnd + 30 ngày` (§6.11; so trực tiếp không bao giờ xóa vì VOID gửi kỳ đã rút ngắn); durable chat giữ tên `chat-svc`; `GET /v1/chat/emotes` `Cache-Control: max-age=60` (khớp cache 1 phút) |
+| 1.2 | 2026-10-21 | Trạng thái **Đã duyệt** (chủ đồ án duyệt kế hoạch cùng G6-Q1…Q11 ngày 19/10; TSD theo kế hoạch đó). Close-out (§13 mục 18): `GET /v1/admin/checkout-orders/{id}`, lọc `failureReason`, `q` chính xác-hoặc-tiền tố (§5.2, S11, §4); as-shipped: `OrderRepo.ByID`. Completed Plan `docs/plans/completed/2026-10-16-gd06-billing-subscriptions.md` |
