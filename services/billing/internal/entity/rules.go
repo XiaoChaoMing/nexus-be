@@ -70,6 +70,9 @@ func NewInvoiceNumber(r io.Reader) (string, error) {
 	return string(out), nil
 }
 
+// IsInvoiceNumber reports whether s (upper case) has the shape NewInvoiceNumber draws.
+func IsInvoiceNumber(s string) bool { return _invoiceRe.MatchString(s) }
+
 // Bank is one of the banks a payout can go to.
 type Bank struct {
 	Code string
@@ -108,6 +111,7 @@ func BankName(code string) string {
 var (
 	_accountNumberRe = regexp.MustCompile(`^\d{6,20}$`)
 	_accountNameRe   = regexp.MustCompile(`^[A-Z ]+$`)
+	_invoiceRe       = regexp.MustCompile(`^NXL[0-9A-HJKMNP-TV-Z]{10}$`)
 )
 
 // PayoutRequest is a validated payout input.

@@ -407,3 +407,41 @@ func TestIdempotencyKeys(t *testing.T) { //nolint:paralleltest // shared databas
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestAdminOrderFilters(t *testing.T) { //nolint:paralleltest // shared database
+	r, pg := setup(t)
+	ctx := context.Background()
+	_, t1, _ := seedChannel(t, r)
+	uc := newUseCase(r, &stubProvider{state: map[string]provider.OrderState{}})
+
+	o, _, _, err := uc.CreateOrder(ctx, newID(), usecase.CreateOrderInput{TierID: t1.ID, IdempotencyKey: newID()})
+	require.NoError(t, err)
+
+	res, err := uc.Notify(ctx, secretHeader(), ipnBody(t, sepay.TypeOrderPaid, o.InvoiceNumber, "txn-mismatch", 58000))
+	require.NoError(t, err)
+	require.Equal(t, usecase.IPNMismatch, res)
+
+	list := func(f repo.AdminOrderFilter) []entity.Order {
+		items, err := r.Admin(ctx, f, nil, 20)
+		require.NoError(t, err)
+
+		return items
+	}
+
+	mismatch := []entity.FailureReason{entity.FailAmountMismatch}
+	require.Len(t, list(repo.AdminOrderFilter{FailureReasons: mismatch, Invoice: o.InvoiceNumber, InvoiceExact: true}), 1)
+
+	declined := []entity.FailureReason{entity.FailDeclined}
+	require.Empty(t, list(repo.AdminOrderFilter{FailureReasons: declined, Invoice: o.InvoiceNumber, InvoiceExact: true}))
+	require.Len(t, list(repo.AdminOrderFilter{Invoice: o.InvoiceNumber[:5]}), count(t, pg,
+		`SELECT count(*) FROM checkout_orders WHERE invoice_number LIKE $1 || '%'`, o.InvoiceNumber[:5]))
+	require.Empty(t, list(repo.AdminOrderFilter{Invoice: o.InvoiceNumber[:5], InvoiceExact: true}))
+
+	got, err := r.ByID(ctx, o.ID)
+	require.NoError(t, err)
+	require.Equal(t, entity.OrderFailed, got.Status)
+	require.Equal(t, entity.FailAmountMismatch, *got.FailureReason)
+
+	_, err = r.ByID(ctx, newID())
+	require.ErrorIs(t, err, entity.ErrNotFound)
+}

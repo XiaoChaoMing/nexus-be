@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,7 +35,7 @@ const (
 
 var now = time.Date(2026, 2, 10, 10, 0, 0, 0, time.UTC) //nolint:gochecknoglobals // test clock
 
-// zeroReader makes invoice numbers deterministic ("NXL0000000000"), counter-suffixed by the store.
+// zeroReader makes invoice numbers deterministic ("NXL0000000000"); the store ends them with its counter.
 type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) {
@@ -300,7 +301,9 @@ func (m *mem) CreateOrReuse(_ context.Context, o entity.Order, rules repo.Create
 		return o, false, err
 	}
 
-	o.ID, o.InvoiceNumber, o.Status, o.CreatedAt, o.UpdatedAt = m.id(), inv+fmt.Sprint(m.seq), entity.OrderPending, now, now
+	o.ID = m.id()
+	seq := fmt.Sprint(m.seq)
+	o.InvoiceNumber, o.Status, o.CreatedAt, o.UpdatedAt = inv[:len(inv)-len(seq)]+seq, entity.OrderPending, now, now
 	m.orders[o.ID] = &o
 
 	return m.fill(o), true, nil
@@ -370,6 +373,18 @@ func (m *mem) ByInvoice(_ context.Context, inv string) (entity.Order, error) {
 	return m.fill(*o), nil
 }
 
+func (m *mem) ByID(_ context.Context, id string) (entity.Order, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	o, ok := m.orders[id]
+	if !ok {
+		return entity.Order{}, entity.ErrNotFound
+	}
+
+	return m.fill(*o), nil
+}
+
 func (m *mem) list(keep func(*entity.Order) bool) []entity.Order {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -394,7 +409,20 @@ func (m *mem) ForUser(_ context.Context, user string, st []entity.OrderStatus, _
 }
 
 func (m *mem) Admin(_ context.Context, f repo.AdminOrderFilter, _ *repo.Cursor, _ int) ([]entity.Order, error) {
-	return m.list(func(o *entity.Order) bool { return f.NeedsReview == nil || o.NeedsReview == *f.NeedsReview }), nil
+	return m.list(func(o *entity.Order) bool {
+		return (f.NeedsReview == nil || o.NeedsReview == *f.NeedsReview) &&
+			(len(f.Statuses) == 0 || slices.Contains(f.Statuses, o.Status)) &&
+			(len(f.FailureReasons) == 0 || o.FailureReason != nil && slices.Contains(f.FailureReasons, *o.FailureReason)) &&
+			invoiceMatches(f, o.InvoiceNumber)
+	}), nil
+}
+
+func invoiceMatches(f repo.AdminOrderFilter, invoice string) bool {
+	if f.InvoiceExact {
+		return invoice == f.Invoice
+	}
+
+	return strings.HasPrefix(invoice, f.Invoice)
 }
 
 func (m *mem) Transition(_ context.Context, id string, from []entity.OrderStatus, to entity.OrderStatus,

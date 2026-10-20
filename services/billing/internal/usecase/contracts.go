@@ -160,9 +160,10 @@ type (
 
 	// AdminOrderQuery -.
 	AdminOrderQuery struct {
-		NeedsReview *bool
-		Statuses    []string
-		Invoice     string
+		NeedsReview    *bool
+		Statuses       []string
+		FailureReasons []string
+		Invoice        string
 	}
 
 	// Admin is the payout queue and the order review page.
@@ -176,6 +177,8 @@ type (
 		Approve(ctx context.Context, adminID, id string) (AdminPayout, error)
 		Reject(ctx context.Context, adminID, id, reason string) (AdminPayout, error)
 		AdminOrders(ctx context.Context, q AdminOrderQuery, cursor string, limit int) (OrderPage, error)
+		// AdminOrder is one order by id or invoice number (case-insensitive).
+		AdminOrder(ctx context.Context, ref string) (entity.Order, error)
 	}
 
 	// Replica keeps the channel copy (durable billing-svc and backfill).

@@ -83,6 +83,7 @@ func NewRoutes(g fiber.Router, uc UseCases, auth, admin fiber.Handler, l logger.
 	a.Post("/payouts/:id/approve", r.approve)
 	a.Post("/payouts/:id/reject", r.reject)
 	a.Get("/checkout-orders", r.adminOrders)
+	a.Get("/checkout-orders/:id", r.adminOrder)
 }
 
 func errorJSON(ctx *fiber.Ctx, status int, code, message string, details map[string]string) error {

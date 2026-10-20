@@ -56,11 +56,14 @@ type (
 		Now       time.Time
 	}
 
-	// AdminOrderFilter selects orders for the admin review page.
+	// AdminOrderFilter selects orders for the admin review page. Invoice is upper case; InvoiceExact compares it
+	// with "=", otherwise it is a prefix.
 	AdminOrderFilter struct {
-		NeedsReview *bool
-		Statuses    []entity.OrderStatus
-		InvoicePfx  string
+		NeedsReview    *bool
+		Statuses       []entity.OrderStatus
+		FailureReasons []entity.FailureReason
+		Invoice        string
+		InvoiceExact   bool
 	}
 
 	// IdemKey identifies an Idempotency-Key per caller and route.
@@ -118,6 +121,8 @@ type (
 		CreateOrReuse(ctx context.Context, o entity.Order, rules CreateRules) (entity.Order, bool, error)
 		UserOrder(ctx context.Context, userID, id string) (entity.Order, error)
 		ByInvoice(ctx context.Context, invoice string) (entity.Order, error)
+		// ByID is any user's order (admin).
+		ByID(ctx context.Context, id string) (entity.Order, error)
 		ForUser(ctx context.Context, userID string, statuses []entity.OrderStatus, after *Cursor, limit int) ([]entity.Order, error)
 		Admin(ctx context.Context, f AdminOrderFilter, after *Cursor, limit int) ([]entity.Order, error)
 		// Transition is UPDATE … WHERE status = ANY(from) plus out(updated) in one transaction; false = the state

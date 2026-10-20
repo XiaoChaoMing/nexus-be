@@ -71,6 +71,12 @@ func TestNewInvoiceNumber(t *testing.T) {
 
 	_, err = entity.NewInvoiceNumber(strings.NewReader("short"))
 	require.Error(t, err)
+
+	require.True(t, entity.IsInvoiceNumber("NXL01Z0ZAJMVP"))
+
+	for _, s := range []string{"nxl01z0zajmvp", "NXL01Z0ZAJMV", "NXL01Z0ZAJMVPQ", "NXL01Z0ZAJMVU", "ABC01Z0ZAJMVP", ""} {
+		require.False(t, entity.IsInvoiceNumber(s), s)
+	}
 }
 
 func TestNewPayoutRequest(t *testing.T) {

@@ -22,7 +22,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Newest first. needsReview=true lists paid orders that could not be applied (another tier was live); status CSV; q = invoice number prefix (case-insensitive).",
+                "description": "Newest first. needsReview=true lists paid orders that could not be applied (another tier was live); status and failureReason are CSV (AND); q (case-insensitive) is a whole invoice number (exact match) or a prefix of one.",
                 "produces": [
                     "application/json"
                 ],
@@ -45,7 +45,13 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "invoice number prefix",
+                        "description": "CSV of CANCELLED_BY_USER | DECLINED | EXPIRED | AMOUNT_MISMATCH | PROVIDER_ERROR | UNKNOWN",
+                        "name": "failureReason",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "invoice number, exact (NXL + 10 characters) or prefix",
                         "name": "q",
                         "in": "query"
                     },
@@ -83,6 +89,58 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/checkout-orders/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "id is the order id or its invoice number (case-insensitive). Any order, whatever its status.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "A checkout order (review panel)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "order id or invoice number",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminOrder"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
                         "schema": {
                             "$ref": "#/definitions/Error"
                         }
@@ -1651,6 +1709,14 @@ const docTemplate = `{
                 "tierId": {
                     "type": "string",
                     "example": "0199e001-0000-7000-8000-000000000001"
+                }
+            }
+        },
+        "Data-AdminOrder": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/AdminOrder"
                 }
             }
         },

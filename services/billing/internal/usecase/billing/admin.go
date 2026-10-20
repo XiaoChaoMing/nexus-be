@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/entity"
@@ -167,16 +168,12 @@ func (uc *UseCase) review(ctx context.Context, adminID, id string, to entity.Pay
 	return uc.adminPayout(ctx, p)
 }
 
-// AdminOrders -: newest first.
+// AdminOrders -: newest first. q is a whole invoice number (exact match) or a prefix of one.
 func (uc *UseCase) AdminOrders(ctx context.Context, q usecase.AdminOrderQuery, cursor string, limit int,
 ) (usecase.OrderPage, error) {
-	st, err := orderStatuses(q.Statuses)
+	f, err := adminOrderFilter(q)
 	if err != nil {
 		return usecase.OrderPage{}, err
-	}
-
-	if q.Invoice != "" && !_invoicePrefixRe.MatchString(q.Invoice) {
-		return usecase.OrderPage{}, entity.Invalid("q", entity.DetailFormat)
 	}
 
 	after, err := decodeCursor(cursor)
@@ -184,13 +181,72 @@ func (uc *UseCase) AdminOrders(ctx context.Context, q usecase.AdminOrderQuery, c
 		return usecase.OrderPage{}, err
 	}
 
-	items, err := uc.r.Orders.Admin(ctx, repo.AdminOrderFilter{
-		NeedsReview: q.NeedsReview, Statuses: st,
-		InvoicePfx: q.Invoice,
-	}, after, limit)
+	items, err := uc.r.Orders.Admin(ctx, f, after, limit)
 	if err != nil {
 		return usecase.OrderPage{}, fmt.Errorf("billing - AdminOrders: %w", err)
 	}
 
 	return usecase.OrderPage{Items: items, Next: next(items, limit, orderKey)}, nil
+}
+
+func adminOrderFilter(q usecase.AdminOrderQuery) (repo.AdminOrderFilter, error) {
+	st, err := orderStatuses(q.Statuses)
+	if err != nil {
+		return repo.AdminOrderFilter{}, err
+	}
+
+	reasons, err := failureReasons(q.FailureReasons)
+	if err != nil {
+		return repo.AdminOrderFilter{}, err
+	}
+
+	if q.Invoice != "" && !_invoicePrefixRe.MatchString(q.Invoice) {
+		return repo.AdminOrderFilter{}, entity.Invalid("q", entity.DetailFormat)
+	}
+
+	invoice := strings.ToUpper(q.Invoice)
+
+	return repo.AdminOrderFilter{
+		NeedsReview: q.NeedsReview, Statuses: st, FailureReasons: reasons,
+		Invoice: invoice, InvoiceExact: entity.IsInvoiceNumber(invoice),
+	}, nil
+}
+
+func failureReasons(in []string) ([]entity.FailureReason, error) {
+	out := make([]entity.FailureReason, 0, len(in))
+
+	for _, s := range in {
+		switch fr := entity.FailureReason(s); fr {
+		case entity.FailCancelledByUser, entity.FailDeclined, entity.FailExpired, entity.FailAmountMismatch,
+			entity.FailProviderError, entity.FailUnknown:
+			out = append(out, fr)
+		default:
+			return nil, entity.Invalid("failureReason", entity.DetailEnum)
+		}
+	}
+
+	return out, nil
+}
+
+// AdminOrder -: ref is the order id or its invoice number.
+func (uc *UseCase) AdminOrder(ctx context.Context, ref string) (entity.Order, error) {
+	var (
+		o   entity.Order
+		err error
+	)
+
+	switch invoice := strings.ToUpper(ref); {
+	case validID(ref):
+		o, err = uc.r.Orders.ByID(ctx, ref)
+	case entity.IsInvoiceNumber(invoice):
+		o, err = uc.r.Orders.ByInvoice(ctx, invoice)
+	default:
+		return entity.Order{}, entity.ErrNotFound
+	}
+
+	if err != nil {
+		return entity.Order{}, fmt.Errorf("billing - AdminOrder: %w", err)
+	}
+
+	return o, nil
 }

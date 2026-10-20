@@ -349,17 +349,69 @@ func TestAdminOrders(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv()
-	payOrder(t, e)
+	ctx := context.Background()
+	paid := payOrder(t, e)
 
-	page, err := e.uc.AdminOrders(context.Background(), usecase.AdminOrderQuery{NeedsReview: ptr(false)}, "", 20)
+	bad := create(t, e, otherID, tier1ID)
+	res, err := e.uc.Notify(ctx, header(ipnSecret), ipn(t, sepay.TypeOrderPaid, bad.InvoiceNumber, "t-"+bad.ID, 58000, nil))
+	require.NoError(t, err)
+	require.Equal(t, usecase.IPNMismatch, res)
+
+	page, err := e.uc.AdminOrders(ctx, usecase.AdminOrderQuery{NeedsReview: ptr(false)}, "", 20)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+
+	page, err = e.uc.AdminOrders(ctx, usecase.AdminOrderQuery{
+		Statuses: []string{"FAILED"}, FailureReasons: []string{"AMOUNT_MISMATCH"},
+	}, "", 20)
 	require.NoError(t, err)
 	require.Len(t, page.Items, 1)
+	require.Equal(t, bad.ID, page.Items[0].ID)
 
-	_, err = e.uc.AdminOrders(context.Background(), usecase.AdminOrderQuery{Invoice: "NXL%"}, "", 20)
+	page, err = e.uc.AdminOrders(ctx, usecase.AdminOrderQuery{FailureReasons: []string{"DECLINED"}}, "", 20)
+	require.NoError(t, err)
+	require.Empty(t, page.Items)
+
+	// A whole invoice number matches exactly, whatever its case; a shorter q is a prefix.
+	page, err = e.uc.AdminOrders(ctx, usecase.AdminOrderQuery{Invoice: strings.ToLower(paid.InvoiceNumber)}, "", 20)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	require.Equal(t, paid.ID, page.Items[0].ID)
+
+	page, err = e.uc.AdminOrders(ctx, usecase.AdminOrderQuery{Invoice: "nxl"}, "", 20)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+
+	_, err = e.uc.AdminOrders(ctx, usecase.AdminOrderQuery{Invoice: "NXL%"}, "", 20)
 	require.ErrorIs(t, err, entity.ErrValidation)
 
-	_, err = e.uc.AdminOrders(context.Background(), usecase.AdminOrderQuery{Statuses: []string{"LOST"}}, "", 20)
+	_, err = e.uc.AdminOrders(ctx, usecase.AdminOrderQuery{Statuses: []string{"LOST"}}, "", 20)
 	require.ErrorIs(t, err, entity.ErrValidation)
+
+	_, err = e.uc.AdminOrders(ctx, usecase.AdminOrderQuery{FailureReasons: []string{"LOST"}}, "", 20)
+	require.ErrorIs(t, err, entity.ErrValidation)
+	require.Equal(t, map[string]string{"failureReason": entity.DetailEnum}, entity.DetailsOf(err))
+}
+
+func TestAdminOrder(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv()
+	ctx := context.Background()
+	o := payOrder(t, e)
+
+	byID, err := e.uc.AdminOrder(ctx, o.ID)
+	require.NoError(t, err)
+	require.Equal(t, entity.OrderPaid, byID.Status)
+
+	byInvoice, err := e.uc.AdminOrder(ctx, strings.ToLower(o.InvoiceNumber))
+	require.NoError(t, err)
+	require.Equal(t, o.ID, byInvoice.ID)
+
+	for _, ref := range []string{"NXL0000000000", "0199e000-0000-7000-8000-0000000000ff", "NXL", "x;--"} {
+		_, err = e.uc.AdminOrder(ctx, ref)
+		require.ErrorIs(t, err, entity.ErrNotFound, ref)
+	}
 }
 
 func TestSubscriptions(t *testing.T) {

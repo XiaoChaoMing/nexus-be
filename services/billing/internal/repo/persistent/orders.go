@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -259,6 +258,16 @@ func (r *Repo) ByInvoice(ctx context.Context, invoice string) (entity.Order, err
 	return o, nil
 }
 
+// ByID -.
+func (r *Repo) ByID(ctx context.Context, id string) (entity.Order, error) {
+	o, err := orderBy(ctx, r.Pool, `o.id = $1`, id)
+	if err != nil {
+		return o, fmt.Errorf("Repo - ByID: %w", err)
+	}
+
+	return o, nil
+}
+
 func (r *Repo) orders(ctx context.Context, op, where string, args ...any) ([]entity.Order, error) {
 	rows, err := r.Pool.Query(ctx, `SELECT `+_orderCols+_orderFrom+` WHERE `+where, args...)
 	if err != nil {
@@ -297,11 +306,23 @@ func (r *Repo) ForUser(ctx context.Context, userID string, statuses []entity.Ord
 func (r *Repo) Admin(ctx context.Context, f repo.AdminOrderFilter, after *repo.Cursor, limit int) ([]entity.Order, error) {
 	set, at, id := pageArgs(after)
 
+	reasons := make([]string, 0, len(f.FailureReasons))
+	for _, fr := range f.FailureReasons {
+		reasons = append(reasons, string(fr))
+	}
+
+	exact, prefix := "", f.Invoice
+	if f.InvoiceExact {
+		exact, prefix = f.Invoice, ""
+	}
+
 	return r.orders(ctx, "Repo - Admin", `($1::boolean IS NULL OR o.needs_review = $1)
 		AND (cardinality($2::text[]) = 0 OR o.status = ANY($2))
-		AND ($3::text = '' OR o.invoice_number LIKE $3::text || '%')
-		AND (NOT $4 OR (o.created_at, o.id) < ($5, $6::uuid)) ORDER BY o.created_at DESC, o.id DESC LIMIT $7`,
-		f.NeedsReview, statusStrings(f.Statuses), strings.ToUpper(f.InvoicePfx), set, at, id, limit)
+		AND (cardinality($3::text[]) = 0 OR o.failure_reason = ANY($3))
+		AND ($4::text = '' OR o.invoice_number = $4::text)
+		AND ($5::text = '' OR o.invoice_number LIKE $5::text || '%')
+		AND (NOT $6 OR (o.created_at, o.id) < ($7, $8::uuid)) ORDER BY o.created_at DESC, o.id DESC LIMIT $9`,
+		f.NeedsReview, statusStrings(f.Statuses), reasons, exact, prefix, set, at, id, limit)
 }
 
 // Transition -.

@@ -176,13 +176,14 @@ func (r *routes) reject(ctx *fiber.Ctx) error {
 // adminOrders -.
 //
 //	@Summary     Checkout orders (review page)
-//	@Description Newest first. needsReview=true lists paid orders that could not be applied (another tier was live); status CSV; q = invoice number prefix (case-insensitive).
+//	@Description Newest first. needsReview=true lists paid orders that could not be applied (another tier was live); status and failureReason are CSV (AND); q (case-insensitive) is a whole invoice number (exact match) or a prefix of one.
 //	@Tags        admin-billing
 //	@Produce     json
 //	@Security    BearerAuth
 //	@Param       needsReview query    bool   false "true | false"
 //	@Param       status      query    string false "CSV of order statuses"
-//	@Param       q           query    string false "invoice number prefix"
+//	@Param       failureReason query  string false "CSV of CANCELLED_BY_USER | DECLINED | EXPIRED | AMOUNT_MISMATCH | PROVIDER_ERROR | UNKNOWN"
+//	@Param       q           query    string false "invoice number, exact (NXL + 10 characters) or prefix"
 //	@Param       cursor      query    string false "nextCursor of the previous page"
 //	@Param       limit       query    int    false "1–50, default 20"
 //	@Success     200         {object} Data[Page[AdminOrder]]
@@ -196,7 +197,9 @@ func (r *routes) adminOrders(ctx *fiber.Ctx) error {
 		return badLimit(ctx)
 	}
 
-	q := usecase.AdminOrderQuery{Statuses: csv(ctx.Query("status")), Invoice: ctx.Query("q")}
+	q := usecase.AdminOrderQuery{
+		Statuses: csv(ctx.Query("status")), FailureReasons: csv(ctx.Query("failureReason")), Invoice: ctx.Query("q"),
+	}
 
 	if s := ctx.Query("needsReview"); s != "" {
 		b, err := strconv.ParseBool(s)
@@ -215,4 +218,26 @@ func (r *routes) adminOrders(ctx *fiber.Ctx) error {
 	return ctx.JSON(Data[Page[AdminOrder]]{Data: Page[AdminOrder]{
 		Items: NewAdminOrders(p.Items), NextCursor: p.Next,
 	}})
+}
+
+// adminOrder -.
+//
+//	@Summary     A checkout order (review panel)
+//	@Description id is the order id or its invoice number (case-insensitive). Any order, whatever its status.
+//	@Tags        admin-billing
+//	@Produce     json
+//	@Security    BearerAuth
+//	@Param       id  path     string true "order id or invoice number"
+//	@Success     200 {object} Data[AdminOrder]
+//	@Failure     401 {object} Error "UNAUTHORIZED"
+//	@Failure     403 {object} Error "FORBIDDEN"
+//	@Failure     404 {object} Error "NOT_FOUND"
+//	@Router      /admin/checkout-orders/{id} [get]
+func (r *routes) adminOrder(ctx *fiber.Ctx) error {
+	o, err := r.uc.Admin.AdminOrder(ctx.UserContext(), ctx.Params("id"))
+	if err != nil {
+		return r.fail(ctx, "adminOrder", err)
+	}
+
+	return ctx.JSON(Data[AdminOrder]{Data: NewAdminOrder(o)})
 }

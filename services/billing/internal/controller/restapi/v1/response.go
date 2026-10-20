@@ -396,11 +396,16 @@ func NewOrders(os []entity.Order) []Order {
 	return out
 }
 
+// NewAdminOrder -.
+func NewAdminOrder(o entity.Order) AdminOrder {
+	return AdminOrder{Order: NewOrder(o), UserID: o.UserID, SubscriptionID: o.SubscriptionID, PSPRef: o.PSPRef}
+}
+
 // NewAdminOrders -.
 func NewAdminOrders(os []entity.Order) []AdminOrder {
 	out := make([]AdminOrder, 0, len(os))
 	for _, o := range os {
-		out = append(out, AdminOrder{Order: NewOrder(o), UserID: o.UserID, SubscriptionID: o.SubscriptionID, PSPRef: o.PSPRef})
+		out = append(out, NewAdminOrder(o))
 	}
 
 	return out

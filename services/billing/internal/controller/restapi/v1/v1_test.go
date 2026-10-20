@@ -28,6 +28,7 @@ type fakeUC struct {
 	created bool
 	payout  usecase.PayoutInput
 	outcome usecase.Outcome
+	orders  usecase.AdminOrderQuery
 }
 
 func (f *fakeUC) PublicTiers(context.Context, string) ([]entity.Tier, error) {
@@ -78,6 +79,16 @@ func (f *fakeUC) RequestPayout(_ context.Context, _ string, in usecase.PayoutInp
 	f.payout = in
 
 	return usecase.PayoutView{Payout: entity.Payout{Number: 7, BankCode: "VCB"}}, f.err
+}
+
+func (f *fakeUC) AdminOrders(_ context.Context, q usecase.AdminOrderQuery, _ string, _ int) (usecase.OrderPage, error) {
+	f.orders = q
+
+	return usecase.OrderPage{}, f.err
+}
+
+func (f *fakeUC) AdminOrder(_ context.Context, ref string) (entity.Order, error) {
+	return entity.Order{ID: "o", InvoiceNumber: ref, Status: entity.OrderPaid, UserID: "u2"}, f.err
 }
 
 func (f *fakeUC) Begin(context.Context, usecase.IdemKey, []byte) (usecase.IdemState, error) {
@@ -215,4 +226,30 @@ func TestRoutes(t *testing.T) { //nolint:funlen // one walk through the routes
 	status, body = call(t, a, http.MethodGet, "/v1/admin/payouts", ``)
 	require.Equal(t, http.StatusForbidden, status)
 	require.Contains(t, body, "FORBIDDEN")
+}
+
+func TestAdminOrderRoutes(t *testing.T) {
+	t.Parallel()
+
+	uc := &fakeUC{}
+	a := app(uc, "ADMIN")
+
+	status, _ := call(t, a, http.MethodGet, "/v1/admin/checkout-orders?status=FAILED&failureReason=AMOUNT_MISMATCH,DECLINED&q=nxl", ``)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, []string{"AMOUNT_MISMATCH", "DECLINED"}, uc.orders.FailureReasons)
+	require.Equal(t, []string{"FAILED"}, uc.orders.Statuses)
+	require.Equal(t, "nxl", uc.orders.Invoice)
+
+	status, body := call(t, a, http.MethodGet, "/v1/admin/checkout-orders/NXL7Q2K9M4X1C", ``)
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, `"invoiceNumber":"NXL7Q2K9M4X1C"`)
+	require.Contains(t, body, `"userId":"u2"`)
+
+	uc.err = entity.ErrNotFound
+	status, body = call(t, a, http.MethodGet, "/v1/admin/checkout-orders/nope", ``)
+	require.Equal(t, http.StatusNotFound, status)
+	require.Contains(t, body, "NOT_FOUND")
+
+	status, _ = call(t, app(uc, "USER"), http.MethodGet, "/v1/admin/checkout-orders/NXL7Q2K9M4X1C", ``)
+	require.Equal(t, http.StatusForbidden, status)
 }
