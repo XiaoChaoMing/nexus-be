@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.9 |
-| **Cập nhật** | 2026-10-20 |
+| **Phiên bản** | 1.11 |
+| **Cập nhật** | 2026-10-21 |
 | **Phạm vi** | REST công khai, API nội bộ giữa service, RTMP/HLS, sự kiện NATS. Gồm API đã chạy và API dự kiến theo lộ trình |
 
 Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, trạng thái nào, quy ước chung là gì.
@@ -450,7 +450,8 @@ người gọi (không có → `403 NOT_CREATOR`) · `A` Bearer `role = ADMIN` (
 | GET | `/v1/admin/payouts?status=` · `/pending-count` · `/{id}` | A | Hàng đợi (`REQUESTED` cũ trước; `APPROVED` / `REJECTED` / `ALL` mới trước), kèm số dư kênh |
 | GET | `/v1/admin/payouts/{id}/bank-account` | A | Số tài khoản đầy đủ, `Cache-Control: no-store`, mỗi lần xem ghi audit `PAYOUT_BANK_INFO_VIEWED` |
 | POST | `/v1/admin/payouts/{id}/approve` · `/reject` | A | `APPROVED` (ghi `DEBIT PAYOUT`, không chuyển tiền thật) / `REJECTED {reason 10–500}`; đã duyệt → `409` |
-| GET | `/v1/admin/checkout-orders?needsReview=&status=&q=` | A | Đơn (mới nhất trước), `q` = tiền tố mã hóa đơn |
+| GET | `/v1/admin/checkout-orders?needsReview=&status=&failureReason=&q=` | A | Đơn (mới nhất trước); `status`, `failureReason` là CSV (AND); `q` không phân biệt hoa thường: đủ mã hóa đơn (`NXL` + 10 ký tự) → khớp chính xác, ngắn hơn → tiền tố |
+| GET | `/v1/admin/checkout-orders/{id}` | A | Một đơn bất kỳ theo id hoặc mã hóa đơn (không phân biệt hoa thường) → `AdminOrder`; không có → `404 NOT_FOUND` |
 | POST | `/v1/webhooks/sepay` | `X-Secret-Key` | IPN SePay (không envelope): `200 {"success": true}` (đã áp, trùng, bỏ qua, chưa duyệt, hóa đơn lạ, lệch tiền → đơn `FAILED AMOUNT_MISMATCH`), `401` sai secret, `400` hỏng, `500` lỗi tạm |
 
 Dev (⛔, `BILLING_PAYMENT_PROVIDER=fake`, `NXL_ENV=dev`): `POST http://localhost:8098/dev/fake-psp` nhận form checkout (kiểm chữ ký)
@@ -565,6 +566,7 @@ Phá vỡ tương thích REST: xem §3.1.
 
 | Ngày | Thay đổi |
 | --- | --- |
+| 2026-10-21 | v1.11 — GĐ6 close-out (chỉ thêm): `GET /v1/admin/checkout-orders/{id}` (id hoặc mã hóa đơn), lọc `failureReason` trên danh sách đơn Admin, `q` khớp chính xác khi là mã hóa đơn đầy đủ (ngắn hơn vẫn là tiền tố) |
 | 2026-10-20 | v1.10 — GĐ6 phần B: chat (§6B: emote kênh theo tier trong `GET /v1/chat/emotes?channelId=`, snapshot `me.subTier` / `me.emoteTier`, `system` `SUB_NEW` / `SUB_RENEW`, `user:` `payment_updated`, `sub:` có hạn, CLI `chat emote`); notification (§6D: loại thứ 9 `SUBSCRIPTION`, 8 dạng payload, email `payment_receipt` / `payment_voided` bắt buộc, `subscription_expiring`) |
 | 2026-10-20 | v1.9 — GĐ6 phần A: billing-svc (§6E: tier, checkout + `Idempotency-Key`, IPN SePay / trang thanh toán giả, sync, subscription, Thu nhập Studio, rút tiền, Admin), route cổng vào + vùng `nxl_webhook`, 8 sự kiện `subscription.*` / `payment.*` (§8), mã `CANNOT_SUBSCRIBE_SELF`, `IDEMPOTENCY_KEY_REUSED` |
 | 2026-10-16 | v1.8 — GĐ5 close-out (chỉ thêm, trừ refresh): refresh của tài khoản bị khóa → `403 ACCOUNT_LOCKED`; `CHANNEL_SUSPENDED` của hồ sơ kèm `details`; `UserCard.createdAt`; `AdminReportDetail.channelId`, `evidence[].username/displayName`, `actions[]` có hạn chế chat + `actorRole`/`channelId`; audit `actor=`; `NEW_FOLLOWER` link `/studio` |
