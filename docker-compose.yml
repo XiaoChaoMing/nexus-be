@@ -490,7 +490,7 @@ services:
   nginx:
     container_name: nginx
     profiles: ["nxl"]
-    image: nginx:1.31.3-alpine
+    image: nginx:1.31.8-alpine
     environment:
       # Only NXL_* variables are substituted, so nginx's own $variables survive envsubst.
       NGINX_ENVSUBST_FILTER: "^NXL_"
