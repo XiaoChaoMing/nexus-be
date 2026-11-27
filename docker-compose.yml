@@ -234,6 +234,20 @@ services:
       # Signed playback URLs /hls/t/... (GĐ5 TSD §6.9, §9.3); the secret is the edge's NXL_HLS_SECRET.
       STREAM_HLS_SIGNING: "${STREAM_HLS_SIGNING:-false}"
       STREAM_HLS_SECRET: "${NXL_HLS_SECRET:-dev-hls-secret-0123456789abcdef0123456789abcdef}"
+      # Video uploads: parts go straight into an S3 multipart upload in the private bucket nxl-uploads, which
+      # stream-svc creates (with its lifecycle) on start; media-svc transcodes them. Dev only: root credentials.
+      STREAM_S3_ENDPOINT: "minio:9000"
+      STREAM_S3_ACCESS_KEY: "minioadmin"
+      STREAM_S3_SECRET_KEY: "minioadmin123"
+      STREAM_S3_USE_SSL: "false"
+      STREAM_UPLOAD_ENABLED: "${STREAM_UPLOAD_ENABLED:-true}"
+      STREAM_UPLOAD_BUCKET: "nxl-uploads"
+      STREAM_UPLOAD_MAX_BYTES: "${STREAM_UPLOAD_MAX_BYTES:-2147483648}"
+      STREAM_UPLOAD_PART_SIZE: "${STREAM_UPLOAD_PART_SIZE:-8388608}"
+      STREAM_UPLOAD_TTL: "${STREAM_UPLOAD_TTL:-24h}"
+      STREAM_UPLOAD_MAX_ACTIVE: "${STREAM_UPLOAD_MAX_ACTIVE:-3}"
+      STREAM_UPLOAD_DAILY_MAX: "${STREAM_UPLOAD_DAILY_MAX:-10}"
+      STREAM_UPLOAD_EXPIRY_TICK: "${STREAM_UPLOAD_EXPIRY_TICK:-10m}"
     ports:
       - "8092:8092"   # public API (8093 internal API stays inside the Docker network)
     depends_on:
@@ -243,6 +257,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
     networks:
       app_network:
         aliases:
@@ -436,6 +452,13 @@ services:
       MEDIA_S3_ACCESS_KEY: "minioadmin"
       MEDIA_S3_SECRET_KEY: "minioadmin123"
       MEDIA_S3_BUCKET: "nxl-media"
+      # Uploaded videos (upload.completed.v1): jobs at once (0 = off), lower priority than live, read from
+      # nxl-uploads only and written to nxl-media/videos/{vodId}/.
+      MEDIA_MAX_UPLOAD_TRANSCODES: "${MEDIA_MAX_UPLOAD_TRANSCODES:-1}"
+      MEDIA_UPLOAD_X264_PRESET: "${MEDIA_UPLOAD_X264_PRESET:-veryfast}"
+      MEDIA_UPLOAD_MAX_DURATION: "${MEDIA_UPLOAD_MAX_DURATION:-2h}"
+      MEDIA_UPLOAD_BUCKET: "nxl-uploads"
+      MEDIA_UPLOAD_SEGMENT_SEC: "${MEDIA_UPLOAD_SEGMENT_SEC:-4}"
     ports:
       - "1935:1935"   # RTMP ingest
       - "8091:8091"   # /healthz, /dev/player, /hls proxy
@@ -558,6 +581,7 @@ services:
       NXL_EDGE_WRITE_RATE: "${NXL_EDGE_WRITE_RATE:-60r/m}"
       NXL_EDGE_READ_RATE: "${NXL_EDGE_READ_RATE:-600r/m}"
       NXL_EDGE_WEBHOOK_RATE: "${NXL_EDGE_WEBHOOK_RATE:-60r/m}"
+      NXL_EDGE_UPLOAD_RATE: "${NXL_EDGE_UPLOAD_RATE:-300r/m}"
       # Signed HLS (GĐ5 TSD §9.3): same secret as stream-svc; 1 keeps unsigned /hls/ playlists working.
       NXL_HLS_SECRET: "${NXL_HLS_SECRET:-dev-hls-secret-0123456789abcdef0123456789abcdef}"
       NXL_HLS_ALLOW_UNSIGNED: "${NXL_HLS_ALLOW_UNSIGNED:-1}"

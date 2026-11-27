@@ -25,14 +25,27 @@ $root = Split-Path -Parent $PSScriptRoot
 $stateDir = Join-Path $root '.tunnel'
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
 
-function Get-Cloudflared {
-  $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue
+function Find-Cloudflared {
+  # A shell opened before the install still has the old PATH, so re-read it and check the MSI locations too.
+  $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+  $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($cmd) { return $cmd.Source }
+  foreach ($dir in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+    if (-not $dir) { continue }
+    $candidate = Join-Path $dir 'cloudflared\cloudflared.exe'
+    if (Test-Path $candidate) { return $candidate }
+  }
+  return $null
+}
+
+function Get-Cloudflared {
+  $exe = Find-Cloudflared
+  if ($exe) { return $exe }
   if ($Install) {
-    winget install --id Cloudflare.cloudflared --accept-source-agreements --accept-package-agreements
-    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
-    $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
+    # Out-Host: winget's output would otherwise become part of this function's return value.
+    winget install --id Cloudflare.cloudflared --accept-source-agreements --accept-package-agreements | Out-Host
+    $exe = Find-Cloudflared
+    if ($exe) { return $exe }
   }
   throw 'cloudflared not found. Run: winget install --id Cloudflare.cloudflared  (or re-run this script with -Install)'
 }

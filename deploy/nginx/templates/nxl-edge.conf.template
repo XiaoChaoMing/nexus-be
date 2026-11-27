@@ -9,6 +9,9 @@ limit_req_zone $nxl_write_key zone=nxl_write:10m rate=${NXL_EDGE_WRITE_RATE};
 limit_req_zone $nxl_read_key zone=nxl_read:10m rate=${NXL_EDGE_READ_RATE};
 # SePay IPN (GĐ6): its own zone so webhook bursts never eat the clients' write budget.
 limit_req_zone $binary_remote_addr zone=nxl_webhook:1m rate=${NXL_EDGE_WEBHOOK_RATE};
+# Video uploads: one request per 8 MiB part (a 2 GiB file is 256 parts), so they get their own zone
+# instead of nxl_write.
+limit_req_zone $binary_remote_addr zone=nxl_upload:10m rate=${NXL_EDGE_UPLOAD_RATE};
 
 # CORS: only the web app and the admin app, and /v1/admin/* only for the admin app.
 map "$nxl_admin_path $http_origin" $nxl_cors_origin
