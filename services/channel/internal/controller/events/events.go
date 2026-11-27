@@ -21,8 +21,8 @@ const Durable = "channel-svc"
 // Types consumed by channel-svc.
 var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeCreatorApproved, events.TypeStreamStarted, events.TypeStreamUpdated, events.TypeStreamEnded,
-	events.TypeStreamScheduled, events.TypeStreamVODReady, events.TypeVODUpdated, events.TypeVODDeleted,
-	events.TypeChannelActioned,
+	events.TypeStreamScheduled, events.TypeStreamVODReady, events.TypeVODPublished, events.TypeVODUpdated,
+	events.TypeVODDeleted, events.TypeChannelActioned,
 }
 
 // _vodReady is the VOD status that can be shown publicly.
@@ -58,10 +58,18 @@ func Handler(sync usecase.Sync, safety usecase.Safety) eventbus.Handler {
 				return sync.VODChanged(ctx, id, entity.VODDoc{
 					VODID: p.VODID, StreamID: p.StreamID, ChannelID: p.ChannelID,
 					Title: p.Title, ThumbnailURL: p.ThumbnailURL, CategoryID: validID(p.CategoryID), IsMature: p.IsMature,
-					ExpiresAt: p.ExpiresAt, Public: !p.ExpiresAt.IsZero(),
+					ExpiresAt: &p.ExpiresAt, Public: !p.ExpiresAt.IsZero(),
 				})
 			}),
-		events.TypeVODUpdated: handle(func(p events.VODUpdated) []string { return []string{p.VODID, p.StreamID, p.ChannelID} },
+		events.TypeVODPublished: handle(func(p events.VODPublished) []string { return []string{p.VODID, p.ChannelID} },
+			func(ctx context.Context, id string, p events.VODPublished) error {
+				return sync.VODChanged(ctx, id, entity.VODDoc{
+					VODID: p.VODID, ChannelID: p.ChannelID,
+					Title: p.Title, ThumbnailURL: p.ThumbnailURL, CategoryID: validID(p.CategoryID), IsMature: p.IsMature,
+					Public: p.Visibility == _vodPublic,
+				})
+			}),
+		events.TypeVODUpdated: handle(func(p events.VODUpdated) []string { return vodIDs(p.VODID, p.StreamID, p.ChannelID) },
 			func(ctx context.Context, id string, p events.VODUpdated) error {
 				return sync.VODChanged(ctx, id, entity.VODDoc{
 					VODID: p.VODID, StreamID: p.StreamID, ChannelID: p.ChannelID,
@@ -110,6 +118,15 @@ func (b liveBuilder) withStart(t time.Time) entity.LiveStream {
 	b.s.StartedAt = t.UTC()
 
 	return b.s
+}
+
+// vodIDs lists the ids of a VOD event to check; an uploaded video has no stream id.
+func vodIDs(vodID, streamID, channelID string) []string {
+	if streamID == "" {
+		return []string{vodID, channelID}
+	}
+
+	return []string{vodID, streamID, channelID}
 }
 
 // validID drops an id that is not a uuid (it could never match a category).

@@ -251,14 +251,23 @@ func TestSearch(t *testing.T) { //nolint:paralleltest,funlen // shared database;
 	require.Len(t, seen, 4)
 
 	vod := uuid.NewString()
+	expired := time.Now().Add(-time.Hour)
 	require.NoError(t, r.UpsertVOD(ctx, "", entity.VODDoc{
 		VODID: vod, ChannelID: ch.ID, Title: "Highlight cũ", Public: true,
-		ExpiresAt: time.Now().Add(-time.Hour),
+		ExpiresAt: &expired,
 	}))
 
 	docs, err = r.Suggest(ctx, "highlight", entity.DocTypes(), 5)
 	require.NoError(t, err)
 	require.Empty(t, docs, "expired VODs are not found")
+
+	upload := uuid.NewString()
+	require.NoError(t, r.UpsertVOD(ctx, "", entity.VODDoc{VODID: upload, ChannelID: ch.ID, Title: "Tutorial tải lên", Public: true}))
+
+	docs, err = r.Suggest(ctx, "tutorial", []entity.DocType{entity.DocVOD}, 5)
+	require.NoError(t, err)
+	require.Len(t, docs, 1, "a VOD without expiry is always found")
+	require.Equal(t, upload, docs[0].ID)
 }
 
 func TestSearchHistory(t *testing.T) { //nolint:paralleltest // shared database

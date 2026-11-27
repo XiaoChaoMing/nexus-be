@@ -115,6 +115,37 @@ func TestHandlerDecodes(t *testing.T) {
 	require.Equal(t, []string{vod}, rec.deleted)
 }
 
+func TestHandlerUploadedVODs(t *testing.T) {
+	t.Parallel()
+
+	rec := &recSync{}
+	h := events.Handler(rec, nil)
+	ch, up := uuid.NewString(), uuid.NewString()
+
+	send := func(typ, payload string) {
+		t.Helper()
+		require.NoError(t, h(context.Background(), eventbus.Event{ID: uuid.NewString(), Type: typ, Payload: []byte(payload)}))
+	}
+
+	// No stream id and no expiry.
+	send(pkgevents.TypeVODPublished, `{"vodId":"`+up+`","channelId":"`+ch+`","source":"UPLOAD","title":"u","visibility":"PUBLIC",`+
+		`"publishedAt":"2026-11-04T00:00:00Z"}`)
+	send(pkgevents.TypeVODPublished, `{"vodId":"`+up+`","channelId":"`+ch+`","source":"UPLOAD","title":"u","visibility":"HIDDEN"}`)
+	send(pkgevents.TypeVODUpdated, `{"vodId":"`+up+`","channelId":"`+ch+`","source":"UPLOAD","title":"u2","visibility":"PUBLIC",`+
+		`"status":"READY","expiresAt":null}`)
+	send(pkgevents.TypeVODDeleted, `{"vodId":"`+up+`","channelId":"`+ch+`","source":"UPLOAD","playlistPrefix":"videos/`+up+`/"}`)
+
+	require.Len(t, rec.vods, 3)
+	require.True(t, rec.vods[0].Public)
+	require.Nil(t, rec.vods[0].ExpiresAt, "uploaded videos never expire")
+	require.Empty(t, rec.vods[0].StreamID)
+	require.False(t, rec.vods[1].Public, "a hidden upload is not indexed")
+	require.True(t, rec.vods[2].Public)
+	require.Equal(t, "u2", rec.vods[2].Title)
+	require.Nil(t, rec.vods[2].ExpiresAt)
+	require.Equal(t, []string{up}, rec.deleted)
+}
+
 func TestHandlerSkipsBadPayloads(t *testing.T) {
 	t.Parallel()
 
@@ -132,6 +163,11 @@ func TestHandlerSkipsBadPayloads(t *testing.T) {
 		{name: "bad stream id", e: eventbus.Event{ID: id, Type: pkgevents.TypeStreamEnded, Payload: []byte(`{"streamId":"x","channelId":"` + user + `"}`)}},
 		{name: "bad schedule id", e: eventbus.Event{ID: id, Type: pkgevents.TypeStreamScheduled, Payload: []byte(`{"streamId":"` + user + `","scheduleId":"x"}`)}},
 		{name: "bad vod id", e: eventbus.Event{ID: id, Type: pkgevents.TypeVODDeleted, Payload: []byte(`{"vodId":"x"}`)}},
+		{name: "published without channel", e: eventbus.Event{ID: id, Type: pkgevents.TypeVODPublished, Payload: []byte(`{"vodId":"` + user + `"}`)}},
+		{name: "updated with bad stream id", e: eventbus.Event{
+			ID: id, Type: pkgevents.TypeVODUpdated,
+			Payload: []byte(`{"vodId":"` + user + `","channelId":"` + user + `","streamId":"x"}`),
+		}},
 	}
 
 	for _, tc := range tests {

@@ -80,16 +80,18 @@ type SearchQuery struct {
 	CreatedAt time.Time
 }
 
-// VODDoc is what the search index keeps of a VOD (stream.vod_ready, vod.updated).
+// VODDoc is what the search index keeps of a VOD (stream.vod_ready, vod.published, vod.updated).
 type VODDoc struct {
-	VODID        string
+	VODID string
+	// StreamID is empty for an uploaded video.
 	StreamID     string
 	ChannelID    string
 	Title        string
 	ThumbnailURL string
 	CategoryID   *string
 	IsMature     bool
-	ExpiresAt    time.Time
+	// ExpiresAt is nil for a VOD that never expires (an uploaded video).
+	ExpiresAt *time.Time
 	// Public is false when the VOD is hidden or not READY: the document is removed.
 	Public bool
 }
