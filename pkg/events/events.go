@@ -14,6 +14,10 @@ const (
 	TypeIngestStopped = "ingest.stopped.v1"
 	TypeIngestHealth  = "ingest.health.v1"
 	TypeVODProcessed  = "vod.processed.v1"
+	// Upload transcoding (media-svc → stream-svc): progress is best effort, published without the outbox.
+	TypeUploadProgress  = "upload.progress.v1"
+	TypeUploadProcessed = "upload.processed.v1"
+	TypeUploadFailed    = "upload.failed.v1"
 
 	// Published by stream-svc (outbox).
 	TypeStreamStarted       = "stream.started.v1"
@@ -24,6 +28,10 @@ const (
 	TypeStreamScheduled     = "stream.scheduled.v1"
 	TypeVODUpdated          = "vod.updated.v1"
 	TypeVODDeleted          = "vod.deleted.v1"
+	// TypeUploadCompleted queues the transcoding of an uploaded source file (consumed by media-svc).
+	TypeUploadCompleted = "upload.completed.v1"
+	// TypeVODPublished: an uploaded video became READY (stream.vod_ready stays for broadcast recordings).
+	TypeVODPublished = "vod.published.v1"
 
 	// Published by chat-svc (outbox).
 	TypeStreamPeakViewers = "stream.peak_viewers.v1"
@@ -66,6 +74,7 @@ const (
 	TypeUserActioned    = "safety.user_actioned.v1"
 	TypeChannelActioned = "safety.channel_actioned.v1"
 	TypeStreamTakedown  = "safety.stream_takedown.v1"
+	TypeVODTakedown     = "safety.vod_takedown.v1"
 
 	// Published by identity-svc (outbox).
 	TypeUserLocked    = "user.locked.v1"
@@ -275,26 +284,106 @@ type StreamScheduled struct {
 	ScheduledStartAt time.Time `json:"scheduledStartAt"`
 }
 
-// VODUpdated is published when the creator renames, hides or shows a VOD.
+// VOD sources: a broadcast recording or a file the creator uploaded.
+const (
+	VODSourceLive   = "LIVE"
+	VODSourceUpload = "UPLOAD"
+)
+
+// VODUpdated is published when the creator renames, hides or shows a VOD. StreamID is empty and ExpiresAt nil
+// for an uploaded video; Source was added later (empty = LIVE).
 type VODUpdated struct {
+	VODID        string     `json:"vodId"`
+	StreamID     string     `json:"streamId,omitempty"`
+	ChannelID    string     `json:"channelId"`
+	Source       string     `json:"source,omitempty"`
+	Title        string     `json:"title"`
+	Description  string     `json:"description,omitempty"`
+	Visibility   string     `json:"visibility"`
+	Status       string     `json:"status"`
+	ThumbnailURL string     `json:"thumbnailUrl"`
+	DurationSec  int        `json:"durationSec"`
+	CategoryID   *string    `json:"categoryId"`
+	IsMature     bool       `json:"isMature"`
+	ExpiresAt    *time.Time `json:"expiresAt"`
+}
+
+// VODDeleted is published when a VOD is deleted; media-svc removes the objects under PlaylistPrefix
+// ("streams/{streamId}/" or "videos/{vodId}/"). StreamID is empty for an uploaded video; Source and
+// PlaylistPrefix were added later (empty = LIVE, "streams/{streamId}/").
+type VODDeleted struct {
+	VODID          string `json:"vodId"`
+	StreamID       string `json:"streamId,omitempty"`
+	ChannelID      string `json:"channelId"`
+	Source         string `json:"source,omitempty"`
+	PlaylistPrefix string `json:"playlistPrefix,omitempty"`
+}
+
+// VODPublished is published when an uploaded video becomes READY (whatever its visibility).
+type VODPublished struct {
 	VODID        string    `json:"vodId"`
-	StreamID     string    `json:"streamId"`
 	ChannelID    string    `json:"channelId"`
+	Source       string    `json:"source"`
 	Title        string    `json:"title"`
-	Visibility   string    `json:"visibility"`
-	Status       string    `json:"status"`
+	Description  string    `json:"description"`
 	ThumbnailURL string    `json:"thumbnailUrl"`
 	DurationSec  int       `json:"durationSec"`
 	CategoryID   *string   `json:"categoryId"`
 	IsMature     bool      `json:"isMature"`
-	ExpiresAt    time.Time `json:"expiresAt"`
+	Visibility   string    `json:"visibility"`
+	PublishedAt  time.Time `json:"publishedAt"`
 }
 
-// VODDeleted is published when the creator deletes a VOD; media-svc removes its objects.
-type VODDeleted struct {
+// UploadCompleted asks media-svc to transcode an uploaded source object into HLS under videos/{vodId}/.
+type UploadCompleted struct {
+	UploadID  string `json:"uploadId"`
 	VODID     string `json:"vodId"`
-	StreamID  string `json:"streamId"`
 	ChannelID string `json:"channelId"`
+	Bucket    string `json:"bucket"`
+	ObjectKey string `json:"objectKey"`
+	SizeBytes int64  `json:"sizeBytes"`
+}
+
+// Stages of UploadProgress.
+const (
+	UploadStageProbing     = "PROBING"
+	UploadStageTranscoding = "TRANSCODING"
+	UploadStageUploading   = "UPLOADING"
+)
+
+// UploadProgress reports how far the transcoding of an uploaded video is (0–100); delivery is not guaranteed.
+type UploadProgress struct {
+	VODID   string `json:"vodId"`
+	Percent int    `json:"percent"`
+	Stage   string `json:"stage"`
+}
+
+// UploadProcessed: the HLS of an uploaded video is in storage (object keys, not URLs).
+type UploadProcessed struct {
+	VODID         string   `json:"vodId"`
+	DurationSec   float64  `json:"durationSec"`
+	PlaylistPath  string   `json:"playlistPath"`
+	ThumbnailPath string   `json:"thumbnailPath"`
+	Renditions    []string `json:"renditions"`
+	SourceWidth   int      `json:"sourceWidth"`
+	SourceHeight  int      `json:"sourceHeight"`
+}
+
+// Reasons of UploadFailed (stored as the VOD's failureReason).
+const (
+	UploadFailUnsupportedFormat = "UNSUPPORTED_FORMAT"
+	UploadFailNoVideoStream     = "NO_VIDEO_STREAM"
+	UploadFailDurationTooLong   = "DURATION_TOO_LONG"
+	UploadFailFileCorrupt       = "FILE_CORRUPT"
+	UploadFailTranscodeFailed   = "TRANSCODE_FAILED"
+	UploadFailStorageError      = "STORAGE_ERROR"
+)
+
+// UploadFailed: an uploaded video cannot be transcoded; Retryable is true for a transient failure.
+type UploadFailed struct {
+	VODID     string `json:"vodId"`
+	Reason    string `json:"reason"`
+	Retryable bool   `json:"retryable"`
 }
 
 // StreamPeakViewers carries the highest viewer count chat-svc measured, sent after stream.ended.
@@ -556,6 +645,16 @@ type ChannelActioned struct {
 type StreamTakedown struct {
 	ActionID  string `json:"actionId"`
 	StreamID  string `json:"streamId"`
+	ChannelID string `json:"channelId"`
+	Title     string `json:"title"`
+	Reason    string `json:"reason"`
+	AdminID   string `json:"adminId"`
+}
+
+// VODTakedown asks stream-svc to delete a VOD (an uploaded video or a broadcast recording).
+type VODTakedown struct {
+	ActionID  string `json:"actionId"`
+	VODID     string `json:"vodId"`
 	ChannelID string `json:"channelId"`
 	Title     string `json:"title"`
 	Reason    string `json:"reason"`

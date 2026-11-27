@@ -156,6 +156,22 @@ func DeliverNew() ConsumeOption {
 func (b *Bus) Consume(ctx context.Context, durable string, types []string, h Handler, onErr func(Event, error),
 	opts ...ConsumeOption,
 ) (func(), error) {
+	cons, err := b.createConsumer(ctx, durable, types, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	cc, err := cons.Consume(deliver(h, onErr))
+	if err != nil {
+		return nil, fmt.Errorf("eventbus - Consume %s: %w", durable, err)
+	}
+
+	return cc.Stop, nil
+}
+
+// createConsumer creates or updates the durable with the default settings changed by opts.
+func (b *Bus) createConsumer(ctx context.Context, durable string, types []string, opts []ConsumeOption,
+) (jetstream.Consumer, error) {
 	subjects := make([]string, len(types))
 	for i, t := range types {
 		subjects[i] = Subject(t)
@@ -183,28 +199,13 @@ func (b *Bus) Consume(ctx context.Context, durable string, types []string, h Han
 		return nil, fmt.Errorf("eventbus - CreateOrUpdateConsumer %s: %w", durable, err)
 	}
 
-	cc, err := cons.Consume(deliver(h, onErr))
-	if err != nil {
-		return nil, fmt.Errorf("eventbus - Consume %s: %w", durable, err)
-	}
-
-	return cc.Stop, nil
+	return cons, nil
 }
 
 // deliver runs h for one message and acks, terminates (ErrSkip) or naks it.
 func deliver(h Handler, onErr func(Event, error)) jetstream.MessageHandler {
 	return func(m jetstream.Msg) {
-		hdr := m.Headers()
-		e := Event{
-			ID:       hdr.Get(jetstream.MsgIDHeader),
-			Type:     m.Subject()[len(SubjectPrefix):],
-			Producer: hdr.Get(HeaderProducer),
-			Payload:  m.Data(),
-		}
-
-		if at, perr := time.Parse(time.RFC3339Nano, hdr.Get(HeaderOccurredAt)); perr == nil {
-			e.OccurredAt = at
-		}
+		e := eventOf(m)
 
 		hctx, cancel := context.WithTimeout(context.Background(), _handlerTimeout)
 		defer cancel()
@@ -228,6 +229,23 @@ func deliver(h Handler, onErr func(Event, error)) jetstream.MessageHandler {
 			_ = m.NakWithDelay(_retryDelay) //nolint:errcheck // same
 		}
 	}
+}
+
+// eventOf reads the event metadata from the NATS headers.
+func eventOf(m jetstream.Msg) Event {
+	hdr := m.Headers()
+	e := Event{
+		ID:       hdr.Get(jetstream.MsgIDHeader),
+		Type:     m.Subject()[len(SubjectPrefix):],
+		Producer: hdr.Get(HeaderProducer),
+		Payload:  m.Data(),
+	}
+
+	if at, err := time.Parse(time.RFC3339Nano, hdr.Get(HeaderOccurredAt)); err == nil {
+		e.OccurredAt = at
+	}
+
+	return e
 }
 
 // keepDeliverPolicy reuses the deliver policy of an existing durable: an update that changes it is refused.

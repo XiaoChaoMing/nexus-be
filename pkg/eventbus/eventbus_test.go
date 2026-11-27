@@ -68,3 +68,48 @@ func TestDeliverNew(t *testing.T) {
 	require.NoError(t, bus.DeleteConsumer(ctx, durableNew), "deleting a missing durable is not an error")
 	require.NoError(t, bus.DeleteConsumer(ctx, durableAll))
 }
+
+// TestPull needs a NATS server with JetStream (NXL_TEST_NATS_URL).
+func TestPull(t *testing.T) {
+	t.Parallel()
+
+	url := os.Getenv("NXL_TEST_NATS_URL")
+	if url == "" {
+		t.Skip("NXL_TEST_NATS_URL not set")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+
+	bus, err := eventbus.Connect(ctx, url, "eventbus-test")
+	require.NoError(t, err)
+
+	defer bus.Close()
+
+	run := strconv.FormatInt(time.Now().UnixNano(), 36)
+	typ, durable := "test.pull_"+run+".v1", "test-pull-"+run
+
+	p, err := bus.Pull(ctx, durable, []string{typ}, eventbus.MaxAckPending(1), eventbus.MaxDeliver(3),
+		eventbus.AckWait(time.Minute))
+	require.NoError(t, err)
+
+	defer func() { require.NoError(t, bus.DeleteConsumer(context.WithoutCancel(ctx), durable)) }()
+
+	_, err = p.Next(ctx, 300*time.Millisecond)
+	require.ErrorIs(t, err, eventbus.ErrNoEvent)
+
+	require.NoError(t, bus.Publish(ctx, typ, run+"-1", []byte(`{"n":1}`)))
+
+	m, err := p.Next(ctx, 5*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, run+"-1", m.ID)
+	require.Equal(t, uint64(1), m.Delivered)
+	require.NotZero(t, m.Seq)
+	require.NoError(t, m.InProgress())
+	require.NoError(t, m.NakWithDelay(10*time.Millisecond))
+
+	again, err := p.Next(ctx, 5*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), again.Delivered, "a nak counts as a delivery")
+	require.NoError(t, again.Ack())
+}
