@@ -18,6 +18,7 @@ ADR mới với trạng thái *Thay thế ADR-xxx*, không sửa nội dung ADR 
 | [ADR-011](#adr-011) | Tài liệu nghiệp vụ và báo cáo lưu ở `DATN/docs/`, tách khỏi repo | Chấp nhận |
 | [ADR-012](#adr-012) | Chi tiết media pipeline và giới hạn transcode đồng thời (kết quả PoC GĐ0) | Chấp nhận |
 | [ADR-013](#adr-013) | Ứng dụng quản trị tách khỏi web người dùng (`nexuslive-admin`) | Chấp nhận |
+| [ADR-014](#adr-014) | Tải video lên theo phần qua API + S3 multipart, hàng đợi chuyển mã trên JetStream, live được ưu tiên | Chấp nhận |
 
 ---
 
@@ -244,3 +245,65 @@ ADR mới với trạng thái *Thay thế ADR-xxx*, không sửa nội dung ADR 
 
 - **Việc kéo theo:** NXL-D v1.2 §9.1 (màn quản trị), NXL-00 v1.2 §9.2 (CORS hai origin), kiến trúc §3 (container
   Admin web). Xem lại việc tách package chung ở GĐ5 khi code trùng nhiều (G1-Q5).
+
+## ADR-014
+
+**Tải video lên theo phần qua API + S3 multipart, hàng đợi chuyển mã trên JetStream, live được ưu tiên** — quyết định
+04/11/2026 (Working Plan + TSD `docs/plans/{working,technical}/2026-11-02-video-upload-abr.md`, UP-Q2, UP-Q7, UP-Q12; DL-22)
+
+- **Bối cảnh:**
+  - Tới GĐ6, VOD chỉ có một nguồn: bản ghi của buổi live (`vod.processed.v1` → `stream.vods`, một VOD gắn một stream).
+    Tính năng mới cho Creator tải một file video (≤ 2 GiB, ≤ 2 giờ) lên kênh; server chuyển mã thành HLS 720p / 480p / 360p.
+  - Trình duyệt chỉ đi qua một origin `/v1` (Vite proxy khi dev, cổng vào Nginx, tunnel HTTPS khi demo IPN). MinIO không mở
+    ra ngoài; body mặc định của cổng vào là 1 MB.
+  - Máy demo 2 vCPU chỉ giữ ổn **một** luồng live (ADR-012: ~0,7–0,9 core / luồng). Một job chuyển mã file chạy hết CPU nếu để
+    tự do, làm live trễ dần hoặc bị từ chối.
+  - media-svc đã có ffmpeg, thang bitrate (`ladder`), uploader HLS lên MinIO; stream-svc sở hữu VOD và Studio.
+- **Quyết định:**
+  - **Đường tải:** client gửi tuần tự từng phần **8 MiB** qua `PUT /v1/studio/uploads/{id}/parts/{n}` của stream-svc
+    (Bearer như mọi API). stream-svc chuyển thẳng phần đó vào **S3 multipart upload** của MinIO (`PutObjectPart`), lưu ETag
+    trong `video_uploads.parts`; `complete` ghép object rồi tạo VOD `PROCESSING` + outbox `upload.completed.v1` trong một
+    transaction. Gửi lại cùng phần là ghi đè (idempotent); mất mạng thì hỏi `uploadedParts` và gửi tiếp phần còn thiếu.
+  - **Lưu trữ:** file gốc ở bucket riêng tư **`nxl-uploads`** (`sources/{uploadId}`) do stream-svc tạo, lifecycle hủy
+    multipart dở sau 1 ngày, xóa `sources/` sau 3 ngày; xóa ngay khi video `READY`. HLS ở `nxl-media/videos/{vodId}/`
+    — prefix mới **không** có lifecycle (prefix `streams/` xóa sau 14 ngày).
+  - **Mô hình dữ liệu:** `vods.stream_id` cho phép rỗng + cột `source` (`LIVE` / `UPLOAD`) với CHECK
+    `(source = 'LIVE') = (stream_id IS NOT NULL)`; video tải lên không có `expires_at`. Không tạo hàng `streams` giả.
+  - **Hàng đợi:** dùng chính **NATS JetStream** — durable `media-transcode` của media-svc nghe `upload.completed.v1`,
+    `MaxAckPending = 1`, AckWait 2 phút, `MaxDeliver` 3, `msg.InProgress()` mỗi 30 giây khi job dài. media-svc báo
+    `upload.progress.v1` (best effort), `upload.processed.v1`, `upload.failed.v1`; stream-svc chuyển VOD `READY` / `FAILED`.
+  - **Live được ưu tiên:** tối đa `MEDIA_MAX_UPLOAD_TRANSCODES` (mặc định 1) job; job chỉ bắt đầu khi số live đang chạy
+    < `MEDIA_MAX_CONCURRENT_STREAMS`, không thì `NakWithDelay(30s)`; chỗ của live **không** tính job upload nên live không bao
+    giờ bị từ chối vì job; ffmpeg của job chạy `nice 10`. Live bắt đầu khi job đang chạy: job chạy tiếp, chậm hơn
+    (`media_upload_transcode_speed`).
+  - **Chuyển mã:** hàm mới `ffmpegcmd.BuildVOD` (không đổi `Build` của live): thang theo cạnh ngắn, tối đa 30 fps, x264
+    `veryfast`, segment 4 giây, playlist kiểu VOD, `-protocol_whitelist file,pipe`; `ffprobe` kiểm file trước.
+- **Lý do:**
+  - Một origin: không mở MinIO qua cổng vào, không ký URL theo Host (khó với tunnel), xác thực và hạn mức ở một chỗ; chỉ
+    phải nới body cho một location (9 MiB, `proxy_request_buffering off`).
+  - Phần 8 MiB đủ nhỏ để gửi lại rẻ khi mạng chập chờn, đủ lớn để 2 GiB chỉ là 256 request (vùng rate riêng `nxl_upload`
+    300 / phút).
+  - JetStream đã có, bền, có ack / redelivery và outbox sẵn; không thêm hạ tầng hay thư viện job.
+  - `source` + `stream_id` rỗng giữ lịch sử buổi phát, Dashboard, đỉnh người xem đúng nghĩa; luồng live → VOD không đổi
+    (hàng cũ mặc định `LIVE`, thỏa CHECK mới).
+- **Cái giá:**
+  - Mọi byte video đi qua stream-svc (băng thông, một request bị giữ tới 60 giây); stream-svc thêm phụ thuộc
+    `github.com/minio/minio-go/v7` (UP-Q8) và cấu hình S3.
+  - Một job một lúc: hàng đợi dài khi nhiều Creator tải cùng lúc; khi live chiếm hết chỗ, video tải lên chờ tới khi live kết
+    thúc.
+  - `vods.stream_id` nullable làm đổi hợp đồng sự kiện `vod.updated/deleted` (chỉ thêm trường — `streamId` omitempty,
+    `source`, `playlistPrefix`): channel, safety, media phải sửa bên nghe trước khi bên phát mới chạy.
+  - Video tải lên không hết hạn → dung lượng MinIO tăng; giảm bằng hạn mức mỗi kênh (3 đang xử lý, 10 / ngày) và xóa file gốc
+    khi `READY`.
+- **Phương án đã cân nhắc:**
+
+  | Phương án | Không chọn vì |
+  | --- | --- |
+  | Presigned URL, trình duyệt tải thẳng lên MinIO | Phải mở MinIO qua cổng vào và ký URL theo Host — vỡ khi đi qua Vite proxy / tunnel; CORS và hạn mức tách khỏi API; nhanh hơn nhưng không cần ở quy mô đồ án |
+  | Hàng đợi Redis (hoặc thư viện job) cho chuyển mã | Thêm thành phần phải vận hành và một cơ chế ack / retry nữa; JetStream + outbox đã đủ (durable, `MaxAckPending`, redelivery) |
+  | Tạo hàng `streams` "giả" cho video tải lên để giữ `vods.stream_id NOT NULL` | Video lẫn vào lịch sử buổi phát, Dashboard (số buổi, giờ phát), đỉnh người xem, tìm kiếm buổi phát; trạng thái stream (`ENDED` không có `startedAt` thật) sai nghĩa |
+  | Chuyển mã ngay trong stream-svc | Lặp lại ffmpeg, thang bitrate, uploader HLS đã có ở media-svc; stream-svc sẽ ăn CPU cùng API |
+
+- **Việc kéo theo:** NXL-G2 v1.3 §3.8, §7.5; NXL-A v1.4 §7C; NXL-00 v1.6 (mã lỗi, sự kiện, hằng số); kiến trúc §7 (luồng
+  upload), §8 (bucket); data-model v1.3; Nginx location `/v1/studio/uploads` và `/hls/(streams|videos)/`; cờ tắt nhanh
+  `STREAM_UPLOAD_ENABLED=false`, `MEDIA_MAX_UPLOAD_TRANSCODES=0`.

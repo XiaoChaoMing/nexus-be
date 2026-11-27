@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.1 |
-| **Cập nhật** | 2026-10-11 |
-| **Nguồn** | PRD v2.0 §4, Core Features & Roadmap §1 |
+| **Phiên bản** | 1.2 |
+| **Cập nhật** | 2026-11-04 (thêm A10 "Tải video lên + ABR" — DL-22) |
+| **Nguồn** | PRD v2.0 §4, Core Features & Roadmap §1; PRD v2.1 FR-VD-08 (E-36) |
 
 ## Cách đọc
 
@@ -30,6 +30,7 @@
 | A7 | Clips, Chat Replay | P1 | ⬜ | media, chat | — | — | |
 | A8 | Ultra-low latency (WebRTC) | P1 | ⬜ | media | — | — | |
 | A9 | Tua lại khi đang xem live (DVR) — toàn bộ buổi phát, tạm dừng, "Về trực tiếp" | — (bổ sung) | ✅ | media, web | NXL-A v1.1 | GĐ2 | Quyết định DL-10; thay NXL-A BR05 (errata E-10); không tốn thêm hạ tầng vì playlist EVENT giữ mọi segment |
+| A10 | Tải video lên + ABR: Creator tải file (MP4/MOV/MKV/WebM, ≤ 2 GiB, ≤ 2 giờ) theo phần 8 MiB, server chuyển mã HLS 720p/480p/360p, video hiện ở tab Videos và trang VOD | P1 (FR-VD-08, bổ sung — E-36) | ✅ | stream, media, web | NXL-G2 v1.3 §3.8, NXL-A v1.4 §7C | Trước GĐ7 | Quyết định DL-22, ADR-014; S3 multipart qua API stream-svc, hàng đợi JetStream, live được ưu tiên (1 job, `nice 10`); không hết hạn như bản ghi live; ngoài phạm vi: cắt, phụ đề, thumbnail tự chọn, 1080p, thông báo "video mới" |
 
 ## B. Cộng đồng & Chat
 
@@ -118,7 +119,7 @@ Nhóm I không có spec riêng: yêu cầu được ghi vào từng spec (Respon
 
 | Nhóm | ✅ Làm đủ | ◐ Rút gọn | ⬜ Sau đồ án |
 | --- | --- | --- | --- |
-| A | 3 | 3 | 3 |
+| A | 4 | 3 | 3 |
 | B | 4 | 0 | 2 |
 | C | 3 | 2 | 2 |
 | D | 1 | 3 | 1 |
@@ -127,7 +128,7 @@ Nhóm I không có spec riêng: yêu cầu được ghi vào từng spec (Respon
 | G | 1 | 2 | 1 |
 | H | 1 | 2 | 2 |
 | I | 0 | 4 | 1 |
-| **Tổng** | **16** | **19** | **14** |
+| **Tổng** | **17** | **19** | **14** |
 
 Mọi tính năng P0 của PRD đều có mặt trong đồ án ở mức ✅ hoặc ◐.
 

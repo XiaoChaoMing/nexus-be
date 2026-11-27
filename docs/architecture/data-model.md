@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.2 (Draft) |
-| **Cập nhật** | 2026-10-13 (GĐ1) |
+| **Phiên bản** | 1.3 (Draft) |
+| **Cập nhật** | 2026-11-04 (tải video lên) |
 | **Nguồn** | PRD v2.1 §8.2, NXL-A §7, NXL-B §7, NXL-D §7 |
 
 Mức khái niệm: entity, trường chính, trạng thái và quan hệ. ERD mức logic (bảng, cột, kiểu, ràng buộc)
@@ -50,7 +50,8 @@ nằm ở `DATN/docs/ba/analysis/erd/` (từ thư mục này: `../../../docs/ba/
 | **Stream** | id, channel_id ⇢, schedule_id ⇢, title, category_id ⇢, tags[], language, is_mature, scheduled_start_at, started_at, interrupted_at, ended_at, end_reason (`creator`/`ingest_timeout`/`admin_takedown`), peak_viewers | `SCHEDULED` → `LIVE` ⇄ `INTERRUPTED` → `ENDED`; `SCHEDULED` → `CANCELLED` (NXL-A §7A) |
 | **StreamSettings** (v1.1) | channel_id ⇢ (PK), title, tags, language, is_mature, updated_at — cài đặt cho buổi phát kế tiếp, chép sang Stream khi OBS kết nối | — |
 | **PlaybackSession** | id, stream_id hoặc vod_id, user_id ⇢ (rỗng với Guest), anon_id, mature_acknowledged, expires_at | — |
-| **Vod** | id, stream_id, channel_id ⇢, duration_sec, playlist_path, thumbnail_url, visibility, expires_at | `PROCESSING` → `READY` → `EXPIRED` / `DELETED` (NXL-A §7C) |
+| **Vod** | id, stream_id (rỗng khi `source = UPLOAD`, v1.3), channel_id ⇢, source (`LIVE`/`UPLOAD`, v1.3), title, description (v1.3), category_id ⇢, is_mature, duration_sec, playlist_path, thumbnail_url, visibility, published_at (v1.3), expires_at (chỉ `LIVE`; rỗng với `UPLOAD`), failure_reason, failure_retryable, processing_percent, processing_stage (v1.3) | `LIVE`: `PROCESSING` → `READY` → `EXPIRED` / `DELETED`. `UPLOAD` (v1.3): `PROCESSING` → `READY` / `FAILED`; `FAILED` → `PROCESSING` (thử lại); → `DELETED`; không hết hạn (NXL-A §7C, NXL-G2 §7.5) |
+| **VideoUpload** (v1.3) | id, channel_id ⇢, user_id ⇢, vod_id (có khi `COMPLETED`), file_name (chỉ hiển thị), content_type, size_bytes, part_size, part_count, s3_upload_id, object_key (`sources/{id}` trong `nxl-uploads`), title, description, category_id ⇢, is_mature, visibility, parts (jsonb: số phần → ETag, kích thước), source_deleted_at, expires_at (+24 giờ) | `UPLOADING` → `COMPLETED` / `ABORTED` / `EXPIRED` (ADR-014) |
 | **WatchProgress** | user_id ⇢, vod_id, position_sec, updated_at | — |
 | **MatureConsent** | user_id ⇢, channel_id ⇢, created_at | Ghi nhớ xác nhận mature theo tài khoản (FR-ST-12) |
 | **CreatorChannel** (v1.2) | owner_id ⇢ User (PK), channel_id ⇢ (duy nhất), handle, display_name, avatar_url — Studio tra kênh của người gọi, catalog gắn `channel` vào stream/VOD | Bản sao từ `channel.created` |
@@ -76,9 +77,10 @@ Bản sao trong Redis (không phải nguồn sự thật): `follow_since:{channe
 
 | Entity | Trường chính | Trạng thái |
 | --- | --- | --- |
-| **Report** | id, reporter_id ⇢, target_type (`USER`/`CHANNEL`/`STREAM`/`MESSAGE`), target_id ⇢, reason (`SPAM`/`HARASSMENT`/`VIOLENCE`/`SENSITIVE`/`COPYRIGHT`/`OTHER`), evidence (jsonb: 10 tin gần nhất), note | `OPEN` → `IN_REVIEW` → `RESOLVED` / `DISMISSED` |
-| **AdminAction** | id, admin_id ⇢, type (`LOCK_USER`/`SUSPEND_CHANNEL`/`TAKEDOWN_STREAM`/…), target_id ⇢, report_id, reason, expires_at | — |
+| **Report** | id, reporter_id ⇢, target_type (`USER`/`CHANNEL`/`STREAM`/`MESSAGE`; v1.3 thêm `VOD`), target_id ⇢, reason (`SPAM`/`HARASSMENT`/`VIOLENCE`/`SENSITIVE`/`COPYRIGHT`/`OTHER`), evidence (jsonb: 10 tin gần nhất), note | `OPEN` → `IN_REVIEW` → `RESOLVED` / `DISMISSED` |
+| **AdminAction** | id, admin_id ⇢, type (`LOCK_USER`/`SUSPEND_CHANNEL`/`TAKEDOWN_STREAM`/…; v1.3 thêm `TAKEDOWN_VOD`), target_id ⇢, report_id, reason, expires_at | — |
 | **AuditLog** | id, actor_id ⇢, action, resource_type, resource_id, metadata (jsonb), source_service, created_at | Chỉ thêm, không sửa |
+| **VodCopy** (v1.3) | id (= `stream.vods.id`), channel_id ⇢, stream_id ⇢ (rỗng với video tải lên), source, title, deleted — bản sao để nhận report target `VOD` và gỡ video | Bản sao từ `stream.vod_ready`, `vod.published`, `vod.updated`, `vod.deleted`; thiếu thì hỏi `GET /internal/v1/vods/{id}` (TSD tải video lên §4.8) |
 
 ## 6. notification-svc
 
@@ -117,7 +119,10 @@ erDiagram
     CATEGORY ||--o{ SCHEDULE : "thuộc"
     CHANNEL ||..o{ STREAM_KEY : "có"
     CHANNEL ||..o{ STREAM : "phát"
-    STREAM ||--o| VOD : "sinh ra"
+    STREAM ||--o| VOD : "sinh ra (source LIVE)"
+    CHANNEL ||..o{ VOD : "có (gồm video tải lên)"
+    CHANNEL ||..o{ VIDEO_UPLOAD : "tải lên"
+    VIDEO_UPLOAD |o--o| VOD : "tạo khi hoàn tất (source UPLOAD)"
     VOD ||--o{ WATCH_PROGRESS : "được xem"
     STREAM ||..|| CHAT_ROOM : "có phòng"
     STREAM ||..o{ CHAT_MESSAGE : "chứa"
@@ -144,7 +149,8 @@ erDiagram
 | Tier subscription | chat-svc (Redis) | billing-svc | `subscription.*` |
 | Username, display_name | channel-svc, chat-svc | identity-svc | `user.updated` |
 | Trạng thái khóa tài khoản | chat-svc, stream-svc | identity-svc / safety-svc | `user.locked`, `safety.user_actioned` |
-| SearchDocument | channel-svc | channel-svc, stream-svc | `stream.*`, `stream.viewers` |
+| SearchDocument | channel-svc | channel-svc, stream-svc | `stream.*`, `stream.viewers`; VOD: `stream.vod_ready`, `vod.updated`, `vod.deleted`, `vod.published` (v1.3, video tải lên) |
+| VodCopy (v1.3) | safety-svc | stream-svc | `stream.vod_ready`, `vod.published`, `vod.updated`, `vod.deleted` |
 
 Mỗi bản sao phải có cách dựng lại từ đầu (API đọc của service nguồn) khi phát hiện lệch.
 
@@ -154,3 +160,4 @@ Mỗi bản sao phải có cách dựng lại từ đầu (API đọc của serv
 | --- | --- | --- |
 | 1.1 | 2026-10-10 | StreamSettings |
 | 1.2 | 2026-10-13 | GĐ1: khóa tạm và preferences của User, EmailToken.created_at, đơn `CANCELLED`, bản sao kênh `user_channels` (identity) và `creator_channels` (stream); một user có thể có nhiều đơn (nộp lại sau khi bị từ chối) |
+| 1.3 | 2026-11-04 | Tải video lên (ADR-014, TSD `2026-11-02-video-upload-abr` §4.4, §4.8): `Vod` thêm `source`, `description`, `published_at`, `failure_*`, `processing_*`, `stream_id` / `expires_at` rỗng với `UPLOAD`, trạng thái `FAILED`; entity mới `VideoUpload`; safety: report target `VOD`, `TAKEDOWN_VOD`, bản sao `VodCopy`; quan hệ §8, bản sao §9 |

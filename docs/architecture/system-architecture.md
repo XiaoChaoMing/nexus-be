@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.1 (Draft) |
-| **Cập nhật** | 2026-10-13 |
-| **Quyết định nền** | [decisions.md](decisions.md) — ADR-001 → ADR-013 |
+| **Phiên bản** | 1.2 (Draft) |
+| **Cập nhật** | 2026-11-04 |
+| **Quyết định nền** | [decisions.md](decisions.md) — ADR-001 → ADR-014 |
 | **Dữ liệu** | [data-model.md](data-model.md) |
 
 > Tài liệu ở mức kiến trúc. Chi tiết hợp đồng API, mã lỗi, sự kiện được chốt trong spec `NXL-00`;
@@ -94,6 +94,8 @@ flowchart TB
     med -- "HTTP nội bộ: authorize stream key" --> str
     med --> ff
     ff -- "ghi segment" --> s3
+    str -- "phần video tải lên (S3 multipart)" --> s3
+    med -- "đọc file gốc để chuyển mã" --> s3
 
     idn & chn & str & cht & saf & ntf & bil --> pg
     cht & str & idn --> rd
@@ -109,11 +111,11 @@ flowchart TB
 | Web quản trị (`nexuslive-admin`) — GĐ1 | React 19, Vite, TypeScript, TanStack Query (cùng stack web người dùng) | Màn Admin: duyệt đơn Creator (GĐ1); report, khóa tài khoản/kênh, gỡ stream, audit (GĐ5). Deploy riêng (`admin.<domain>`) — ADR-013 |
 | Cổng vào (Nginx) | Nginx | Điểm vào duy nhất cho trình duyệt: TLS, định tuyến theo tiền tố đường dẫn, rate limit, CORS (origin web + admin), header bảo mật, nâng cấp WebSocket, phục vụ HLS từ MinIO (URL có chữ ký 📋 GĐ5/GĐ7) |
 | 7 business service | Go, Fiber (REST), HTTP nội bộ (gRPC khi có toolchain proto), khuôn go-clean-template | Logic nghiệp vụ theo domain (§4) |
-| media-svc | Go + ffmpeg | Nhận RTMP, hỏi stream-svc xác thực key, khởi chạy/giám sát ffmpeg, báo sự kiện ingest |
+| media-svc | Go + ffmpeg | Nhận RTMP, hỏi stream-svc xác thực key, khởi chạy/giám sát ffmpeg, báo sự kiện ingest; chuyển mã video Creator tải lên (hàng đợi JetStream, live được ưu tiên — ADR-014) |
 | PostgreSQL | PostgreSQL 16 | Dữ liệu bền của từng service; mỗi service một database riêng trong cùng instance |
 | Redis | Redis 7 | Rate limit, presence, viewer count, cache quyền chat, phiên |
 | NATS JetStream | NATS | Sự kiện miền giữa các service; fan-out chat giữa các instance chat-svc |
-| MinIO | S3-compatible | Segment HLS, playlist, VOD, thumbnail, avatar/banner, emote |
+| MinIO | S3-compatible | Segment HLS, playlist, VOD, thumbnail, avatar/banner, emote; file gốc của video tải lên (bucket riêng tư, §8) |
 
 **Cổng dev** (chi tiết: `../api/README.md` §1):
 
@@ -136,11 +138,11 @@ dựng từ sự kiện. Không service nào đọc database của service khác
 | Service | Trách nhiệm | Dữ liệu sở hữu | Cổng giao tiếp | Phát sự kiện | Nghe sự kiện | Có từ |
 | --- | --- | --- | --- | --- | --- | --- |
 | **identity-svc** | Đăng ký, đăng nhập, xác minh email, phiên, JWT, hồ sơ tài khoản, vai trò toàn cục (admin), đăng ký Creator, block giữa người dùng | User, Credential, Session, CreatorApplication, UserBlock | REST, JWKS, CLI `identity promote-admin` | `user.registered`, `auth.email_requested`, `user.email_verified`, `user.profile_updated`, `creator.application_submitted`, `creator.approved`, `creator.rejected`; 📋 `user.locked` | `channel.created` (bản sao `user_channels`), `auth.email_requested` (consumer `identity-mailer` gửi SMTP tới GĐ5); 📋 `safety.user_actioned` | GĐ1 |
-| **channel-svc** | Kênh, Creator Profile, Follow, Schedule + Reminder, Category, khám phá và tìm kiếm | Channel, Follow, Schedule, Reminder, Category, bảng đọc tìm kiếm | REST (cổng 8094) | `channel.created` (GĐ1); 📋 `channel.updated`, `follow.created`, `follow.deleted`, `schedule.created`, `schedule.cancelled`, `reminder.due` | `creator.approved` (tạo kênh), `stream.started`/`stream.ended` (`is_live`) — GĐ1; 📋 `user.profile_updated` | **GĐ1 tối thiểu** (tạo kênh, `GET /v1/channels/{handle}`) · GĐ4 đầy đủ |
-| **stream-svc** | Stream key, vòng đời Stream (state machine NXL-A §7A), playback session, VOD, tiến độ xem, viewer count | StreamKey, Stream, StreamSettings, Vod, WatchProgress, PlaybackSession (📋), bản sao `creator_channels` | REST, HTTP nội bộ (authorize) | `stream.scheduled`, `stream.started`, `stream.interrupted`, `stream.resumed`, `stream.ended`, `vod.ready`, `stream.viewers` | `ingest.*`, `vod.processed`, `channel.created` (GĐ1); 📋 `safety.stream_takedown`, `schedule.*` | GĐ0 (PoC L1–L4) |
-| **media-svc** | RTMP ingest, điều phối ffmpeg, ghi HLS + VOD, sinh thumbnail, đo sức khỏe ingest | Không có dữ liệu nghiệp vụ (chỉ trạng thái tiến trình) | RTMP, HTTP nội bộ (client), HTTP health/metrics | `ingest.started`, `ingest.stopped`, `ingest.health`, `vod.processed` | `stream.ended` (kick + chốt VOD) | GĐ0 (PoC L1–L4) |
+| **channel-svc** | Kênh, Creator Profile, Follow, Schedule + Reminder, Category, khám phá và tìm kiếm | Channel, Follow, Schedule, Reminder, Category, bảng đọc tìm kiếm | REST (cổng 8094) | `channel.created` (GĐ1); 📋 `channel.updated`, `follow.created`, `follow.deleted`, `schedule.created`, `schedule.cancelled`, `reminder.due` | `creator.approved` (tạo kênh), `stream.started`/`stream.ended` (`is_live`) — GĐ1; 📋 `user.profile_updated`; tải lên: `vod.published` (bảng tìm kiếm) | **GĐ1 tối thiểu** (tạo kênh, `GET /v1/channels/{handle}`) · GĐ4 đầy đủ |
+| **stream-svc** | Stream key, vòng đời Stream (state machine NXL-A §7A), playback session, VOD, tiến độ xem, viewer count; phiên tải video lên (ADR-014) | StreamKey, Stream, StreamSettings, Vod, WatchProgress, PlaybackSession (📋), bản sao `creator_channels`; VideoUpload + bucket `nxl-uploads` (tải lên) | REST, HTTP nội bộ (authorize; `GET /internal/v1/vods/{id}` cho safety) | `stream.scheduled`, `stream.started`, `stream.interrupted`, `stream.resumed`, `stream.ended`, `vod.ready`, `stream.viewers`; tải lên: `upload.completed`, `vod.published` | `ingest.*`, `vod.processed`, `channel.created` (GĐ1); 📋 `safety.stream_takedown`, `schedule.*`; tải lên: `upload.progress`, `upload.processed`, `upload.failed`, `safety.vod_takedown` | GĐ0 (PoC L1–L4) |
+| **media-svc** | RTMP ingest, điều phối ffmpeg, ghi HLS + VOD, sinh thumbnail, đo sức khỏe ingest; chuyển mã video tải lên | Không có dữ liệu nghiệp vụ (chỉ trạng thái tiến trình) | RTMP, HTTP nội bộ (client), HTTP health/metrics | `ingest.started`, `ingest.stopped`, `ingest.health`, `vod.processed`; tải lên: `upload.progress`, `upload.processed`, `upload.failed` | `stream.ended` (kick + chốt VOD); `vod.deleted` (xóa theo `playlistPrefix`); tải lên: `upload.completed` (durable `media-transcode`) | GĐ0 (PoC L1–L4) |
 | **chat-svc** | **Realtime gateway** (một kết nối WebSocket cho mọi chủ đề), phòng chat, tin nhắn, emote, chế độ chat, hành động mod trong chat, từ khóa chặn | ChatRoom, ChatMessage, ChatSettings, Emote, ModAction, BlockedTerm, ChannelRole (Mod/VIP) | WebSocket, REST | `chat.message_sent`, `chat.mention`, `chat.mod_action` | `stream.*`, `follow.*`, `subscription.*`, `notification.created`, `user.locked` | GĐ3 |
-| **safety-svc** | Report, xử lý của Admin (khóa tài khoản/kênh, gỡ stream), audit log nền tảng | Report, AdminAction, AuditLog | REST | `safety.stream_takedown`, `safety.user_actioned`, `safety.report_resolved` | `chat.mod_action` (để audit) | GĐ5 |
+| **safety-svc** | Report, xử lý của Admin (khóa tài khoản/kênh, gỡ stream, gỡ video), audit log nền tảng | Report, AdminAction, AuditLog; bản sao VOD (report target `VOD`) | REST | `safety.stream_takedown`, `safety.user_actioned`, `safety.report_resolved`; `safety.vod_takedown` | `chat.mod_action` (để audit); `vod.published`, `vod.updated`, `vod.deleted` (bản sao VOD) | GĐ5 |
 | **notification-svc** | Tạo thông báo, notification center, gửi email, cài đặt nhận thông báo | Notification, NotificationSetting, EmailOutbox | REST | `notification.created` | `stream.started`, `reminder.due`, `chat.mention`, `safety.report_resolved`, `subscription.*` | GĐ5 |
 | **billing-svc** | Tier subscription, Checkout, giao dịch với PSP, webhook, trạng thái Subscription, sổ cái số dư Creator, yêu cầu rút tiền | SubscriptionTier, Subscription, CheckoutOrder, Transaction, LedgerEntry, PayoutRequest | REST, webhook | `subscription.activated`, `subscription.renewed`, `subscription.expired`, `subscription.cancelled` | `creator.approved` (tạo tier mặc định) | GĐ6 |
 
@@ -313,8 +315,9 @@ chỗ khác:
 | Tua lại khi live (DVR) | Playlist `EVENT` chứa mọi segment từ đầu buổi phát, nên người xem tua lại được trong toàn bộ buổi phát khi đang live (DL-10); player giữ điểm live mặc định và có nút "Về trực tiếp" |
 | Nối lại sau rớt mạng | ffmpeg mới đánh số segment tiếp từ segment cuối, dùng `append_list` và chèn `#EXT-X-DISCONTINUITY` — không ghi đè phần đã phát |
 | Lưu trữ | **Hiện thực:** ghi đĩa tạm rồi uploader đẩy lên MinIO (`nxl-media/streams/{streamId}/…`) |
-| Phát | Nginx `/hls/*` → MinIO. URL có chữ ký 📋 GĐ5/GĐ7 |
-| VOD | Cùng bộ file với live: khi kết thúc, playlist có thêm `#EXT-X-ENDLIST` (media-svc tự thêm nếu ffmpeg thoát bất thường); xóa sau 14 ngày (cấu hình) |
+| Phát | Nginx `/hls/*` → MinIO. URL có chữ ký 📋 GĐ5/GĐ7. **Hiện thực (GĐ5):** `/hls/t/{expires}/{md5}/…` (`secure_link`, `STREAM_HLS_SIGNING`); từ tải video lên, `/hls/` và `/hls/t/` nhận cả `streams/{id}/` và `videos/{vodId}/` |
+| VOD | Cùng bộ file với live: khi kết thúc, playlist có thêm `#EXT-X-ENDLIST` (media-svc tự thêm nếu ffmpeg thoát bất thường); xóa sau 14 ngày (cấu hình). **Hiện thực:** hạn 14 ngày chỉ áp cho VOD `source = LIVE` (lifecycle trên prefix `streams/`, job `ExpireVODs` lọc `LIVE`); video Creator tải lên (`source = UPLOAD`) không hết hạn (UP-Q3, ADR-014) |
+| Tải video lên | Xem §7.1 (ADR-014) |
 | Thumbnail | ffmpeg trích ảnh mỗi 30s cho thẻ stream |
 | Sức khỏe | Đọc tiến độ ffmpeg (fps, bitrate, frame rơi) → `ingest.health` → Stream Manager |
 | Độ trễ | Mục tiêu đồ án ≤ 6s (S2). **Số đo:** phía server < 0,6s khi máy theo kịp; ước tính glass-to-glass 4,5–6s (ADR-012) |
@@ -323,6 +326,52 @@ chỗ khác:
 Các điểm từng để ngỏ đã trả lời ở ADR-012: thư viện `yutopp/go-rtmp`; ghi đĩa rồi upload MinIO; không SRT/WHIP;
 chỉ CPU (x264 `veryfast`); số luồng chọn bằng `make nxl-bench` trên máy demo.
 
+### 7.1 Tải video lên (ADR-014)
+
+Creator tải một file (MP4 / MOV / MKV / WebM, ≤ 2 GiB, ≤ 2 giờ) lên Studio; server chuyển mã thành HLS 720p / 480p / 360p
+và video phát bằng player VOD như bản ghi live. Hợp đồng: TSD `docs/plans/technical/2026-11-02-video-upload-abr.md`;
+đặc tả: NXL-G2 §3.8.
+
+```mermaid
+sequenceDiagram
+  participant W as Web (Studio)
+  participant E as Nginx edge
+  participant S as stream-svc
+  participant M as MinIO
+  participant N as NATS JetStream
+  participant MD as media-svc
+  W->>E: POST /v1/studio/uploads
+  E->>S: auth, requireCreator
+  S->>M: NewMultipartUpload(nxl-uploads, sources/{uploadId})
+  loop từng phần 8 MiB
+    W->>E: PUT /v1/studio/uploads/{id}/parts/{n}
+    E->>S: không đệm request (body ≤ 9 MiB)
+    S->>M: PutObjectPart(n)
+  end
+  W->>S: POST …/complete
+  S->>M: CompleteMultipartUpload
+  S->>S: TX: VOD PROCESSING + outbox upload.completed.v1
+  S-)N: upload.completed.v1
+  N-)MD: durable media-transcode (MaxAckPending 1)
+  MD->>M: tải file gốc theo luồng → ffprobe → ffmpeg (nice 10)
+  MD-)N: upload.progress.v1 (5 s)
+  MD->>M: videos/{vodId}/… (segment trước, playlist sau)
+  MD-)N: upload.processed.v1 / upload.failed.v1
+  N-)S: VOD READY + vod.published.v1 (hoặc FAILED)
+  W->>S: GET /v1/studio/vods?status=PROCESSING (3 s)
+```
+
+| Bước | Thiết kế |
+| --- | --- |
+| Đường tải | Client gửi tuần tự từng phần 8 MiB qua API stream-svc; stream-svc ghi thẳng vào S3 multipart (không đọc cả file vào RAM). Không presigned URL: một origin `/v1` cho Vite proxy, cổng vào, tunnel |
+| Cổng vào | Location riêng `/v1/studio/uploads` đặt trước route Studio chung: `client_max_body_size 9m`, `proxy_request_buffering off`, timeout 120 s, vùng rate `nxl_upload` (`NXL_EDGE_UPLOAD_RATE`, 300 / phút) |
+| Hàng đợi | JetStream, durable `media-transcode`, `MaxAckPending = 1`, AckWait 2 phút, `MaxDeliver` 3, `msg.InProgress()` mỗi 30 s; không Redis queue |
+| Ưu tiên live | Tối đa `MEDIA_MAX_UPLOAD_TRANSCODES` (1) job; chỉ chạy khi số live < `MEDIA_MAX_CONCURRENT_STREAMS` (không thì `NakWithDelay(30s)`); chỗ live không tính job; ffmpeg `nice 10`; live không bao giờ bị từ chối vì job |
+| Chuyển mã | `ffmpegcmd.BuildVOD`: thang theo cạnh ngắn (720p / 480p / 360p, không vượt nguồn), tối đa 30 fps, x264 `veryfast`, segment 4 s, playlist VOD, thumbnail ở 10% thời lượng; `-protocol_whitelist file,pipe`; giới hạn 3 × thời lượng + 10 phút |
+| Lưu trữ | File gốc `nxl-uploads/sources/{uploadId}` (xóa khi `READY`, giữ ≤ 3 ngày nếu `FAILED`); HLS `nxl-media/videos/{vodId}/` (không lifecycle) |
+| Dữ liệu | `vods.source` (`LIVE` / `UPLOAD`), `stream_id` rỗng với `UPLOAD`, bảng `video_uploads` (stream-svc) — data-model §3 |
+| Tắt nhanh | `STREAM_UPLOAD_ENABLED=false` (API trả `503 STORAGE_UNAVAILABLE`), `MEDIA_MAX_UPLOAD_TRANSCODES=0` |
+
 ## 8. Dữ liệu
 
 - **Database-per-service:** mỗi service một database PostgreSQL riêng (`identity`, `channel`, `stream`,
@@ -330,7 +379,14 @@ chỉ CPU (x264 `veryfast`); số luồng chọn bằng `make nxl-bench` trên m
   golang-migrate trong thư mục của từng service.
 - **Tham chiếu chéo service chỉ bằng ID** (UUID); không có foreign key xuyên database.
 - **Redis:** khóa có tiền tố theo service (`chat:`, `stream:`, `idn:`); không service nào đọc khóa của service khác.
-- **MinIO buckets:** `hls-live`, `vod`, `thumbnails`, `media-public` (avatar, banner, emote).
+- **MinIO buckets** (thiết kế ban đầu ghi `hls-live`, `vod`, `thumbnails`, `media-public` — không còn dùng):
+
+  | Bucket | Nội dung | Quyền | Lifecycle | Tạo bởi |
+  | --- | --- | --- | --- | --- |
+  | `nxl-media` | HLS live và bản ghi `streams/{streamId}/…`; video tải lên `videos/{vodId}/…`; thumbnail `.jpg` | `.jpg` công khai; playlist / segment qua `/hls` (ký khi `STREAM_HLS_SIGNING`) | Chỉ prefix `streams/` — xóa sau 14 ngày (`MEDIA_S3_RETENTION_DAYS`); `videos/` không có | media-svc |
+  | `nxl-public` | Ảnh kênh (avatar, banner) | Đọc công khai qua `/media/` | — | channel-svc |
+  | `nxl-uploads` | File gốc của video tải lên `sources/{uploadId}` | Riêng tư, không qua cổng vào | Hủy multipart dở sau 1 ngày; xóa `sources/` sau 3 ngày | stream-svc (ADR-014) |
+
 - **ChatMessage** tăng nhanh nhất: bảng phân vùng theo ngày, giữ 30 ngày (cấu hình, PRD Q10 của NXL-B).
 
 Chi tiết entity: [data-model.md](data-model.md).
@@ -430,5 +486,6 @@ Hợp đồng gRPC nội bộ (`proto/`) sẽ thêm khi có lời gọi gRPC đ�
 
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
+| 1.2 | 2026-11-04 | Tải video lên (ADR-014, DL-22): §3 container (stream-svc ghi multipart, media-svc đọc file gốc); §4 stream / media / safety / channel thêm sự kiện `upload.*`, `vod.published`, `safety.vod_takedown`; §7 hạn 14 ngày chỉ cho VOD `source = LIVE`, `/hls` nhận `videos/`; §7.1 luồng tải lên (sơ đồ tuần tự, hàng đợi, ưu tiên live); §8 sửa danh sách bucket cũ (`hls-live`, `vod`, `thumbnails`, `media-public`) thành `nxl-media`, `nxl-public`, `nxl-uploads` |
 | 1.1 | 2026-10-13 | GĐ1: thêm container web quản trị `nexuslive-admin` (ADR-013), bảng cổng dev; channel-svc có từ GĐ1 (cổng 8094); identity gửi email qua `identity-mailer`; cổng vào có rate limit, CORS, CSRF header; §7 trỏ ADR-012/NXL-G1 và ghi phần hiện thực; authorize là HTTP nội bộ |
 | 1.0 | 2026-10-10 | Bản đầu (§5.2 sửa 13/10 theo errata E-11) |

@@ -47,6 +47,7 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | --- | --- | --- |
 | `/v1/auth/{login,register,password/forgot,password/reset,verify-email,verify-email/resend}` | identity-svc :8090 | Vùng rate limit chặt (§1.1) |
 | `= /v1/webhooks/sepay` | billing-svc :8098 | GĐ6: chỉ `POST` (khác → `403`), body ≤ 64 KB (`413`), vùng `nxl_webhook` (`NXL_EDGE_WEBHOOK_RATE`, mặc định `60r/m`, burst 20); không JWT / CORS |
+| `~ ^/v1/studio/uploads(/\|$)` | stream-svc :8092 | Upload: đặt trước route Studio của stream; `client_max_body_size 9m`, `proxy_request_buffering off`, timeout đọc/gửi 120 s, vùng `nxl_upload` (`NXL_EDGE_UPLOAD_RATE`, mặc định `300r/m`, burst 20) |
 | `/v1/ws` | chat-svc (upstream `nxl_chat`: `chat-1`, `chat-2`) | WebSocket (`Upgrade`), `proxy_read_timeout 75s`, không rate limit theo request (GĐ3) |
 | `/v1/chat/*`, `/v1/channels/{id}/(chat-settings\|timeouts\|bans\|restrictions\|blocked-terms\|roles\|users)*` | chat-svc | Đặt trước route channel-svc (GĐ3; GĐ5 thêm hành động mod, từ khóa chặn, vai trò, thẻ người dùng) |
 | `/v1/me/channel-roles` | chat-svc | Exact match (GĐ5) |
@@ -68,7 +69,7 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | `/v1/categories*`, `/v1/search*`, `/v1/schedules*` | channel-svc | GĐ4 |
 | `/v1/studio/*` còn lại, `/v1/streams/*`, `/v1/vods/*` | stream-svc :8092 | |
 | `/v1/*` còn lại | identity-svc :8090 | Gồm `/v1/auth/*`, `/v1/me*` (cả `/v1/me/blocks*`), `/v1/creator-applications*` |
-| `/hls/t/{expires}/{md5}/streams/{id}/*` | MinIO, bucket `nxl-media` | URL có chữ ký (`secure_link`, GĐ5): `md5 = base64url(MD5("{expires}streams/{id}/ {NXL_HLS_SECRET}"))`; sai / hết hạn → `403`; `.m3u8` `no-cache`, `.ts` `private, max-age=3600` |
+| `/hls/t/{expires}/{md5}/{streams\|videos}/{id}/*` | MinIO, bucket `nxl-media` | URL có chữ ký (`secure_link`, GĐ5; Upload thêm prefix `videos/{vodId}/`): `md5 = base64url(MD5("{expires}{prefix} {NXL_HLS_SECRET}"))` với `prefix` = `streams/{id}/` hoặc `videos/{id}/`; sai / hết hạn → `403`; `.m3u8` `no-cache`, `.ts` `private, max-age=3600` |
 | `/hls/*` | MinIO, bucket `nxl-media` | Chỉ `GET`/`HEAD`; `.jpg` công khai; `.m3u8` / `.ts` chỉ khi `NXL_HLS_ALLOW_UNSIGNED=1` (mặc định), ngược lại `403`; không rate limit |
 | `/media/*` | MinIO, bucket `nxl-public` | Ảnh đại diện, ảnh bìa, ảnh danh mục; chỉ `GET`/`HEAD`, `Cache-Control: public, max-age=86400` (GĐ4) |
 | `/internal/*`, `/metrics`, `/swagger`, còn lại | — | `404 NOT_FOUND` |
@@ -227,26 +228,35 @@ Mã lỗi: `VALIDATION_FAILED`, `USERNAME_TAKEN`, `EMAIL_TAKEN`, `INVALID_CREDEN
 | GET | `/v1/streams?status=live&category=&language=&tags=&sort=&cursor=&limit=` | — | Danh sách đang phát (LIVE + INTERRUPTED, gồm 18+ có `isMature`); GĐ1 thêm `channel`; GĐ3 `viewerCount`; GĐ4: `category` = 1–30 id (dấu phẩy), `language` `^[a-z]{2}$`, `tags` ≤ 5 (khớp tất cả), `sort` = `viewers` (mặc định, = `trending`) / `newest`; `VALIDATION_FAILED` (`category = INVALID`, `language = FORMAT`, `tags = TAG_COUNT`, `sort = ENUM`, `cursor = INVALID`) | ✅ · GĐ4 🔧 |
 | GET | `/v1/streams/recommended?limit=` | — | Hero / Live đề xuất / sidebar Guest: chỉ `LIVE`, không 18+, theo người xem (1–24, mặc định 12) | GĐ4 🔧 |
 | GET | `/v1/streams/{id}` | — / Bearer | Chi tiết; GĐ4: `status` có thể `SCHEDULED` / `CANCELLED`, thêm `category {id} \| null`, `scheduleId`, `scheduledStartAt`; `vodId = null` khi VOD ẩn và người gọi không phải chủ kênh | ✅ · GĐ4 🔧 |
-| GET | `/v1/vods?category=&cursor=&limit=` · `/v1/vods/recommended?limit=` | — | VOD `READY` + `PUBLIC` còn hạn, mới nhất trước; recommended bỏ 18+, không phân trang | GĐ4 🔧 |
-| GET | `/v1/channels/{id}/vods?cursor=&limit=` | — | Tab Video của kênh; kênh lạ → `404` | GĐ4 🔧 |
-| GET | `/v1/vods/{id}` | — / Bearer | VOD đang READY và còn hạn; GĐ2: có token → `viewer.positionSec`; GĐ4 thêm `visibility`, `isMature`, `category`; VOD `HIDDEN` → `404` trừ chủ kênh (kể cả `/playback`) | ✅ · GĐ4 🔧 |
-| POST | `/v1/streams/{id}/playback` · `/v1/vods/{id}/playback` | — / Bearer | Mở phiên xem: `{acknowledgeMature?}`, header `X-NXL-Anon-Id` (Guest) → `{sessionId, manifestUrl, expiresAt, anonId?, mature{required, acknowledged}}`; 18+ chưa xác nhận → ba trường đầu `null`; tài khoản xác nhận một lần/kênh (TSD GĐ2 §4). GĐ5: khi `STREAM_HLS_SIGNING=true`, `manifestUrl` = `/hls/t/{expires}/{md5}/streams/{id}/master.m3u8` (hạn = `expiresAt`, 4 h), DTO công khai trả `manifestUrl = ""`; kênh bị khóa → `403 CHANNEL_SUSPENDED` | GĐ2 · GĐ5 🔧 |
+| GET | `/v1/vods?category=&cursor=&limit=` · `/v1/vods/recommended?limit=` | — | VOD `READY` + `PUBLIC` còn hạn (video tải lên không hết hạn), mới nhất trước; recommended bỏ 18+, không phân trang | GĐ4 🔧 · Upload 🔧 |
+| GET | `/v1/channels/{id}/vods?source=&cursor=&limit=` | — | Tab Video của kênh; `source = LIVE\|UPLOAD` (sai → `source = ENUM`); kênh lạ → `404` | GĐ4 🔧 · Upload 🔧 |
+| GET | `/v1/vods/{id}` | — / Bearer | VOD đang READY và còn hạn; GĐ2: có token → `viewer.positionSec`; GĐ4 thêm `visibility`, `isMature`, `category`; VOD `HIDDEN` → `404` trừ chủ kênh (kể cả `/playback`). Upload: `VOD` (mọi danh sách công khai, continue-watching) thêm `source: LIVE\|UPLOAD`, `description`, `publishedAt`; `streamId`, `expiresAt` = `null` với video tải lên | ✅ · GĐ4 · Upload 🔧 |
+| POST | `/v1/streams/{id}/playback` · `/v1/vods/{id}/playback` | — / Bearer | Mở phiên xem: `{acknowledgeMature?}`, header `X-NXL-Anon-Id` (Guest) → `{sessionId, manifestUrl, expiresAt, anonId?, mature{required, acknowledged}}`; 18+ chưa xác nhận → ba trường đầu `null`; tài khoản xác nhận một lần/kênh (TSD GĐ2 §4). GĐ5: khi `STREAM_HLS_SIGNING=true`, `manifestUrl` = `/hls/t/{expires}/{md5}/streams/{id}/master.m3u8` (hạn = `expiresAt`, 4 h), DTO công khai trả `manifestUrl = ""`; kênh bị khóa → `403 CHANNEL_SUSPENDED`. Upload: video tải lên ký theo `videos/{vodId}/`; cổng 18+ đọc `isMature` của chính VOD | GĐ2 · GĐ5 · Upload 🔧 |
 | PUT | `/v1/me/watch-progress/{vodId}` | Bearer | `{positionSec, keepFurther?}` → `204`; `VALIDATION_FAILED` (`positionSec: REQUIRED/RANGE`), `NOT_FOUND` (A5, UC-A07) | GĐ2 🔧 |
 | GET | `/v1/me/continue-watching?limit=` | Bearer | VOD xem dở (≥ 5 s, chưa tới 10 s cuối, còn hạn), mới nhất trước: `{items: [{vod, positionSec, updatedAt}]}` (C2) | GĐ2 🔧 |
-| GET | `/v1/studio/vods?visibility=&status=&cursor=&limit=` | Creator | VOD `READY` + `EXPIRED` của kênh (gồm ẩn): `StudioVod {id, streamId, title, durationSec, thumbnailUrl, manifestUrl, status, visibility, category, createdAt, expiresAt}` | GĐ4 🔧 |
-| PATCH | `/v1/studio/vods/{id}` | Creator | `{title?, visibility?}` → `200 StudioVod` + `vod.updated.v1`; `body = REQUIRED`, `title = LENGTH`, `visibility = ENUM`; `EXPIRED` → `409 INVALID_STATE` | GĐ4 🔧 |
-| DELETE | `/v1/studio/vods/{id}` | Creator | Xóa mềm → `204` + `vod.deleted.v1` (media-svc xóa file); đã xóa / kênh khác → `404` | GĐ4 🔧 |
+| GET | `/v1/studio/vods?visibility=&status=&source=&cursor=&limit=` | Creator | VOD `READY` + `EXPIRED` + `PROCESSING` + `FAILED` của kênh (gồm ẩn): `StudioVod {id, streamId\|null, source, title, description, durationSec, thumbnailUrl, manifestUrl, status, visibility, isMature, category, createdAt, publishedAt\|null, expiresAt\|null, processing {percent, stage\|null}\|null, failureReason\|null, retryable}`; `status` thêm `PROCESSING\|FAILED`, `source = LIVE\|UPLOAD`; `processing` chỉ khi `PROCESSING`, `manifestUrl` rỗng khi chưa `READY`; web hỏi lại mỗi 3 s khi có video đang xử lý | GĐ4 · Upload 🔧 |
+| PATCH | `/v1/studio/vods/{id}` | Creator | `{title?, visibility?, description?, categoryId?, isMature?}` → `200 StudioVod`; `body = REQUIRED`, `title = LENGTH`, `visibility = ENUM`; `EXPIRED` → `409 INVALID_STATE`. Upload: `description` (≤ 5000, `LENGTH`), `categoryId` (uuid, `""` = bỏ, `INVALID`), `isMature` chỉ cho video tải lên (VOD live → `409`); video tải lên sửa được khi `READY` / `PROCESSING`, `FAILED` → `409`; `vod.updated.v1` chỉ khi VOD `READY` | GĐ4 · Upload 🔧 |
+| DELETE | `/v1/studio/vods/{id}` | Creator | Xóa mềm `READY` / `EXPIRED` / `PROCESSING` / `FAILED` → `204` + `vod.deleted.v1 {…, source, playlistPrefix}` (media-svc xóa file); đã xóa / kênh khác → `404`; file gốc của video tải lên do stream-svc xóa (job `STREAM_UPLOAD_EXPIRY_TICK`) | GĐ4 · Upload 🔧 |
+| POST | `/v1/studio/vods/{id}/retry` | Creator | Video tải lên `FAILED` có `retryable = true`, file gốc còn (≤ 3 ngày) → `202 StudioVod` (`PROCESSING`, phát lại `upload.completed.v1`); khác → `409 INVALID_STATE`; kênh khóa → `403 CHANNEL_SUSPENDED`; MinIO lỗi / tắt tải lên → `503 STORAGE_UNAVAILABLE` | Upload 🔧 |
+| POST | `/v1/studio/uploads` | Creator | `{fileName 1–255 (.mp4 .mov .mkv .webm), sizeBytes ≥ 1, contentType?, title 1–140, description? ≤ 5000, categoryId?, isMature, visibility? = PUBLIC}` → `201 Upload {id, status, fileName, sizeBytes, partSize, partCount, uploadedParts [], vodId\|null, createdAt, expiresAt}`; `400 VALIDATION_FAILED`, `413 FILE_TOO_LARGE` (`details.maxBytes`), `422 UNSUPPORTED_FORMAT`, `429 UPLOAD_LIMIT_REACHED` (`details.limit = ACTIVE\|DAILY`, `details.retryAfterSec`, header `Retry-After`; 3 đang tải + đang xử lý / kênh, 10 phiên / 24 h), `403 CHANNEL_SUSPENDED`, `503 STORAGE_UNAVAILABLE` | Upload 🔧 |
+| PUT | `/v1/studio/uploads/{id}/parts/{n}` | Creator | Body nhị phân `application/octet-stream`; phần `n < partCount` đúng `partSize` (8 MiB), phần cuối = phần còn lại; gửi lại cùng `n` thì ghi đè → `200 {partNumber, receivedBytes}`; `400 INVALID_PART` (`details.expectedBytes` khi sai kích thước), `404`, `409 INVALID_STATE` (`COMPLETED`), `410 UPLOAD_EXPIRED` (`EXPIRED\|ABORTED` hoặc quá `expiresAt`), `403 CHANNEL_SUSPENDED`, `503 STORAGE_UNAVAILABLE` | Upload 🔧 |
+| GET | `/v1/studio/uploads/{id}` | Creator | `200 Upload` (`uploadedParts` tăng dần, để gửi tiếp phần thiếu); phiên kênh khác → `404` | Upload 🔧 |
+| POST | `/v1/studio/uploads/{id}/complete` | Creator | Ghép phần → VOD `PROCESSING` + `upload.completed.v1` → `202 {vodId, upload}`; gọi lại khi đã `COMPLETED` trả cùng `vodId`; `409 PARTS_MISSING` (`details.missing: [n…]`), `410 UPLOAD_EXPIRED`, `403 CHANNEL_SUSPENDED`, `503 STORAGE_UNAVAILABLE` | Upload 🔧 |
+| DELETE | `/v1/studio/uploads/{id}` | Creator | Hủy phiên → `204` (đã `ABORTED` / `EXPIRED` cũng `204`); `COMPLETED` → `409 INVALID_STATE` | Upload 🔧 |
 | GET | `/metrics` (không có tiền tố `/v1`, không qua cổng vào) | — | Prometheus: `stream_live_streams`, `stream_transitions_total{to}`, `stream_authorize_total{result}`, `http_requests_total`, `http_request_duration_seconds` | ✅ L4 |
 
 Auth `Creator` = Bearer của tài khoản đã có kênh; chưa có kênh → `403 NOT_CREATOR` (GĐ1 🔧). Đặc tả nghiệp vụ: NXL-G1.
 
-Mã lỗi: `VALIDATION_FAILED`, `UNAUTHORIZED`, `NOT_CREATOR`, `NOT_FOUND`, `NOT_LIVE`, `INTERNAL_ERROR`.
+Mã lỗi: `VALIDATION_FAILED`, `UNAUTHORIZED`, `NOT_CREATOR`, `NOT_FOUND`, `NOT_LIVE`, `INTERNAL_ERROR`; tải video lên: `CHANNEL_SUSPENDED`, `INVALID_STATE`, `FILE_TOO_LARGE`, `UNSUPPORTED_FORMAT`, `UPLOAD_LIMIT_REACHED`, `UPLOAD_EXPIRED`, `PARTS_MISSING`, `INVALID_PART`, `STORAGE_UNAVAILABLE`. `error.details` thường là chuỗi; các mã tải lên trả số / mảng (`maxBytes`, `expectedBytes`, `retryAfterSec`, `missing`).
 
-### 5.2 Nội bộ (chỉ media-svc gọi)
+Tải video lên (TSD `docs/plans/technical/2026-11-02-video-upload-abr.md`): `STREAM_UPLOAD_ENABLED=false` → mọi route `/v1/studio/uploads*` trả `503 STORAGE_UNAVAILABLE` (không cần S3). Body tối đa của stream-svc 9 MiB, read timeout 60 s. File gốc nằm ở bucket riêng tư `nxl-uploads` (`sources/{uploadId}`), xóa khi video `READY`; HLS ở `nxl-media/videos/{vodId}/`.
+
+### 5.2 Nội bộ (media-svc, safety-svc gọi)
 
 | Method | Path | Mô tả | Trạng thái |
 | --- | --- | --- | --- |
 | POST | `/internal/v1/ingest/authorize` | `{streamKey, clientIp}` → `200 {streamId, channelId, resumed}` · `403 INVALID_STREAM_KEY` · `409 ALREADY_LIVE` · `409 RECENTLY_ENDED` (Creator vừa kết thúc, trong `STREAM_END_COOLDOWN`) · `401 UNAUTHORIZED` (sai secret) | ✅ |
+| GET | `/internal/v1/vods/{id}` | safety-svc tra VOD chưa có trong bản sao → `200 {"data": {id, channelId, streamId\|null, source, title, status, visibility}}` (kể cả `DELETED`) · `404 NOT_FOUND` | Upload 🔧 |
 
 Ghi chú:
 
@@ -268,7 +278,7 @@ Ghi chú:
 
 Object trong MinIO:
 
-- Đường dẫn: `nxl-media/streams/{streamId}/…`. Trình duyệt truy cập qua cổng vào `/hls/...` (hoặc Vite proxy `/hls` → MinIO khi không chạy cổng vào).
+- Đường dẫn: `nxl-media/streams/{streamId}/…` (live, VOD live) và `nxl-media/videos/{vodId}/…` (video tải lên: playlist `VOD`, segment 4 s, không lifecycle). File gốc tải lên: bucket riêng tư `nxl-uploads/sources/{uploadId}` (stream-svc). Trình duyệt truy cập qua cổng vào `/hls/...` (hoặc Vite proxy `/hls` → MinIO khi không chạy cổng vào).
 - Cache-Control theo TSD §5.4.
 - Đọc công khai ở dev; URL có chữ ký ở L4.
 
@@ -351,18 +361,19 @@ Cổng 8099, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (`safety_repo
 
 | Method | Path | Auth | Mô tả |
 | --- | --- | --- | --- |
-| POST | `/v1/reports` | B | `{targetType: USER\|CHANNEL\|STREAM\|MESSAGE, targetId, reason, note?, streamId?}` → `201 {id, status, createdAt}`; report mở trùng → `200` cùng `id`; > 10/giờ → `429 RATE_LIMITED details.retryAfterSec` + `Retry-After`; chính mình → `targetId = INVALID`; `MESSAGE` cần `streamId`, bằng chứng ≤ 10 tin (chat chậm > 300 ms → `evidenceStatus = UNAVAILABLE`) |
-| GET | `/v1/admin/reports?status=&targetType=&reason=&cursor=&limit=` · `/open-count` · `/{id}` | A | Hàng đợi cũ nhất trước (`status` CSV, mặc định `OPEN,IN_REVIEW`); `{open, inReview}`; `AdminReportDetail` (bằng chứng có `username` / `displayName` của người viết, `channelId` của kênh / buổi phát / phòng, report liên quan ≤ 20, hành động ≤ 20 gồm cả `CHAT_TIMEOUT` / `CHAT_UNTIMEOUT` / `CHAT_BAN` / `CHAT_UNBAN` của người bị báo cáo từ audit log, kèm `actorRole`, `channelId`); `sameTargetCount` đếm cả chính report |
+| POST | `/v1/reports` | B | `{targetType: USER\|CHANNEL\|STREAM\|MESSAGE\|VOD, targetId, reason, note?, streamId?}` → `201 {id, status, createdAt}`; report mở trùng → `200` cùng `id`; > 10/giờ → `429 RATE_LIMITED details.retryAfterSec` + `Retry-After`; chính mình → `targetId = INVALID`; `MESSAGE` cần `streamId`, bằng chứng ≤ 10 tin (chat chậm > 300 ms → `evidenceStatus = UNAVAILABLE`); `VOD` (`targetId` = vodId, bản ghi live hoặc video tải lên): không có / đã xóa → `404 NOT_FOUND`, người bị báo cáo là chủ kênh, bản sao chưa có thì hỏi `GET /internal/v1/vods/{id}` của stream-svc (≤ 300 ms) |
+| GET | `/v1/admin/reports?status=&targetType=&reason=&cursor=&limit=` · `/open-count` · `/{id}` | A | Hàng đợi cũ nhất trước (`status` CSV, mặc định `OPEN,IN_REVIEW`); `{open, inReview}`; `AdminReportDetail` (bằng chứng có `username` / `displayName` của người viết, `channelId` của kênh / buổi phát / VOD / phòng, report liên quan ≤ 20, hành động ≤ 20 gồm cả `CHAT_TIMEOUT` / `CHAT_UNTIMEOUT` / `CHAT_BAN` / `CHAT_UNBAN` của người bị báo cáo từ audit log, kèm `actorRole`, `channelId`); `sameTargetCount` đếm cả chính report |
 | POST | `/v1/admin/reports/{id}/claim` · `/resolve` | A | Nhận (`IN_REVIEW`, nhận lại được); `{status: RESOLVED\|DISMISSED, note 10–500, applyToSameTarget?}` → `{report, closedCount}`; đã đóng → `409 INVALID_STATE` |
 | POST | `/v1/admin/users/{id}/lock` · `/unlock` | A | `{durationHours: 24\|168\|720\|null, reason 10–500, reportId?}` → `202 {actionId}`; identity áp dụng (≤ 2 s, socket đóng `4003`); Admin khác → `403`, chính mình → `userId = INVALID` |
 | GET | `/v1/admin/users?q=&status=` · `/v1/admin/channels?q=&status=` · `/v1/admin/channels/{id}` | A | Tra cứu trên bản sao (UUID → id; còn lại tiền tố username / handle, tên kênh chứa `q`) |
 | POST | `/v1/admin/channels/{id}/suspend` · `/restore` | A | `{reason, reportId?}` → `202`; channel-svc khóa kênh, stream-svc kết thúc buổi phát + hủy lịch, chat đóng phòng |
 | POST | `/v1/admin/streams/{id}/takedown` | A | `202`; đang phát → kết thúc `admin_takedown`; đã kết thúc còn VOD → VOD bị xóa; `SCHEDULED` / `CANCELLED` / hết VOD → `409 INVALID_STATE` |
+| POST | `/v1/admin/vods/{id}/takedown` | A | `{reason 10–500, reportId?}` → `202 {actionId}` (`TAKEDOWN_VOD`, audit `VOD_TAKEDOWN`, outbox `safety.vod_takedown.v1`); stream-svc xóa VOD (bản ghi live hoặc video tải lên); không có → `404`; đã xóa → `409 INVALID_STATE` |
 | GET | `/v1/admin/audit-log?actorId=&actor=&action=&resourceType=&resourceId=&from=&to=&cursor=&limit=` | A | Mới nhất trước; chỉ thêm (trigger chặn sửa / xóa); `actor` = username (bỏ `@`, không phân biệt hoa thường) khi không có `actorId`, không có người đó → trang rỗng |
 
-Sự kiện: nghe `user.*`, `channel.*`, `stream.*`, `vod.deleted` (bản sao), `chat.mod_action`, `chat.settings_changed`,
-`channel.role_changed`, `audit.recorded` (audit); phát `safety.user_actioned`, `safety.channel_actioned`,
-`safety.stream_takedown`, `safety.report_resolved` (outbox).
+Sự kiện: nghe `user.*`, `channel.*`, `stream.*`, `vod.published`, `vod.updated`, `vod.deleted` (bản sao), `chat.mod_action`,
+`chat.settings_changed`, `channel.role_changed`, `audit.recorded` (audit); phát `safety.user_actioned`, `safety.channel_actioned`,
+`safety.stream_takedown`, `safety.vod_takedown`, `safety.report_resolved` (outbox).
 
 ## 6D. notification-svc — trung tâm thông báo, cài đặt, email (GĐ5 🔧)
 
@@ -512,14 +523,17 @@ bằng đường dẫn của TSD GĐ6 §5.2.
 | `stream.updated.v1` | stream (outbox, sửa cài đặt khi đang phát) | chat (`title_changed`), channel | `streamId, channelId, title, tags[]`; GĐ4 + `categoryId, language, isMature` | 🔧 GĐ3 · GĐ4 |
 | `stream.vod_ready.v1` | stream (outbox, VOD `READY`) | chat (`vod_ready`), channel (tìm kiếm) | `streamId, channelId, vodId`; GĐ4 + `title, thumbnailUrl, durationSec, categoryId, isMature, expiresAt` | 🔧 GĐ3 · GĐ4 |
 | `stream.scheduled.v1` | stream (outbox) | channel (`occurrence_streams`) | `streamId, channelId, scheduleId, scheduledStartAt` | 🔧 GĐ4 |
-| `vod.updated.v1` · `vod.deleted.v1` | stream (outbox) | channel (tìm kiếm); media xóa file khi `deleted` | `vodId, streamId, channelId, title, visibility, status, …` · `vodId, streamId, channelId` | 🔧 GĐ4 |
+| `vod.updated.v1` · `vod.deleted.v1` | stream (outbox) | channel (tìm kiếm), safety (bản sao); media xóa file khi `deleted` | `vodId, streamId, channelId, title, visibility, status, …` · `vodId, streamId, channelId`; Upload (chỉ thêm): `streamId` omitempty, + `source`; `updated` + `description`, `expiresAt` null với video tải lên; `deleted` + `playlistPrefix` (`streams/{streamId}/` \| `videos/{vodId}/`). Thiếu `source` = `LIVE` | 🔧 GĐ4 · Upload |
+| `upload.completed.v1` | stream (outbox; cả khi retry) | media (durable `media-transcode`) | `uploadId, vodId, channelId, bucket, objectKey, sizeBytes` | 🔧 Upload |
+| `upload.progress.v1` · `upload.processed.v1` · `upload.failed.v1` | media | stream (không qua `processed_events`: idempotent theo trạng thái VOD) | `vodId, percent, stage` · `vodId, durationSec, playlistPath, thumbnailPath, renditions[], sourceWidth, sourceHeight` · `vodId, reason, retryable` | 🔧 Upload |
+| `vod.published.v1` | stream (outbox, video tải lên `READY`) | channel (tìm kiếm), safety (bản sao) | `vodId, channelId, source, title, description, thumbnailUrl, durationSec, categoryId, isMature, visibility, publishedAt` | 🔧 Upload |
 | `stream.peak_viewers.v1` | chat (outbox, khi phòng chuyển `READ_ONLY`) | stream (`streams.peak_viewers`) | `streamId, peakViewers` | 🔧 GĐ3 |
 | `channel.updated.v1` | channel (outbox) | stream (`creator_channels`), chat (`channels`) | `channelId, ownerId, handle, displayName, avatarUrl` | 🔧 GĐ4 |
 | `user.locked.v1` · `user.unlocked.v1` | identity | chat, stream | | 📋 GĐ5 |
 | `follow.created.v1` · `follow.updated.v1` · `follow.deleted.v1` | channel (outbox) | chat (bản sao Redis `follow:`, `following:`, `follow:level:`), (GĐ5: notification) | `userId, channelId, createdAt, notifyLevel` · `userId, channelId, notifyLevel, updatedAt` · `userId, channelId` | 🔧 GĐ4 |
 | `schedule.created/updated.v1` · `schedule.occurrence_upcoming/changed.v1` · `schedule.reminder_due.v1` | channel (outbox) | stream (dòng `SCHEDULED`), (GĐ5: notification) | TSD GĐ4 §5.5 | 🔧 GĐ4 |
 | `chat.message_sent.v1` · `chat.mention.v1` · `chat.mod_action.v1` | chat | notification, safety | | 📋 GĐ3 |
-| `safety.stream_takedown.v1` · `safety.user_actioned.v1` · `safety.report_resolved.v1` | safety | stream, identity, notification | | 📋 GĐ5 |
+| `safety.stream_takedown.v1` · `safety.vod_takedown.v1` · `safety.user_actioned.v1` · `safety.report_resolved.v1` | safety | stream, identity, notification | | 📋 GĐ5 (`vod_takedown`: video upload) |
 | `notification.created.v1` · `notification.unread_changed.v1` | notification (outbox) | chat (đẩy `user:{id}` `notification` + `unread_count`) | TSD GĐ5 §5.9 (`unreadCount` sau thay đổi) | 🔧 GĐ5 |
 | `subscription.activated.v1` | billing (outbox) | chat (`sub:` + `SUB_NEW`), notification (`NEW_SUBSCRIBER`) | `subscriptionId, userId, channelId, tier, currentPeriodStart, currentPeriodEnd, orderId \| null, replay` (`replay` = `republish-entitlements`: chỉ dựng lại bản sao) | 🔧 GĐ6 |
 | `subscription.renewed.v1` | billing (outbox) | chat | `subscriptionId, userId, channelId, tier, currentPeriodEnd, orderId` | 🔧 GĐ6 |
