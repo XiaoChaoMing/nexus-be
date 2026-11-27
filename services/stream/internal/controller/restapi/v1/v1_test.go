@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/minhnn/nexuslive-be/pkg/logger"
+	"github.com/minhnn/nexuslive-be/services/stream/config"
 	v1 "github.com/minhnn/nexuslive-be/services/stream/internal/controller/restapi/v1"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase"
@@ -60,7 +61,11 @@ func newAppWith(studio usecase.Studio, viewer usecase.Viewer) *fiber.App {
 }
 
 func newAppOpts(studio usecase.Studio, viewer usecase.Viewer, o v1.Options) *fiber.App {
-	app := fiber.New()
+	return newAppFull(studio, viewer, &fakeUploads{}, o)
+}
+
+func newAppFull(studio usecase.Studio, viewer usecase.Viewer, uploads usecase.Uploads, o v1.Options) *fiber.App {
+	app := fiber.New(fiber.Config{BodyLimit: config.BodyLimit})
 	// Stands in for middleware.Auth: the "X-User" header becomes the authenticated user id.
 	auth := func(ctx *fiber.Ctx) error {
 		if u := ctx.Get("X-User"); u != "" {
@@ -70,7 +75,7 @@ func newAppOpts(studio usecase.Studio, viewer usecase.Viewer, o v1.Options) *fib
 		return ctx.Next()
 	}
 
-	v1.NewRoutes(app.Group("/v1"), studio, fakeCatalog{}, viewer, v1.Auth{Required: auth, Optional: auth},
+	v1.NewRoutes(app.Group("/v1"), studio, fakeCatalog{}, viewer, uploads, v1.Auth{Required: auth, Optional: auth},
 		logger.New("error"), o)
 
 	return app

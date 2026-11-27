@@ -102,6 +102,11 @@ definitions:
       data:
         $ref: '#/definitions/Dashboard'
     type: object
+  Data-internal_controller_restapi_v1_PartReceived:
+    properties:
+      data:
+        $ref: '#/definitions/PartReceived'
+    type: object
   Data-internal_controller_restapi_v1_Playback:
     properties:
       data:
@@ -132,6 +137,16 @@ definitions:
       data:
         $ref: '#/definitions/StudioVODList'
     type: object
+  Data-internal_controller_restapi_v1_Upload:
+    properties:
+      data:
+        $ref: '#/definitions/Upload'
+    type: object
+  Data-internal_controller_restapi_v1_UploadCompleted:
+    properties:
+      data:
+        $ref: '#/definitions/UploadCompleted'
+    type: object
   Data-internal_controller_restapi_v1_VODList:
     properties:
       data:
@@ -142,8 +157,7 @@ definitions:
       code:
         type: string
       details:
-        additionalProperties:
-          type: string
+        additionalProperties: {}
         type: object
       message:
         type: string
@@ -174,6 +188,13 @@ definitions:
         type: boolean
       required:
         type: boolean
+    type: object
+  PartReceived:
+    properties:
+      partNumber:
+        type: integer
+      receivedBytes:
+        type: integer
     type: object
   Playback:
     properties:
@@ -364,20 +385,47 @@ definitions:
         $ref: '#/definitions/CategoryRef'
       createdAt:
         type: string
+      description:
+        type: string
       durationSec:
         type: integer
       expiresAt:
+        description: ExpiresAt is null for an uploaded video.
+        type: string
+      failureReason:
+        description: |-
+          FailureReason and Retryable describe a FAILED upload (UNSUPPORTED_FORMAT, NO_VIDEO_STREAM, DURATION_TOO_LONG,
+          FILE_CORRUPT, TRANSCODE_FAILED, STORAGE_ERROR); Retryable allows POST /studio/vods/{id}/retry.
         type: string
       id:
         type: string
+      isMature:
+        type: boolean
       manifestUrl:
+        description: ManifestURL is empty until the VOD is READY.
+        type: string
+      processing:
+        allOf:
+        - $ref: '#/definitions/VODProcessing'
+        description: Processing is set only while PROCESSING.
+      publishedAt:
+        type: string
+      retryable:
+        type: boolean
+      source:
+        enum:
+        - LIVE
+        - UPLOAD
         type: string
       status:
         enum:
         - READY
         - EXPIRED
+        - PROCESSING
+        - FAILED
         type: string
       streamId:
+        description: StreamID is null for an uploaded video.
         type: string
       thumbnailUrl:
         type: string
@@ -398,6 +446,71 @@ definitions:
       nextCursor:
         type: string
     type: object
+  Upload:
+    properties:
+      createdAt:
+        type: string
+      expiresAt:
+        type: string
+      fileName:
+        type: string
+      id:
+        type: string
+      partCount:
+        type: integer
+      partSize:
+        type: integer
+      sizeBytes:
+        type: integer
+      status:
+        enum:
+        - UPLOADING
+        - COMPLETED
+        - ABORTED
+        - EXPIRED
+        type: string
+      uploadedParts:
+        items:
+          type: integer
+        type: array
+      vodId:
+        type: string
+    type: object
+  UploadCompleted:
+    properties:
+      upload:
+        $ref: '#/definitions/Upload'
+      vodId:
+        type: string
+    type: object
+  UploadRequest:
+    properties:
+      categoryId:
+        type: string
+      contentType:
+        description: |-
+          ContentType is video/mp4, video/quicktime, video/x-matroska, video/webm, or empty / application/octet-stream
+          (the extension decides).
+        type: string
+      description:
+        type: string
+      fileName:
+        description: FileName is shown to the creator only (never used as a path);
+          .mp4, .mov, .mkv or .webm.
+        type: string
+      isMature:
+        type: boolean
+      sizeBytes:
+        type: integer
+      title:
+        type: string
+      visibility:
+        description: Visibility defaults to PUBLIC.
+        enum:
+        - PUBLIC
+        - HIDDEN
+        type: string
+    type: object
   VOD:
     properties:
       category:
@@ -408,9 +521,12 @@ definitions:
         type: string
       createdAt:
         type: string
+      description:
+        type: string
       durationSec:
         type: integer
       expiresAt:
+        description: 'ExpiresAt is null for an uploaded video: it never expires.'
         type: string
       id:
         type: string
@@ -418,9 +534,18 @@ definitions:
         type: boolean
       manifestUrl:
         type: string
+      publishedAt:
+        description: PublishedAt is when the VOD became READY.
+        type: string
+      source:
+        enum:
+        - LIVE
+        - UPLOAD
+        type: string
       status:
         type: string
       streamId:
+        description: StreamID is null for an uploaded video.
         type: string
       thumbnailUrl:
         type: string
@@ -447,12 +572,30 @@ definitions:
     type: object
   VODPatchRequest:
     properties:
+      categoryId:
+        description: 'CategoryID: "" removes the category.'
+        type: string
+      description:
+        type: string
+      isMature:
+        type: boolean
       title:
         type: string
       visibility:
         enum:
         - PUBLIC
         - HIDDEN
+        type: string
+    type: object
+  VODProcessing:
+    properties:
+      percent:
+        type: integer
+      stage:
+        enum:
+        - PROBING
+        - TRANSCODING
+        - UPLOADING
         type: string
     type: object
   VODViewer:
@@ -462,19 +605,28 @@ definitions:
     type: object
 info:
   contact: {}
-  description: Stream keys, Studio, live catalog and VODs. Get a token from identity-svc
-    (http://localhost:8090/swagger/index.html → /auth/login) and paste "Bearer <accessToken>"
-    into Authorize.
+  description: Stream keys, Studio (video uploads included), live catalog and VODs.
+    Get a token from identity-svc (http://localhost:8090/swagger/index.html → /auth/login)
+    and paste "Bearer <accessToken>" into Authorize.
   title: NexusLive stream-svc API
   version: "1.0"
 paths:
   /channels/{id}/vods:
     get:
+      description: Broadcast recordings (source LIVE) and uploaded videos (source
+        UPLOAD); source filters them.
       parameters:
       - description: channel id (uuid)
         in: path
         name: id
         required: true
+        type: string
+      - description: filter
+        enum:
+        - LIVE
+        - UPLOAD
+        in: query
+        name: source
         type: string
       - description: nextCursor of the previous page
         in: query
@@ -493,7 +645,7 @@ paths:
           schema:
             $ref: '#/definitions/Data-internal_controller_restapi_v1_VODList'
         "400":
-          description: VALIDATION_FAILED (cursor = INVALID)
+          description: VALIDATION_FAILED (source = ENUM, cursor = INVALID)
           schema:
             $ref: '#/definitions/ErrorResponse'
         "404":
@@ -897,8 +1049,250 @@ paths:
       summary: End the broadcast
       tags:
       - studio
+  /studio/uploads:
+    post:
+      consumes:
+      - application/json
+      description: Opens a session that takes the file in parts of partSize bytes
+        (PUT …/parts/{n}, 1…partCount) until expiresAt. At most 3 uploads in flight
+        (uploading or processing) and 10 sessions a day per channel.
+      parameters:
+      - description: file and video details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UploadRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Upload'
+        "400":
+          description: VALIDATION_FAILED (fileName / contentType / title / description
+            = LENGTH, sizeBytes = MIN, categoryId = INVALID, visibility = ENUM)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR, CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "413":
+          description: FILE_TOO_LARGE (details.maxBytes)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "422":
+          description: UNSUPPORTED_FORMAT
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "429":
+          description: UPLOAD_LIMIT_REACHED (details.limit = ACTIVE | DAILY, details.retryAfterSec)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "503":
+          description: STORAGE_UNAVAILABLE
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: start uploading a video file'
+      tags:
+      - studio-uploads
+  /studio/uploads/{id}:
+    delete:
+      description: Drops the parts received so far. A session already aborted or expired
+        is 204 too.
+      parameters:
+      - description: upload id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: 'INVALID_STATE (COMPLETED: delete the video instead)'
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "503":
+          description: STORAGE_UNAVAILABLE (uploads turned off)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: cancel an upload'
+      tags:
+      - studio-uploads
+    get:
+      parameters:
+      - description: upload id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Upload'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "503":
+          description: STORAGE_UNAVAILABLE (uploads turned off)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: an upload session and the parts received so far'
+      tags:
+      - studio-uploads
+  /studio/uploads/{id}/complete:
+    post:
+      description: Assembles the parts and creates the video, PROCESSING until media-svc
+        has transcoded it (follow it in GET /studio/vods). Calling it again on a COMPLETED
+        session returns the same vodId.
+      parameters:
+      - description: upload id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_UploadCompleted'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR, CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: 'PARTS_MISSING (details.missing: part numbers)'
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "410":
+          description: UPLOAD_EXPIRED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "503":
+          description: STORAGE_UNAVAILABLE
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: finish the upload'
+      tags:
+      - studio-uploads
+  /studio/uploads/{id}/parts/{n}:
+    put:
+      consumes:
+      - application/octet-stream
+      description: 'The body is the part''s bytes (application/octet-stream, at most
+        8 MiB): exactly partSize bytes for every part but the last, which carries
+        the rest of the file. Sending a part again replaces it.'
+      parameters:
+      - description: upload id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: part number, 1…partCount
+        in: path
+        name: "n"
+        required: true
+        type: integer
+      - description: the part's bytes
+        format: binary
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_PartReceived'
+        "400":
+          description: INVALID_PART (details.expectedBytes when the size is wrong)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR, CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: INVALID_STATE (COMPLETED)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "410":
+          description: UPLOAD_EXPIRED (EXPIRED or ABORTED)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "503":
+          description: STORAGE_UNAVAILABLE
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: send one part of the file'
+      tags:
+      - studio-uploads
   /studio/vods:
     get:
+      description: Uploaded videos (source UPLOAD) are listed while PROCESSING (processing.percent)
+        and when FAILED (failureReason, retryable); poll every 3 s while one is PROCESSING.
       parameters:
       - description: filter
         enum:
@@ -911,8 +1305,17 @@ paths:
         enum:
         - READY
         - EXPIRED
+        - PROCESSING
+        - FAILED
         in: query
         name: status
+        type: string
+      - description: filter
+        enum:
+        - LIVE
+        - UPLOAD
+        in: query
+        name: source
         type: string
       - description: nextCursor of the previous page
         in: query
@@ -931,7 +1334,8 @@ paths:
           schema:
             $ref: '#/definitions/Data-internal_controller_restapi_v1_StudioVODList'
         "400":
-          description: VALIDATION_FAILED (visibility / status = ENUM, cursor = INVALID)
+          description: VALIDATION_FAILED (visibility / status / source = ENUM, cursor
+            = INVALID)
           schema:
             $ref: '#/definitions/ErrorResponse'
         "401":
@@ -944,14 +1348,15 @@ paths:
             $ref: '#/definitions/ErrorResponse'
       security:
       - BearerAuth: []
-      summary: 'Studio: the channel''s VODs (READY and EXPIRED, hidden ones included),
-        newest first'
+      summary: 'Studio: the channel''s VODs (READY, EXPIRED, PROCESSING and FAILED,
+        hidden ones included), newest first'
       tags:
       - studio
   /studio/vods/{id}:
     delete:
-      description: Soft delete; media-svc then removes its files (vod.deleted.v1).
-        A VOD already deleted is 404.
+      description: Soft delete of a READY, EXPIRED, PROCESSING or FAILED VOD; media-svc
+        then removes its files (vod.deleted.v1 carries playlistPrefix). A VOD already
+        deleted is 404.
       parameters:
       - description: vod id (uuid)
         in: path
@@ -982,7 +1387,10 @@ paths:
       consumes:
       - application/json
       description: A hidden VOD disappears from every public list, search and continue-watching;
-        its URL is 404 for everyone but the owner.
+        its URL is 404 for everyone but the owner. description, categoryId ("" removes
+        it) and isMature apply to uploaded videos only (409 on a broadcast VOD); an
+        uploaded video can change while READY or PROCESSING, a broadcast VOD while
+        READY.
       parameters:
       - description: vod id (uuid)
         in: path
@@ -1003,8 +1411,8 @@ paths:
           schema:
             $ref: '#/definitions/Data-StudioVOD'
         "400":
-          description: VALIDATION_FAILED (body = REQUIRED, title = LENGTH, visibility
-            = ENUM)
+          description: VALIDATION_FAILED (body = REQUIRED, title / description = LENGTH,
+            visibility = ENUM, categoryId = INVALID)
           schema:
             $ref: '#/definitions/ErrorResponse'
         "401":
@@ -1020,12 +1428,56 @@ paths:
           schema:
             $ref: '#/definitions/ErrorResponse'
         "409":
-          description: INVALID_STATE (EXPIRED)
+          description: INVALID_STATE (EXPIRED, FAILED, or an upload-only field on
+            a broadcast VOD)
           schema:
             $ref: '#/definitions/ErrorResponse'
       security:
       - BearerAuth: []
-      summary: 'Studio: rename, hide or show a VOD'
+      summary: 'Studio: rename, hide or show a VOD; describe an uploaded video'
+      tags:
+      - studio
+  /studio/vods/{id}/retry:
+    post:
+      description: Only for an upload FAILED with retryable = true while its source
+        file is still stored (3 days); the VOD goes back to PROCESSING.
+      parameters:
+      - description: vod id (uuid)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/Data-StudioVOD'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: NOT_CREATOR, CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: INVALID_STATE (not FAILED, not retryable, broadcast VOD or
+            source gone)
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "503":
+          description: STORAGE_UNAVAILABLE
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: 'Studio: transcode a FAILED uploaded video again'
       tags:
       - studio
   /vods:

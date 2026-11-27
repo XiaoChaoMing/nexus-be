@@ -43,12 +43,15 @@ type Options struct {
 	// HLSSigning signs playback URLs with HLSSecret (nginx secure_link) and empties the public manifestUrl.
 	HLSSigning bool
 	HLSSecret  string
+	// UploadsEnabled is false when object storage is turned off: /studio/uploads answers 503 STORAGE_UNAVAILABLE.
+	UploadsEnabled bool
 }
 
 type routes struct {
 	studio  usecase.Studio
 	catalog usecase.Catalog
 	viewer  usecase.Viewer
+	uploads usecase.Uploads
 	l       logger.Interface
 	o       Options
 }
@@ -60,12 +63,12 @@ type Auth struct {
 	Optional fiber.Handler
 }
 
-// NewRoutes registers /v1/studio, /v1/streams, /v1/vods and the viewer's /v1/me/watch-progress and
-// /v1/me/continue-watching.
-func NewRoutes(group fiber.Router, studio usecase.Studio, catalog usecase.Catalog, viewer usecase.Viewer, auth Auth,
-	l logger.Interface, o Options,
+// NewRoutes registers /v1/studio (uploads included), /v1/streams, /v1/vods and the viewer's /v1/me/watch-progress
+// and /v1/me/continue-watching.
+func NewRoutes(group fiber.Router, studio usecase.Studio, catalog usecase.Catalog, viewer usecase.Viewer,
+	uploads usecase.Uploads, auth Auth, l logger.Interface, o Options,
 ) {
-	r := &routes{studio: studio, catalog: catalog, viewer: viewer, l: l, o: o}
+	r := &routes{studio: studio, catalog: catalog, viewer: viewer, uploads: uploads, l: l, o: o}
 
 	st := group.Group("/studio", auth.Required, r.requireCreator)
 	{
@@ -78,6 +81,16 @@ func NewRoutes(group fiber.Router, studio usecase.Studio, catalog usecase.Catalo
 		st.Get("/vods", r.studioVODs)
 		st.Patch("/vods/:id", r.updateVOD)
 		st.Delete("/vods/:id", r.deleteVOD)
+		st.Post("/vods/:id/retry", r.retryVOD)
+	}
+
+	up := st.Group("/uploads", r.requireUploads)
+	{
+		up.Post("", r.createUpload)
+		up.Get("/:id", r.getUpload)
+		up.Put("/:id/parts/:n", r.putPart)
+		up.Post("/:id/complete", r.completeUpload)
+		up.Delete("/:id", r.abortUpload)
 	}
 
 	// Static routes before the :id ones of the same prefix.
@@ -96,6 +109,19 @@ func NewRoutes(group fiber.Router, studio usecase.Studio, catalog usecase.Catalo
 }
 
 func errorJSON(ctx *fiber.Ctx, status int, code, message string, details map[string]string) error {
+	var d map[string]any
+	if len(details) > 0 {
+		d = make(map[string]any, len(details))
+		for k, v := range details {
+			d[k] = v
+		}
+	}
+
+	return errorDetails(ctx, status, code, message, d)
+}
+
+// errorDetails answers with details that are not all strings (numbers, lists).
+func errorDetails(ctx *fiber.Ctx, status int, code, message string, details map[string]any) error {
 	return ctx.Status(status).JSON(ErrorResponse{Error: ErrorBody{Code: code, Message: message, Details: details}})
 }
 
@@ -238,7 +264,7 @@ func (b SettingsRequest) validate() map[string]string {
 	errs := map[string]string{}
 
 	if n := utf8.RuneCountInString(strings.TrimSpace(b.Title)); n == 0 || n > _maxTitle {
-		errs["title"] = "LENGTH"
+		errs["title"] = _detailLength
 	}
 
 	if len(b.Tags) > _maxTags {
@@ -252,7 +278,7 @@ func (b SettingsRequest) validate() map[string]string {
 	}
 
 	if len(b.Language) > _maxLang {
-		errs["language"] = "LENGTH"
+		errs["language"] = _detailLength
 	}
 
 	if b.CategoryID != nil {
@@ -476,7 +502,9 @@ func (r *routes) vodBody(v entity.VOD) VOD {
 		ID:           v.ID,
 		StreamID:     v.StreamID,
 		ChannelID:    v.ChannelID,
+		Source:       v.Source,
 		Title:        v.Title,
+		Description:  v.Description,
 		DurationSec:  v.DurationSec,
 		ManifestURL:  r.publicManifest(v.PlaylistPath),
 		ThumbnailURL: r.objectURL(v.ThumbnailURL),
@@ -485,7 +513,8 @@ func (r *routes) vodBody(v entity.VOD) VOD {
 		IsMature:     v.IsMature,
 		Category:     categoryRef(v.CategoryID),
 		CreatedAt:    v.CreatedAt.UTC(),
-		ExpiresAt:    v.ExpiresAt.UTC(),
+		PublishedAt:  utcPtr(v.PublishedAt),
+		ExpiresAt:    utcPtr(v.ExpiresAt),
 		Channel:      channelRef(v.Channel),
 	}
 }

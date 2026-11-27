@@ -16,11 +16,12 @@ type ErrorResponse struct {
 	Error ErrorBody `json:"error"`
 }
 
-// ErrorBody -.
+// ErrorBody -. Details are strings (a field's rule), except where an endpoint documents numbers or lists
+// (maxBytes, expectedBytes, retryAfterSec, missing).
 type ErrorBody struct {
-	Code    string            `json:"code"`
-	Message string            `json:"message"`
-	Details map[string]string `json:"details,omitempty"`
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // StreamKeyCreated is the only response that ever carries the key.
@@ -110,10 +111,13 @@ type StreamList struct {
 
 // VOD -.
 type VOD struct {
-	ID           string       `json:"id"`
-	StreamID     string       `json:"streamId"`
+	ID string `json:"id"`
+	// StreamID is null for an uploaded video.
+	StreamID     *string      `json:"streamId"`
 	ChannelID    string       `json:"channelId"`
+	Source       string       `json:"source" enums:"LIVE,UPLOAD"`
 	Title        string       `json:"title"`
+	Description  string       `json:"description"`
 	DurationSec  int          `json:"durationSec"`
 	ManifestURL  string       `json:"manifestUrl"`
 	ThumbnailURL string       `json:"thumbnailUrl"`
@@ -122,8 +126,11 @@ type VOD struct {
 	IsMature     bool         `json:"isMature"`
 	Category     *CategoryRef `json:"category"`
 	CreatedAt    time.Time    `json:"createdAt"`
-	ExpiresAt    time.Time    `json:"expiresAt"`
-	Channel      *Channel     `json:"channel"`
+	// PublishedAt is when the VOD became READY.
+	PublishedAt *time.Time `json:"publishedAt"`
+	// ExpiresAt is null for an uploaded video: it never expires.
+	ExpiresAt *time.Time `json:"expiresAt"`
+	Channel   *Channel   `json:"channel"`
 	// Viewer is present only when the request carries a valid token.
 	Viewer *VODViewer `json:"viewer,omitempty"`
 }
@@ -136,17 +143,36 @@ type VODList struct {
 
 // StudioVOD is a VOD in the Studio's content list.
 type StudioVOD struct {
-	ID           string       `json:"id"`
-	StreamID     string       `json:"streamId"`
-	Title        string       `json:"title"`
-	DurationSec  int          `json:"durationSec"`
-	ThumbnailURL string       `json:"thumbnailUrl"`
-	ManifestURL  string       `json:"manifestUrl"`
-	Status       string       `json:"status" enums:"READY,EXPIRED"`
-	Visibility   string       `json:"visibility" enums:"PUBLIC,HIDDEN"`
-	Category     *CategoryRef `json:"category"`
-	CreatedAt    time.Time    `json:"createdAt"`
-	ExpiresAt    time.Time    `json:"expiresAt"`
+	ID string `json:"id"`
+	// StreamID is null for an uploaded video.
+	StreamID     *string `json:"streamId"`
+	Source       string  `json:"source" enums:"LIVE,UPLOAD"`
+	Title        string  `json:"title"`
+	Description  string  `json:"description"`
+	DurationSec  int     `json:"durationSec"`
+	ThumbnailURL string  `json:"thumbnailUrl"`
+	// ManifestURL is empty until the VOD is READY.
+	ManifestURL string       `json:"manifestUrl"`
+	Status      string       `json:"status" enums:"READY,EXPIRED,PROCESSING,FAILED"`
+	Visibility  string       `json:"visibility" enums:"PUBLIC,HIDDEN"`
+	IsMature    bool         `json:"isMature"`
+	Category    *CategoryRef `json:"category"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	PublishedAt *time.Time   `json:"publishedAt"`
+	// ExpiresAt is null for an uploaded video.
+	ExpiresAt *time.Time `json:"expiresAt"`
+	// Processing is set only while PROCESSING.
+	Processing *VODProcessing `json:"processing"`
+	// FailureReason and Retryable describe a FAILED upload (UNSUPPORTED_FORMAT, NO_VIDEO_STREAM, DURATION_TOO_LONG,
+	// FILE_CORRUPT, TRANSCODE_FAILED, STORAGE_ERROR); Retryable allows POST /studio/vods/{id}/retry.
+	FailureReason *string `json:"failureReason"`
+	Retryable     bool    `json:"retryable"`
+}
+
+// VODProcessing is the transcoding progress of an uploaded video; stage is null before the first report.
+type VODProcessing struct {
+	Percent int     `json:"percent"`
+	Stage   *string `json:"stage" enums:"PROBING,TRANSCODING,UPLOADING"`
 }
 
 // StudioVODList -.

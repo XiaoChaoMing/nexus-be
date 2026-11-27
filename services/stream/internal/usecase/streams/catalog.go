@@ -316,7 +316,7 @@ func (uc *UseCase) RecommendedVODs(ctx context.Context, limit int) ([]entity.VOD
 }
 
 // ChannelVODs -.
-func (uc *UseCase) ChannelVODs(ctx context.Context, channelID, cursor string, limit int) (usecase.VODPage, error) {
+func (uc *UseCase) ChannelVODs(ctx context.Context, channelID, source, cursor string, limit int) (usecase.VODPage, error) {
 	known, err := uc.channels.ChannelsByID(ctx, []string{channelID})
 	if err != nil {
 		return usecase.VODPage{}, fmt.Errorf("StreamUseCase - ChannelVODs: %w", err)
@@ -327,7 +327,12 @@ func (uc *UseCase) ChannelVODs(ctx context.Context, channelID, cursor string, li
 	}
 
 	return uc.vodPage(ctx, "ChannelVODs", cursor, limit, func(after *repo.VODCursor, n int) ([]entity.VOD, error) {
-		return uc.vods.ListByChannel(ctx, channelID, true, repo.StudioVODFilter{}, after, n)
+		f := repo.StudioVODFilter{}
+		if source != "" {
+			f.Source = &source
+		}
+
+		return uc.vods.ListByChannel(ctx, channelID, true, f, after, n)
 	})
 }
 

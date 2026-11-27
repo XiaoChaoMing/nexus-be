@@ -86,11 +86,10 @@ func (r *Repo) Progress(ctx context.Context, userID, vodID string) (*int, error)
 // ContinueWatching -.
 func (r *Repo) ContinueWatching(ctx context.Context, userID string, limit int) ([]entity.ContinueItem, error) {
 	rows, err := r.Pool.Query(ctx,
-		`SELECT v.id::text, v.stream_id::text, v.channel_id::text, v.title, COALESCE(v.duration_sec, 0),
-		        COALESCE(v.playlist_path, ''), COALESCE(v.thumbnail_url, ''), v.status, v.created_at, v.expires_at,
-		        w.position_sec, w.updated_at
+		`SELECT `+_vodCols+`, w.position_sec, w.updated_at
 		 FROM watch_progress w JOIN vods v ON v.id = w.vod_id
-		 WHERE w.user_id = $1 AND v.status = 'READY' AND v.visibility = 'PUBLIC' AND v.expires_at > now()
+		 WHERE w.user_id = $1 AND v.status = 'READY' AND v.visibility = 'PUBLIC'
+		   AND (v.expires_at IS NULL OR v.expires_at > now())
 		   AND w.position_sec >= $2
 		   AND (v.duration_sec IS NULL OR v.duration_sec = 0 OR w.position_sec < v.duration_sec - $3)
 		 ORDER BY w.updated_at DESC, v.id DESC
@@ -106,9 +105,7 @@ func (r *Repo) ContinueWatching(ctx context.Context, userID string, limit int) (
 	for rows.Next() {
 		var it entity.ContinueItem
 
-		v := &it.VOD
-		if err = rows.Scan(&v.ID, &v.StreamID, &v.ChannelID, &v.Title, &v.DurationSec, &v.PlaylistPath, &v.ThumbnailURL,
-			&v.Status, &v.CreatedAt, &v.ExpiresAt, &it.PositionSec, &it.UpdatedAt); err != nil {
+		if err = rows.Scan(append(vodDest(&it.VOD), &it.PositionSec, &it.UpdatedAt)...); err != nil {
 			return nil, fmt.Errorf("Repo - ContinueWatching - scan: %w", err)
 		}
 

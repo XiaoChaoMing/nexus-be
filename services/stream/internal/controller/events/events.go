@@ -1,5 +1,5 @@
-// Package events consumes media-svc ingest events, channel-svc channel events and chat-svc peak viewer
-// counts from JetStream.
+// Package events consumes media-svc ingest and upload transcoding events, channel-svc channel events, safety-svc
+// actions and chat-svc peak viewer counts from JetStream.
 package events
 
 import (
@@ -27,6 +27,9 @@ const (
 	_maxHandle      = 25
 	_maxDisplayName = 50
 	_maxTitle       = 140
+	_maxPercent     = 100
+	// vods.failure_reason is varchar(32).
+	_maxFailureReason = 32
 )
 
 // Types consumed by stream-svc.
@@ -34,17 +37,22 @@ var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeIngestStarted, events.TypeIngestStopped, events.TypeIngestHealth, events.TypeVODProcessed,
 	events.TypeChannelCreated, events.TypeChannelUpdated, events.TypeStreamPeakViewers,
 	events.TypeScheduleUpdated, events.TypeScheduleOccurrenceUpcoming, events.TypeScheduleOccurrenceChanged,
-	events.TypeStreamTakedown, events.TypeChannelSuspended, events.TypeChannelRestored,
+	events.TypeStreamTakedown, events.TypeChannelSuspended, events.TypeChannelRestored, events.TypeVODTakedown,
+	events.TypeUploadProgress, events.TypeUploadProcessed, events.TypeUploadFailed,
 }
 
-// Handler routes one event to the ingest, channel, schedule or safety use case.
-func Handler(ingest usecase.Ingest, channels usecase.ChannelSync, schedules usecase.Schedules, safety usecase.Safety) eventbus.Handler {
+// Handler routes one event to the ingest, channel, schedule, safety or upload use case.
+func Handler(ingest usecase.Ingest, channels usecase.ChannelSync, schedules usecase.Schedules, safety usecase.Safety,
+	uploads usecase.UploadEvents,
+) eventbus.Handler {
 	base := ingestHandler(ingest, channels, schedules)
 
 	return func(ctx context.Context, e eventbus.Event) error {
 		switch e.Type {
-		case events.TypeStreamTakedown, events.TypeChannelSuspended, events.TypeChannelRestored:
-			return onSafety(ctx, safety, e)
+		case events.TypeStreamTakedown, events.TypeChannelSuspended, events.TypeChannelRestored, events.TypeVODTakedown:
+			return onSafety(ctx, safety, uploads, e)
+		case events.TypeUploadProgress, events.TypeUploadProcessed, events.TypeUploadFailed:
+			return onUpload(ctx, uploads, e)
 		}
 
 		return base(ctx, e)
@@ -85,18 +93,26 @@ func ingestHandler(ingest usecase.Ingest, channels usecase.ChannelSync, schedule
 }
 
 // onSafety needs the event id: processed_events applies each action once.
-func onSafety(ctx context.Context, safety usecase.Safety, e eventbus.Event) error {
+func onSafety(ctx context.Context, safety usecase.Safety, uploads usecase.UploadEvents, e eventbus.Event) error {
 	if e.ID == "" {
 		return fmt.Errorf("%w: %s: no event id", eventbus.ErrSkip, e.Type)
 	}
 
-	if e.Type == events.TypeStreamTakedown {
+	switch e.Type {
+	case events.TypeStreamTakedown:
 		var p events.StreamTakedown
 		if err := decode(e, &p.StreamID, &p); err != nil {
 			return err
 		}
 
 		return safety.Takedown(ctx, e.ID, p)
+	case events.TypeVODTakedown:
+		var p events.VODTakedown
+		if err := decode(e, &p.VODID, &p); err != nil {
+			return err
+		}
+
+		return safety.VODTakedown(ctx, e.ID, p)
 	}
 
 	var p events.ChannelSuspended
@@ -104,11 +120,96 @@ func onSafety(ctx context.Context, safety usecase.Safety, e eventbus.Event) erro
 		return err
 	}
 
-	if e.Type == events.TypeChannelSuspended {
-		return safety.ChannelSuspended(ctx, e.ID, p)
+	if e.Type == events.TypeChannelRestored {
+		return safety.ChannelRestored(ctx, e.ID, p)
 	}
 
-	return safety.ChannelRestored(ctx, e.ID, p)
+	if err := safety.ChannelSuspended(ctx, e.ID, p); err != nil {
+		return err
+	}
+
+	// Not de-duplicated by the event id: aborting the sessions still UPLOADING is idempotent, and a redelivery
+	// after a failure here must retry it.
+	return uploads.AbortChannel(ctx, p.ChannelID)
+}
+
+// onUpload applies media-svc's transcoding results. Their event ids are not uuids (upload-processed-{vodId}): the
+// handlers are idempotent through the VOD's state instead of processed_events.
+func onUpload(ctx context.Context, uploads usecase.UploadEvents, e eventbus.Event) error {
+	switch e.Type {
+	case events.TypeUploadProgress:
+		return onUploadProgress(ctx, uploads, e)
+	case events.TypeUploadProcessed:
+		return onUploadProcessed(ctx, uploads, e)
+	}
+
+	var p events.UploadFailed
+	if err := decodePayload(e, &p.VODID, &p); err != nil {
+		return err
+	}
+
+	if p.Reason == "" || len(p.Reason) > _maxFailureReason {
+		return fmt.Errorf("%w: %s: bad reason", eventbus.ErrSkip, e.Type)
+	}
+
+	return uploads.Failed(ctx, p)
+}
+
+func onUploadProgress(ctx context.Context, uploads usecase.UploadEvents, e eventbus.Event) error {
+	var p events.UploadProgress
+	if err := decodePayload(e, &p.VODID, &p); err != nil {
+		return err
+	}
+
+	if p.Percent < 0 || p.Percent > _maxPercent || !validStage(p.Stage) {
+		return fmt.Errorf("%w: %s: bad progress", eventbus.ErrSkip, e.Type)
+	}
+
+	return uploads.Progress(ctx, p)
+}
+
+// onUploadProcessed accepts object keys under videos/{vodId}/ only; a thumbnail elsewhere (or none) is dropped.
+func onUploadProcessed(ctx context.Context, uploads usecase.UploadEvents, e eventbus.Event) error {
+	var p events.UploadProcessed
+	if err := decodePayload(e, &p.VODID, &p); err != nil {
+		return err
+	}
+
+	prefix := "videos/" + p.VODID + "/"
+	if !strings.HasPrefix(p.PlaylistPath, prefix) || math.IsNaN(p.DurationSec) || p.DurationSec < 0 {
+		return fmt.Errorf("%w: %s: playlist path %q", eventbus.ErrSkip, e.Type, p.PlaylistPath)
+	}
+
+	if !strings.HasPrefix(p.ThumbnailPath, prefix) {
+		p.ThumbnailPath = ""
+	}
+
+	return uploads.Processed(ctx, p)
+}
+
+func validStage(s string) bool {
+	switch s {
+	case events.UploadStageProbing, events.UploadStageTranscoding, events.UploadStageUploading:
+		return true
+	}
+
+	return false
+}
+
+// decodePayload decodes an event whose id is not a uuid and checks the payload's key uuid.
+func decodePayload(e eventbus.Event, id *string, into any) error {
+	if err := json.Unmarshal(e.Payload, into); err != nil {
+		return fmt.Errorf("%w: %s: %w", eventbus.ErrSkip, e.Type, err)
+	}
+
+	u, err := uuid.Parse(*id)
+	if err != nil {
+		return fmt.Errorf("%w: %s: bad id", eventbus.ErrSkip, e.Type)
+	}
+
+	*id = u.String()
+
+	return nil
 }
 
 func onSchedule(ctx context.Context, schedules usecase.Schedules, e eventbus.Event) error {

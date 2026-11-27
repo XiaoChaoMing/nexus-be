@@ -18,7 +18,12 @@ func (*fakeStudio) UpdateVOD(_ context.Context, _, vodID string, p entity.VODPat
 		return entity.VOD{}, entity.ErrInvalidState
 	}
 
-	return entity.VOD{ID: vodID, Status: entity.VODReady, Visibility: *p.Visibility}, nil
+	v := entity.VOD{ID: vodID, Status: entity.VODReady, Visibility: entity.VisibilityPublic}
+	if p.Visibility != nil {
+		v.Visibility = *p.Visibility
+	}
+
+	return v, nil
 }
 
 func (*fakeStudio) DeleteVOD(_ context.Context, _, vodID string) error {
@@ -61,6 +66,23 @@ func TestGD4Validation(t *testing.T) { //nolint:funlen // one table of routes
 		},
 		{name: "channel vods bad id", method: http.MethodGet, path: "/v1/channels/minhnn/vods", status: http.StatusNotFound},
 		{
+			name: "channel vods source", method: http.MethodGet, path: "/v1/channels/0199d4a2-0000-7000-8000-000000000001/vods?source=live",
+			status: http.StatusBadRequest, details: map[string]string{"source": "ENUM"},
+		},
+		{
+			name: "studio vods filters", method: http.MethodGet, path: "/v1/studio/vods?status=DELETED&source=X",
+			status: http.StatusBadRequest, details: map[string]string{"status": "ENUM", "source": "ENUM"},
+		},
+		{
+			name: "patch upload fields", method: http.MethodPatch, path: "/v1/studio/vods/0199d4a2-0000-7000-8000-000000000001",
+			body: `{"description":"` + strings.Repeat("d", 5001) + `","categoryId":"x"}`, status: http.StatusBadRequest,
+			details: map[string]string{"description": "LENGTH", "categoryId": "INVALID"},
+		},
+		{
+			name: "patch removes category", method: http.MethodPatch, path: "/v1/studio/vods/0199d4a2-0000-7000-8000-000000000001",
+			body: `{"categoryId":"","isMature":true}`, status: http.StatusOK,
+		},
+		{
 			name: "settings category", method: http.MethodPut, path: "/v1/studio/stream", body: `{"title":"x","categoryId":"lmht"}`,
 			status: http.StatusBadRequest, details: map[string]string{"categoryId": "INVALID"},
 		},
@@ -97,7 +119,12 @@ func TestGD4Validation(t *testing.T) { //nolint:funlen // one table of routes
 			require.Equal(t, tc.status, status, string(body))
 
 			if tc.details != nil {
-				require.Equal(t, tc.details, decode[v1.ErrorResponse](t, body).Error.Details)
+				want := map[string]any{}
+				for k, v := range tc.details {
+					want[k] = v
+				}
+
+				require.Equal(t, want, decode[v1.ErrorResponse](t, body).Error.Details)
 			}
 		})
 	}

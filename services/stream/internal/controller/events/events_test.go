@@ -68,7 +68,7 @@ func TestChannelCreated(t *testing.T) {
 	rec := &recChannels{}
 	ch, owner := uuid.NewString(), uuid.NewString()
 
-	err := events.Handler(noIngest{}, rec, &recSchedules{}, nil)(context.Background(), eventbus.Event{
+	err := events.Handler(noIngest{}, rec, &recSchedules{}, nil, nil)(context.Background(), eventbus.Event{
 		ID: uuid.NewString(), Type: pkgevents.TypeChannelCreated, Payload: channelPayload(ch, owner, "minhnn", "Minh"),
 	})
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestChannelCreatedSkipsBadPayloads(t *testing.T) {
 			t.Parallel()
 
 			rec := &recChannels{}
-			err := events.Handler(noIngest{}, rec, &recSchedules{}, nil)(context.Background(), eventbus.Event{
+			err := events.Handler(noIngest{}, rec, &recSchedules{}, nil, nil)(context.Background(), eventbus.Event{
 				ID: tc.id, Type: pkgevents.TypeChannelCreated, Payload: tc.payload,
 			})
 			require.ErrorIs(t, err, eventbus.ErrSkip)
@@ -127,7 +127,7 @@ func TestPeakViewers(t *testing.T) {
 
 	id := uuid.NewString()
 	rec := &recPeak{}
-	h := events.Handler(rec, &recChannels{}, &recSchedules{}, nil)
+	h := events.Handler(rec, &recChannels{}, &recSchedules{}, nil, nil)
 
 	err := h(context.Background(), eventbus.Event{
 		ID: uuid.NewString(), Type: pkgevents.TypeStreamPeakViewers, Payload: []byte(`{"streamId":"` + id + `","peakViewers":7}`),
@@ -149,7 +149,7 @@ func TestChannelUpdated(t *testing.T) {
 	rec := &recChannels{}
 	ch, owner := uuid.NewString(), uuid.NewString()
 
-	err := events.Handler(noIngest{}, rec, &recSchedules{}, nil)(context.Background(), eventbus.Event{
+	err := events.Handler(noIngest{}, rec, &recSchedules{}, nil, nil)(context.Background(), eventbus.Event{
 		ID: uuid.NewString(), Type: pkgevents.TypeChannelUpdated,
 		Payload: []byte(`{"channelId":"` + ch + `","ownerId":"` + owner + `","handle":"new_handle","displayName":"Minh","avatarUrl":"/media/a.jpg"}`),
 	})
@@ -162,7 +162,7 @@ func TestScheduleEvents(t *testing.T) {
 	t.Parallel()
 
 	rec := &recSchedules{}
-	h := events.Handler(noIngest{}, &recChannels{}, rec, nil)
+	h := events.Handler(noIngest{}, &recChannels{}, rec, nil, nil)
 	ctx := context.Background()
 	sched, ch := uuid.NewString(), uuid.NewString()
 
@@ -197,9 +197,16 @@ func TestScheduleEvents(t *testing.T) {
 }
 
 type recSafety struct {
-	takedowns []pkgevents.StreamTakedown
-	suspended []string
-	restored  []string
+	takedowns    []pkgevents.StreamTakedown
+	vodTakedowns []pkgevents.VODTakedown
+	suspended    []string
+	restored     []string
+}
+
+func (r *recSafety) VODTakedown(_ context.Context, _ string, e pkgevents.VODTakedown) error {
+	r.vodTakedowns = append(r.vodTakedowns, e)
+
+	return nil
 }
 
 func (r *recSafety) Takedown(_ context.Context, _ string, e pkgevents.StreamTakedown) error {
@@ -224,7 +231,7 @@ func TestSafetyEvents(t *testing.T) {
 	t.Parallel()
 
 	rec := &recSafety{}
-	h := events.Handler(noIngest{}, &recChannels{}, &recSchedules{}, rec)
+	h := events.Handler(noIngest{}, &recChannels{}, &recSchedules{}, rec, &recUploads{})
 	ctx := context.Background()
 	st, ch := uuid.NewString(), uuid.NewString()
 
@@ -245,9 +252,115 @@ func TestSafetyEvents(t *testing.T) {
 	require.Equal(t, []string{ch}, rec.suspended)
 	require.Equal(t, []string{ch}, rec.restored)
 
-	err := h(ctx, eventbus.Event{Type: pkgevents.TypeChannelSuspended, Payload: []byte(`{"channelId":"` + ch + `"}`)})
+	vod := uuid.NewString()
+	require.NoError(t, h(ctx, eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeVODTakedown,
+		Payload: []byte(`{"actionId":"` + uuid.NewString() + `","vodId":"` + vod + `","channelId":"` + ch + `"}`),
+	}))
+	require.Len(t, rec.vodTakedowns, 1)
+	require.Equal(t, vod, rec.vodTakedowns[0].VODID)
+
+	err := h(ctx, eventbus.Event{ID: uuid.NewString(), Type: pkgevents.TypeVODTakedown, Payload: []byte(`{"vodId":"x"}`)})
+	require.ErrorIs(t, err, eventbus.ErrSkip, "bad vod id")
+
+	err = h(ctx, eventbus.Event{Type: pkgevents.TypeChannelSuspended, Payload: []byte(`{"channelId":"` + ch + `"}`)})
 	require.ErrorIs(t, err, eventbus.ErrSkip, "no event id")
 
 	err = h(ctx, eventbus.Event{ID: uuid.NewString(), Type: pkgevents.TypeStreamTakedown, Payload: []byte(`{"streamId":"x"}`)})
 	require.ErrorIs(t, err, eventbus.ErrSkip, "bad stream id")
+}
+
+type recUploads struct {
+	progress  []pkgevents.UploadProgress
+	processed []pkgevents.UploadProcessed
+	failed    []pkgevents.UploadFailed
+	aborted   []string
+}
+
+func (r *recUploads) Progress(_ context.Context, e pkgevents.UploadProgress) error {
+	r.progress = append(r.progress, e)
+
+	return nil
+}
+
+func (r *recUploads) Processed(_ context.Context, e pkgevents.UploadProcessed) error {
+	r.processed = append(r.processed, e)
+
+	return nil
+}
+
+func (r *recUploads) Failed(_ context.Context, e pkgevents.UploadFailed) error {
+	r.failed = append(r.failed, e)
+
+	return nil
+}
+
+func (r *recUploads) AbortChannel(_ context.Context, channelID string) error {
+	r.aborted = append(r.aborted, channelID)
+
+	return nil
+}
+
+func TestSuspensionAbortsUploads(t *testing.T) {
+	t.Parallel()
+
+	up := &recUploads{}
+	h := events.Handler(noIngest{}, &recChannels{}, &recSchedules{}, &recSafety{}, up)
+	ch := uuid.NewString()
+
+	require.NoError(t, h(context.Background(), eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeChannelSuspended, Payload: []byte(`{"channelId":"` + ch + `"}`),
+	}))
+	require.NoError(t, h(context.Background(), eventbus.Event{
+		ID: uuid.NewString(), Type: pkgevents.TypeChannelRestored, Payload: []byte(`{"channelId":"` + ch + `"}`),
+	}))
+	require.Equal(t, []string{ch}, up.aborted, "only a suspension aborts uploads")
+}
+
+func TestUploadEvents(t *testing.T) {
+	t.Parallel()
+
+	vod := uuid.NewString()
+	prefix := "videos/" + vod + "/"
+
+	for _, tc := range []struct {
+		name    string
+		typ     string
+		payload string
+		skip    bool
+	}{
+		{name: "progress", typ: pkgevents.TypeUploadProgress, payload: `{"vodId":"` + vod + `","percent":42,"stage":"TRANSCODING"}`},
+		{name: "progress above 100", typ: pkgevents.TypeUploadProgress, payload: `{"vodId":"` + vod + `","percent":101,"stage":"TRANSCODING"}`, skip: true},
+		{name: "progress unknown stage", typ: pkgevents.TypeUploadProgress, payload: `{"vodId":"` + vod + `","percent":1,"stage":"X"}`, skip: true},
+		{
+			name: "processed", typ: pkgevents.TypeUploadProcessed,
+			payload: `{"vodId":"` + vod + `","durationSec":12.6,"playlistPath":"` + prefix + `master.m3u8","thumbnailPath":"` + prefix + `thumb.jpg"}`,
+		},
+		{
+			name: "processed outside videos/{vodId}/", typ: pkgevents.TypeUploadProcessed,
+			payload: `{"vodId":"` + vod + `","durationSec":1,"playlistPath":"streams/` + vod + `/master.m3u8"}`, skip: true,
+		},
+		{name: "failed", typ: pkgevents.TypeUploadFailed, payload: `{"vodId":"` + vod + `","reason":"NO_VIDEO_STREAM","retryable":false}`},
+		{name: "failed without reason", typ: pkgevents.TypeUploadFailed, payload: `{"vodId":"` + vod + `"}`, skip: true},
+		{name: "bad vod id", typ: pkgevents.TypeUploadFailed, payload: `{"vodId":"x","reason":"R"}`, skip: true},
+		{name: "undecodable", typ: pkgevents.TypeUploadProcessed, payload: `{`, skip: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			up := &recUploads{}
+			h := events.Handler(noIngest{}, &recChannels{}, &recSchedules{}, &recSafety{}, up)
+
+			// media-svc's event ids are not uuids (upload-processed-{vodId}).
+			err := h(context.Background(), eventbus.Event{ID: "upload-x-" + vod, Type: tc.typ, Payload: []byte(tc.payload)})
+			if tc.skip {
+				require.ErrorIs(t, err, eventbus.ErrSkip)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, 1, len(up.progress)+len(up.processed)+len(up.failed))
+		})
+	}
 }

@@ -24,6 +24,8 @@ const (
 	_missing  = "0199d4a2-0000-7000-8000-000000000404"
 	_anon     = "0199d4a2-0000-7000-8000-0000000000aa"
 	_banned   = "0199d4a2-0000-7000-8000-0000000000bb"
+	// _uploadVOD is an uploaded video: its HLS lives under videos/{id}/.
+	_uploadVOD = "0199d4a2-0000-7000-8000-0000000000cc"
 )
 
 // fakeViewer: _matureID needs acknowledgment, _missing does not exist, every VOD is at 42 s for "viewer".
@@ -58,7 +60,11 @@ func (f *fakeViewer) Open(_ context.Context, in usecase.PlaybackInput) (entity.P
 	}
 
 	g.Session = &entity.PlaybackSession{ID: "s1", ExpiresAt: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)}
+
 	g.ObjectKey = "streams/" + id + "/master.m3u8"
+	if id == _uploadVOD {
+		g.ObjectKey = "videos/" + id + "/master.m3u8"
+	}
 
 	return g, nil
 }
@@ -88,8 +94,10 @@ func (*fakeViewer) Progress(_ context.Context, userID, _ string) (*int, error) {
 }
 
 func (*fakeViewer) ContinueWatching(_ context.Context, _ string, _ int) ([]entity.ContinueItem, error) {
+	expires := time.Now()
+
 	return []entity.ContinueItem{{
-		VOD:         entity.VOD{ID: _vodID, PlaylistPath: "streams/x/vod.m3u8", ExpiresAt: time.Now()},
+		VOD:         entity.VOD{ID: _vodID, PlaylistPath: "streams/x/vod.m3u8", ExpiresAt: &expires},
 		PositionSec: 42, UpdatedAt: time.Now(),
 	}}, nil
 }
@@ -281,6 +289,14 @@ func TestSignedPlayback(t *testing.T) {
 	prefix := "streams/" + _streamID + "/"
 	require.Equal(t, hlssign.Path("/hls", secret, prefix, "master.m3u8", exp), *p.ManifestURL)
 	require.True(t, strings.HasPrefix(*p.ManifestURL, "/hls/t/"+strconv.FormatInt(exp.Unix(), 10)+"/"))
+
+	// An uploaded video is signed over its videos/{id}/ directory.
+	status, body = send(t, req(http.MethodPost, "/v1/vods/"+_uploadVOD+"/playback", "", _anon, ""), app)
+	require.Equal(t, http.StatusOK, status)
+
+	p = decode[v1.Data[v1.Playback]](t, body).Data
+	require.NotNil(t, p.ManifestURL)
+	require.Equal(t, hlssign.Path("/hls", secret, "videos/"+_uploadVOD+"/", "master.m3u8", exp), *p.ManifestURL)
 
 	// The public stream DTO no longer carries a usable URL.
 	status, body = send(t, req(http.MethodGet, "/v1/streams/"+_streamID, "", "", ""), app)

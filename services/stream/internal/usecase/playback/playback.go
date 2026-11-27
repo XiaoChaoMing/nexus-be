@@ -169,13 +169,8 @@ func (uc *UseCase) media(ctx context.Context, t entity.PlaybackTarget, userID st
 		}
 	}
 
-	// A VOD inherits the mature flag of the broadcast it records.
-	s, err := uc.streams.Get(ctx, v.StreamID)
-	if err != nil {
-		return media{}, fmt.Errorf("PlaybackUseCase - media - stream of vod: %w", err)
-	}
-
-	return media{channelID: v.ChannelID, objectKey: v.PlaylistPath, mature: s.IsMature}, nil
+	// vods.is_mature is copied from the broadcast for a recording and set by the creator for an upload.
+	return media{channelID: v.ChannelID, objectKey: v.PlaylistPath, mature: v.IsMature}, nil
 }
 
 // ownerOnly returns entity.ErrNotFound unless userID owns channelID (hidden VODs, BR-G2-07).

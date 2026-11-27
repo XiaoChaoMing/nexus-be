@@ -4,6 +4,7 @@ package safety
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -52,6 +53,25 @@ func (uc *UseCase) Takedown(ctx context.Context, eventID string, e events.Stream
 	return nil
 }
 
+// VODTakedown deletes the VOD (vod.deleted carries its playlist prefix, so media-svc removes the files). A VOD that
+// is unknown or already deleted is acked.
+func (uc *UseCase) VODTakedown(ctx context.Context, eventID string, e events.VODTakedown) error {
+	found, err := uc.r.TakedownVOD(ctx, eventID, e.VODID)
+	if err != nil {
+		return fmt.Errorf("SafetyUseCase - VODTakedown: %w", err)
+	}
+
+	if !found {
+		uc.l.Warn("stream - takedown of vod %s (action %s): unknown or already deleted", e.VODID, e.ActionID)
+
+		return nil
+	}
+
+	uc.l.Info("audit=vod_takedown vod=%s action=%s admin=%s", e.VODID, e.ActionID, e.AdminID)
+
+	return nil
+}
+
 // ChannelSuspended ends the channel's broadcast, cancels its scheduled streams and closes publishing.
 func (uc *UseCase) ChannelSuspended(ctx context.Context, eventID string, e events.ChannelSuspended) error {
 	ended, cancelled, err := uc.r.SetSuspended(ctx, eventID, e.ChannelID, true)
@@ -94,4 +114,22 @@ func (uc *UseCase) Streams(ctx context.Context, after string, limit int) ([]enti
 	}
 
 	return items, next, nil
+}
+
+// VOD -.
+func (uc *UseCase) VOD(ctx context.Context, vodID string) (entity.VOD, error) {
+	if uuid.Validate(vodID) != nil {
+		return entity.VOD{}, entity.ErrNotFound
+	}
+
+	v, err := uc.r.VODCopy(ctx, vodID)
+	if errors.Is(err, entity.ErrNotFound) {
+		return entity.VOD{}, err
+	}
+
+	if err != nil {
+		return entity.VOD{}, fmt.Errorf("SafetyUseCase - VOD: %w", err)
+	}
+
+	return v, nil
 }

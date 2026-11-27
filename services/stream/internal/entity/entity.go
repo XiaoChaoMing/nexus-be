@@ -93,21 +93,33 @@ type StreamKeyInfo struct {
 	CreatedAt *time.Time
 }
 
-// VOD visibilities and statuses.
+// VOD visibilities and statuses. A LIVE VOD goes READY → EXPIRED; an UPLOAD VOD goes PROCESSING → READY | FAILED and
+// FAILED → PROCESSING (retry). Both end DELETED.
 const (
 	VisibilityPublic = "PUBLIC"
 	VisibilityHidden = "HIDDEN"
+	VODProcessing    = "PROCESSING"
 	VODReady         = "READY"
 	VODExpired       = "EXPIRED"
 	VODDeleted       = "DELETED"
+	VODFailed        = "FAILED"
+)
+
+// VOD sources: the recording of a broadcast or a file the creator uploaded.
+const (
+	SourceLive   = "LIVE"
+	SourceUpload = "UPLOAD"
 )
 
 // VOD -.
 type VOD struct {
-	ID           string
-	StreamID     string
+	ID string
+	// StreamID is nil for an uploaded video.
+	StreamID     *string
 	ChannelID    string
+	Source       string
 	Title        string
+	Description  string
 	DurationSec  int
 	PlaylistPath string
 	ThumbnailURL string
@@ -116,17 +128,65 @@ type VOD struct {
 	CategoryID   *string
 	IsMature     bool
 	CreatedAt    time.Time
-	ExpiresAt    time.Time
-	Channel      *Channel
+	// PublishedAt is when the VOD became READY (nil while PROCESSING or FAILED).
+	PublishedAt *time.Time
+	// ExpiresAt is nil for an uploaded video: it never expires.
+	ExpiresAt *time.Time
+	// FailureReason and FailureRetryable describe a FAILED upload.
+	FailureReason    *string
+	FailureRetryable bool
+	// ProcessingPercent and ProcessingStage report the transcoding of a PROCESSING upload.
+	ProcessingPercent int
+	ProcessingStage   *string
+	Channel           *Channel
 }
 
 // Hidden reports whether only the owner may see the VOD (BR-G2-07).
 func (v VOD) Hidden() bool { return v.Visibility == VisibilityHidden }
 
-// VODPatch is the creator's change to a VOD; nil fields stay unchanged.
+// Uploaded reports whether the creator uploaded the video (no broadcast behind it).
+func (v VOD) Uploaded() bool { return v.Source == SourceUpload }
+
+// PlaylistPrefix is the object prefix media-svc removes when the VOD is deleted.
+func (v VOD) PlaylistPrefix() string {
+	if v.Uploaded() || v.StreamID == nil {
+		return "videos/" + v.ID + "/"
+	}
+
+	return "streams/" + *v.StreamID + "/"
+}
+
+// CanApply checks a creator's change against the VOD's source and state: the description, category and mature flag
+// belong to uploaded videos; a LIVE VOD changes while READY, an uploaded one while READY or PROCESSING.
+func (v VOD) CanApply(p VODPatch) error {
+	if !v.Uploaded() {
+		if p.Description != nil || p.CategoryID != nil || p.IsMature != nil || v.Status != VODReady {
+			return ErrInvalidState
+		}
+
+		return nil
+	}
+
+	if v.Status != VODReady && v.Status != VODProcessing {
+		return ErrInvalidState
+	}
+
+	return nil
+}
+
+// Retryable reports whether the creator may transcode a FAILED upload again.
+func (v VOD) Retryable() bool {
+	return v.Uploaded() && v.Status == VODFailed && v.FailureRetryable
+}
+
+// VODPatch is the creator's change to a VOD; nil fields stay unchanged. CategoryID pointing to "" removes the
+// category.
 type VODPatch struct {
-	Title      *string
-	Visibility *string
+	Title       *string
+	Visibility  *string
+	Description *string
+	CategoryID  *string
+	IsMature    *bool
 }
 
 // Grant is the answer to media-svc's authorize call.

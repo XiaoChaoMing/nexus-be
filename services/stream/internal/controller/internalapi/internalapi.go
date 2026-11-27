@@ -1,4 +1,4 @@
-// Package internalapi serves media-svc on the internal port (never exposed through the gateway).
+// Package internalapi serves media-svc and safety-svc on the internal port (never exposed through the gateway).
 package internalapi
 
 import (
@@ -24,6 +24,7 @@ const (
 	CodeRecentlyEnded    = "RECENTLY_ENDED"
 	CodeChannelSuspended = "CHANNEL_SUSPENDED"
 	CodeUnauthorized     = "UNAUTHORIZED"
+	CodeNotFound         = "NOT_FOUND"
 	CodeValidation       = "VALIDATION_FAILED"
 	CodeInternal         = "INTERNAL_ERROR"
 )
@@ -60,6 +61,23 @@ type StreamPage struct {
 	NextAfter *string  `json:"nextAfter"`
 }
 
+// VOD is GET /internal/v1/vods/{id}: what safety-svc copies of a VOD it has not seen yet.
+type VOD struct {
+	ID        string  `json:"id"`
+	ChannelID string  `json:"channelId"`
+	StreamID  *string `json:"streamId"`
+	Source    string  `json:"source"`
+	Title     string  `json:"title"`
+	Status    string  `json:"status"`
+	// Visibility is PUBLIC or HIDDEN.
+	Visibility string `json:"visibility"`
+}
+
+// Data wraps the body of GET /internal/v1/vods/{id}.
+type Data[T any] struct {
+	Data T `json:"data"`
+}
+
 // NewRouter -.
 func NewRouter(app *fiber.App, ingest usecase.Ingest, snap usecase.Snapshot, secret string, l logger.Interface) {
 	app.Use(recover.New())
@@ -75,6 +93,27 @@ func NewRouter(app *fiber.App, ingest usecase.Ingest, snap usecase.Snapshot, sec
 
 	g.Post("/ingest/authorize", authorize(ingest, l))
 	g.Get("/streams", streams(snap, l))
+	g.Get("/vods/:id", vod(snap, l))
+}
+
+func vod(snap usecase.Snapshot, l logger.Interface) fiber.Handler {
+	return func(ctx *fiber.Ctx) error {
+		v, err := snap.VOD(ctx.UserContext(), ctx.Params("id"))
+
+		switch {
+		case errors.Is(err, entity.ErrNotFound):
+			return fail(ctx, http.StatusNotFound, CodeNotFound)
+		case err != nil:
+			l.Error("internalapi - vod: %v", err)
+
+			return fail(ctx, http.StatusInternalServerError, CodeInternal)
+		}
+
+		return ctx.JSON(Data[VOD]{Data: VOD{
+			ID: v.ID, ChannelID: v.ChannelID, StreamID: v.StreamID, Source: v.Source, Title: v.Title, Status: v.Status,
+			Visibility: v.Visibility,
+		}})
+	}
 }
 
 func authorize(ingest usecase.Ingest, l logger.Interface) fiber.Handler {

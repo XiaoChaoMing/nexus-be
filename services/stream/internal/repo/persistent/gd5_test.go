@@ -52,14 +52,14 @@ func TestTakedownEndedWithVOD(t *testing.T) { //nolint:paralleltest // shared da
 	ctx := context.Background()
 	v := vod(t, r, uuid.NewString(), false, nil)
 
-	res, err := r.Takedown(ctx, uuid.NewString(), v.StreamID)
+	res, err := r.Takedown(ctx, uuid.NewString(), *v.StreamID)
 	require.NoError(t, err)
 	require.Equal(t, entity.TakedownResult{Found: true, VODsDeleted: 1}, res)
 
 	_, err = r.GetVOD(ctx, v.ID)
 	require.ErrorIs(t, err, entity.ErrNotFound)
 
-	s, err := r.Get(ctx, v.StreamID)
+	s, err := r.Get(ctx, *v.StreamID)
 	require.NoError(t, err)
 	require.Equal(t, entity.EndCreator, *s.EndReason, "an ended stream keeps its reason")
 	require.Equal(t, v.ID, lastPayload[events.VODDeleted](t, pg, events.TypeVODDeleted).VODID)

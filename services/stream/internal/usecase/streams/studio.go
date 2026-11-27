@@ -41,7 +41,7 @@ func (uc *UseCase) Dashboard(ctx context.Context, channelID string, r entity.Ran
 	return out, nil
 }
 
-// StudioVODs lists the channel's READY and EXPIRED VODs for the Studio.
+// StudioVODs lists the channel's READY, EXPIRED, PROCESSING and FAILED VODs for the Studio.
 func (uc *UseCase) StudioVODs(ctx context.Context, channelID string, f repo.StudioVODFilter, cursor string, limit int) (usecase.VODPage, error) {
 	return uc.vodPage(ctx, "StudioVODs", cursor, limit, func(after *repo.VODCursor, n int) ([]entity.VOD, error) {
 		return uc.vods.ListByChannel(ctx, channelID, false, f, after, n)

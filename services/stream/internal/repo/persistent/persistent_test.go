@@ -32,7 +32,7 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	t.Cleanup(pg.Close)
 
 	_, err = pg.Pool.Exec(context.Background(),
-		`TRUNCATE vods, streams, stream_keys, stream_settings, creator_channels, outbox, processed_events,
+		`TRUNCATE video_uploads, vods, streams, stream_keys, stream_settings, creator_channels, outbox, processed_events,
 		 playback_sessions, watch_progress, mature_consents CASCADE`)
 	require.NoError(t, err)
 
@@ -404,7 +404,7 @@ func insertVOD(t *testing.T, pg *postgres.Postgres, channelID string, durationSe
 		 VALUES ($1, $2, $3, 't', $4, 'streams/x/vod.m3u8', 'READY', $5)`, vodID, streamID, channelID, durationSec, expiresAt)
 	require.NoError(t, err)
 
-	return entity.VOD{ID: vodID, StreamID: streamID, ChannelID: channelID, DurationSec: durationSec}
+	return entity.VOD{ID: vodID, StreamID: &streamID, ChannelID: channelID, DurationSec: durationSec}
 }
 
 func TestViewer(t *testing.T) { //nolint:paralleltest,funlen // shared database, one story
@@ -430,7 +430,7 @@ func TestViewer(t *testing.T) { //nolint:paralleltest,funlen // shared database,
 		CreatedAt: now, ExpiresAt: now.Add(time.Hour),
 	}))
 	require.NoError(t, r.CreatePlaybackSession(ctx, entity.PlaybackSession{
-		ID: uuid.NewString(), Target: entity.PlaybackTarget{StreamID: watched.StreamID}, AnonID: uuid.NewString(),
+		ID: uuid.NewString(), Target: entity.PlaybackTarget{StreamID: *watched.StreamID}, AnonID: uuid.NewString(),
 		MatureAcknowledged: true, CreatedAt: now.Add(-6 * time.Hour), ExpiresAt: now.Add(-2 * time.Hour),
 	}))
 	n, err := r.PurgePlaybackSessions(ctx, now.Add(-time.Hour))

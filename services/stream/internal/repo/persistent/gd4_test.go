@@ -269,7 +269,9 @@ func TestVODManagement(t *testing.T) { //nolint:paralleltest,funlen // shared da
 	require.ErrorIs(t, r.DeleteVOD(ctx, ch, b.ID), entity.ErrNotFound, "already deleted")
 
 	deleted := lastPayload[events.VODDeleted](t, pg, events.TypeVODDeleted)
-	require.Equal(t, b.StreamID, deleted.StreamID)
+	require.Equal(t, *b.StreamID, deleted.StreamID)
+	require.Equal(t, "streams/"+*b.StreamID+"/", deleted.PlaylistPrefix)
+	require.Equal(t, entity.SourceLive, deleted.Source)
 }
 
 func TestListOnAirFilters(t *testing.T) { //nolint:paralleltest // shared database

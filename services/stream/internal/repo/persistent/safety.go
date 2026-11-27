@@ -51,29 +51,61 @@ func (r *Repo) Takedown(ctx context.Context, eventID, streamID string) (entity.T
 func deleteVODsOf(ctx context.Context, tx pgx.Tx, streamID string) (int, error) {
 	rows, err := tx.Query(ctx,
 		`UPDATE vods SET status = 'DELETED', deleted_at = now(), updated_at = now()
-		 WHERE stream_id = $1 AND status IN ('READY', 'EXPIRED', 'PROCESSING')
-		 RETURNING id::text, channel_id::text`, streamID)
+		 WHERE stream_id = $1 AND status <> 'DELETED'
+		 RETURNING `+_vodCols, streamID)
 	if err != nil {
 		return 0, fmt.Errorf("Repo - delete vods: %w", err)
 	}
 
-	deleted, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (events.VODDeleted, error) {
-		e := events.VODDeleted{StreamID: streamID}
-		err := row.Scan(&e.VODID, &e.ChannelID)
-
-		return e, err
+	deleted, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (entity.VOD, error) {
+		return scanVOD(row)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("Repo - delete vods - scan: %w", err)
 	}
 
-	for _, e := range deleted {
-		if err := addOutbox(ctx, tx, streamID, events.TypeVODDeleted, e); err != nil {
+	for _, v := range deleted {
+		if err := addOutbox(ctx, tx, streamID, events.TypeVODDeleted, vodDeletedEvent(v)); err != nil {
 			return 0, err
 		}
 	}
 
 	return len(deleted), nil
+}
+
+// TakedownVOD -.
+func (r *Repo) TakedownVOD(ctx context.Context, eventID, vodID string) (bool, error) {
+	found := false
+
+	err := r.inEventTx(ctx, "Repo - TakedownVOD", eventID, func(tx pgx.Tx) error {
+		v, err := scanVOD(tx.QueryRow(ctx,
+			`UPDATE vods SET status = 'DELETED', deleted_at = now(), updated_at = now()
+			 WHERE id = $1 AND status <> 'DELETED'
+			 RETURNING `+_vodCols, vodID))
+
+		switch {
+		case errors.Is(err, entity.ErrNotFound):
+			return nil // unknown or already deleted: nothing to take down
+		case err != nil:
+			return fmt.Errorf("Repo - TakedownVOD: %w", err)
+		}
+
+		found = true
+
+		return addOutbox(ctx, tx, vodAggregate(v), events.TypeVODDeleted, vodDeletedEvent(v))
+	})
+
+	return found, err
+}
+
+// VODCopy -.
+func (r *Repo) VODCopy(ctx context.Context, vodID string) (entity.VOD, error) {
+	v, err := scanVOD(r.Pool.QueryRow(ctx, `SELECT `+_vodCols+` FROM vods WHERE id = $1`, vodID))
+	if err != nil && !errors.Is(err, entity.ErrNotFound) {
+		return entity.VOD{}, fmt.Errorf("Repo - VODCopy: %w", err)
+	}
+
+	return v, err
 }
 
 // SetSuspended -.

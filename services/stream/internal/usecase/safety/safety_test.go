@@ -35,6 +35,22 @@ func (f *fakeRepo) Streams(context.Context, string, int) ([]entity.StreamCopy, e
 	return nil, f.err
 }
 
+func (f *fakeRepo) TakedownVOD(context.Context, string, string) (bool, error) {
+	return f.res.Found, f.err
+}
+
+func (f *fakeRepo) VODCopy(_ context.Context, id string) (entity.VOD, error) {
+	if f.err != nil {
+		return entity.VOD{}, f.err
+	}
+
+	if !f.res.Found {
+		return entity.VOD{}, entity.ErrNotFound
+	}
+
+	return entity.VOD{ID: id, Status: entity.VODDeleted}, nil
+}
+
 func TestTakedown(t *testing.T) {
 	t.Parallel()
 
@@ -77,4 +93,56 @@ func TestSuspension(t *testing.T) {
 
 	_, _, err := uc.Streams(ctx, "x", 10)
 	require.ErrorIs(t, err, entity.ErrInvalidCursor)
+}
+
+func TestVODTakedown(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		repo *fakeRepo
+		want error
+	}{
+		{name: "vod deleted", repo: &fakeRepo{res: entity.TakedownResult{Found: true}}},
+		{name: "unknown or already deleted is acked", repo: &fakeRepo{}},
+		{name: "db error is retried", repo: &fakeRepo{err: errDB}, want: errDB},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := safety.New(tc.repo, logger.New("error")).VODTakedown(context.Background(), uuid.NewString(),
+				events.VODTakedown{VODID: uuid.NewString(), ActionID: uuid.NewString()})
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
+}
+
+func TestVODCopy(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		repo *fakeRepo
+		id   string
+		want error
+	}{
+		{name: "deleted vod is returned", repo: &fakeRepo{res: entity.TakedownResult{Found: true}}, id: uuid.NewString()},
+		{name: "unknown", repo: &fakeRepo{}, id: uuid.NewString(), want: entity.ErrNotFound},
+		{name: "not a uuid", repo: &fakeRepo{}, id: "x", want: entity.ErrNotFound},
+		{name: "db error", repo: &fakeRepo{err: errDB}, id: uuid.NewString(), want: errDB},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			v, err := safety.New(tc.repo, logger.New("error")).VOD(context.Background(), tc.id)
+			if tc.want != nil {
+				require.ErrorIs(t, err, tc.want)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.id, v.ID)
+		})
+	}
 }

@@ -22,17 +22,25 @@ import (
 	"github.com/minhnn/nexuslive-be/services/stream/internal/controller/internalapi"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/controller/restapi"
 	v1 "github.com/minhnn/nexuslive-be/services/stream/internal/controller/restapi/v1"
+	"github.com/minhnn/nexuslive-be/services/stream/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/metrics"
+	"github.com/minhnn/nexuslive-be/services/stream/internal/repo"
+	"github.com/minhnn/nexuslive-be/services/stream/internal/repo/objects"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/repo/persistent"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/repo/viewers"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/playback"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/safety"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/streams"
+	"github.com/minhnn/nexuslive-be/services/stream/internal/usecase/uploads"
 )
 
 const (
 	_natsConnectTimeout  = 60 * time.Second
 	_redisConnectTimeout = 30 * time.Second
+	// An upload part (8 MiB) may take a while on a slow uplink.
+	_publicReadTimeout = 60 * time.Second
+	_bucketRetryDelay  = 30 * time.Second
+	_bucketTimeout     = 10 * time.Second
 )
 
 // Run creates objects via constructors.
@@ -85,11 +93,12 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 
 	viewer := playback.New(store, store, store, l)
 	moderation := safety.New(store, l)
+	videos := newUploads(ctx, cfg, store, l)
 
 	// Outgoing events (stream.started / stream.ended) leave through the outbox.
 	go outbox.New(pg.Pool, bus, l).Run(ctx)
 
-	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc, uc, uc, moderation), func(e eventbus.Event, herr error) {
+	stopConsumer, err := bus.Consume(ctx, events.Durable, events.Types, events.Handler(uc, uc, uc, moderation, videos), func(e eventbus.Event, herr error) {
 		l.Warn("stream - event %s %s: %v", e.Type, e.ID, herr)
 	})
 	if err != nil {
@@ -113,16 +122,20 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	})
 
 	startScheduleJob(ctx, cfg.Stream.ScheduleTick, uc, l)
+	startUploadJob(ctx, cfg.Upload.ExpiryTick, videos, l)
 
-	public := httpserver.New(l, httpserver.Port(cfg.HTTP.Port))
+	public := httpserver.New(l, httpserver.Port(cfg.HTTP.Port), httpserver.BodyLimit(config.BodyLimit),
+		httpserver.ReadTimeout(_publicReadTimeout))
 	// Before the routes, so every request is counted (GET /metrics included).
 	public.App.Use(httpmetrics.New(m.Registerer()))
-	restapi.NewRouter(public.App, uc, uc, viewer, jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l, v1.Options{
-		RTMPPublicURL: cfg.Stream.RTMPPublicURL,
-		HLSBase:       cfg.Stream.HLSBase,
-		HLSSigning:    cfg.Stream.HLSSigning,
-		HLSSecret:     cfg.Stream.HLSSecret,
-	}, cfg.Swagger.Enabled)
+	restapi.NewRouter(public.App, uc, uc, viewer, videos, jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l,
+		v1.Options{
+			RTMPPublicURL:  cfg.Stream.RTMPPublicURL,
+			HLSBase:        cfg.Stream.HLSBase,
+			HLSSigning:     cfg.Stream.HLSSigning,
+			HLSSecret:      cfg.Stream.HLSSecret,
+			UploadsEnabled: cfg.Upload.Enabled,
+		}, cfg.Swagger.Enabled)
 	public.App.Get("/metrics", adaptor.HTTPHandler(m.Handler()))
 
 	internal := httpserver.New(l, httpserver.Port(cfg.HTTP.InternalPort))
@@ -131,8 +144,8 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	public.Start()
 	internal.Start()
 
-	l.Info("stream - Run - public :%s, internal :%s, grace %s, signed HLS %t", cfg.HTTP.Port, cfg.HTTP.InternalPort,
-		cfg.Stream.GracePeriod, cfg.Stream.HLSSigning)
+	l.Info("stream - Run - public :%s, internal :%s, grace %s, signed HLS %t, uploads %t", cfg.HTTP.Port,
+		cfg.HTTP.InternalPort, cfg.Stream.GracePeriod, cfg.Stream.HLSSigning, cfg.Upload.Enabled)
 
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM)
@@ -155,6 +168,70 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	if err = internal.Shutdown(); err != nil {
 		l.Error("stream - Run - internal shutdown: %v", err)
 	}
+}
+
+// newUploads wires video uploads. Without STREAM_UPLOAD_ENABLED there is no object store: upload routes answer 503
+// while the transcoding events of earlier uploads are still applied. Storage being down does not stop the service
+// (livestreaming does not need it): the bucket is ensured in the background until it succeeds.
+func newUploads(ctx context.Context, cfg *config.Config, r repo.UploadRepo, l logger.Interface) *uploads.UseCase {
+	ucfg := uploads.Config{
+		Bucket: cfg.Upload.Bucket, MaxBytes: cfg.Upload.MaxBytes, PartSize: cfg.Upload.PartSize, TTL: cfg.Upload.TTL,
+		Limits: entity.UploadLimits{Active: cfg.Upload.MaxActive, Daily: cfg.Upload.DailyMax},
+	}
+
+	if !cfg.Upload.Enabled {
+		return uploads.New(r, nil, ucfg, l)
+	}
+
+	store, err := objects.New(cfg.S3.Endpoint, cfg.S3.AccessKey, cfg.S3.SecretKey, cfg.Upload.Bucket, cfg.S3.UseSSL)
+	if err != nil {
+		l.Fatal("stream - Run - objects: %v", err)
+	}
+
+	go ensureBucket(ctx, store, l)
+
+	return uploads.New(r, store, ucfg, l)
+}
+
+// ensureBucket retries until the uploads bucket and its lifecycle are in place or ctx is canceled.
+func ensureBucket(ctx context.Context, store *objects.Store, l logger.Interface) {
+	for attempt := 1; ; attempt++ {
+		actx, cancel := context.WithTimeout(ctx, _bucketTimeout)
+		err := store.EnsureBucket(actx)
+
+		cancel()
+
+		if err == nil {
+			l.Info("stream - uploads bucket %s ready", store.Bucket())
+
+			return
+		}
+
+		l.Warn("stream - uploads bucket not ready (attempt %d): %v", attempt, err)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(_bucketRetryDelay):
+		}
+	}
+}
+
+// startUploadJob expires stale upload sessions and deletes transcoded sources (tick 0 = off).
+func startUploadJob(ctx context.Context, tick time.Duration, uc *uploads.UseCase, l logger.Interface) {
+	if tick <= 0 {
+		return
+	}
+
+	go every(ctx, tick, func() {
+		if _, err := uc.ExpireStale(ctx); err != nil {
+			l.Warn("stream - upload expiry: %v", err)
+		}
+
+		if _, err := uc.PurgeSources(ctx); err != nil {
+			l.Warn("stream - upload source purge: %v", err)
+		}
+	})
 }
 
 // startScheduleJob cancels SCHEDULED streams that never started (tick 0 = off).

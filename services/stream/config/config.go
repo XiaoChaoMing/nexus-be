@@ -19,7 +19,35 @@ type (
 		Auth    Auth
 		Redis   Redis
 		Stream  Stream
+		S3      S3
+		Upload  Upload
 		Swagger Swagger
+	}
+
+	// S3 is the object storage of upload sources (MinIO); not used while uploads are turned off.
+	S3 struct {
+		Endpoint  string `env:"STREAM_S3_ENDPOINT"   envDefault:"minio:9000"`
+		AccessKey string `env:"STREAM_S3_ACCESS_KEY"`
+		SecretKey string `env:"STREAM_S3_SECRET_KEY"`
+		UseSSL    bool   `env:"STREAM_S3_USE_SSL"    envDefault:"false"`
+	}
+
+	// Upload configures video uploads (Studio): parts are written to S3 multipart uploads in Bucket.
+	Upload struct {
+		// Enabled false answers 503 STORAGE_UNAVAILABLE on /v1/studio/uploads and needs no S3.
+		Enabled bool   `env:"STREAM_UPLOAD_ENABLED" envDefault:"true"`
+		Bucket  string `env:"STREAM_UPLOAD_BUCKET"  envDefault:"nxl-uploads"`
+		// MaxBytes is the largest file (2 GiB); PartSize the size of every part but the last (8 MiB, at least 5 MiB
+		// for S3 and at most BodyLimit).
+		MaxBytes int64 `env:"STREAM_UPLOAD_MAX_BYTES" envDefault:"2147483648"`
+		PartSize int64 `env:"STREAM_UPLOAD_PART_SIZE" envDefault:"8388608"`
+		// TTL is how long a session takes parts.
+		TTL time.Duration `env:"STREAM_UPLOAD_TTL" envDefault:"24h"`
+		// MaxActive limits a channel's sessions uploading plus videos processing; DailyMax its sessions per 24 h.
+		MaxActive int `env:"STREAM_UPLOAD_MAX_ACTIVE" envDefault:"3"`
+		DailyMax  int `env:"STREAM_UPLOAD_DAILY_MAX"  envDefault:"10"`
+		// ExpiryTick runs the job that expires stale sessions and deletes transcoded sources.
+		ExpiryTick time.Duration `env:"STREAM_UPLOAD_EXPIRY_TICK" envDefault:"10m"`
 	}
 
 	// Swagger -.
@@ -103,7 +131,21 @@ var ErrInternalSecretRequired = errors.New("NXL_INTERNAL_SECRET is required outs
 // ErrHLSSecretTooShort -.
 var ErrHLSSecretTooShort = errors.New("STREAM_HLS_SIGNING needs STREAM_HLS_SECRET of at least 32 characters")
 
-const _minHLSSecret = 32
+// ErrS3CredentialsRequired -.
+var ErrS3CredentialsRequired = errors.New("STREAM_UPLOAD_ENABLED needs STREAM_S3_ACCESS_KEY and STREAM_S3_SECRET_KEY")
+
+// ErrUploadLimits -.
+var ErrUploadLimits = errors.New("STREAM_UPLOAD_* out of range")
+
+// BodyLimit is the largest request body of the public API: one upload part (8 MiB) plus headroom.
+const BodyLimit = 9 << 20
+
+const (
+	_minHLSSecret = 32
+	// S3 refuses parts below 5 MiB (except the last) and uploads of more than 10 000 parts.
+	_minPartSize = 5 << 20
+	_maxParts    = 10000
+)
 
 // _devInternalSecret keeps `make nxl-up` working without an .env; refused outside dev.
 const _devInternalSecret = "dev-internal-secret" //nolint:gosec // dev-only default, refused outside dev
@@ -132,5 +174,34 @@ func NewConfig() (*Config, error) {
 		return nil, fmt.Errorf("config error: %w", ErrHLSSecretTooShort)
 	}
 
+	if err := cfg.Upload.validate(cfg.S3); err != nil {
+		return nil, fmt.Errorf("config error: %w", err)
+	}
+
 	return cfg, nil
+}
+
+func (u Upload) validate(s3 S3) error {
+	if !u.Enabled {
+		return nil
+	}
+
+	if s3.AccessKey == "" || s3.SecretKey == "" {
+		return ErrS3CredentialsRequired
+	}
+
+	return u.validateLimits()
+}
+
+func (u Upload) validateLimits() error {
+	if u.PartSize < _minPartSize || u.PartSize > BodyLimit || u.MaxBytes <= 0 ||
+		(u.MaxBytes+u.PartSize-1)/u.PartSize > _maxParts {
+		return fmt.Errorf("%w: part size %d, max bytes %d", ErrUploadLimits, u.PartSize, u.MaxBytes)
+	}
+
+	if u.TTL <= 0 || u.ExpiryTick <= 0 || u.MaxActive < 1 || u.DailyMax < 1 || u.Bucket == "" {
+		return fmt.Errorf("%w: ttl, expiry tick, max active, daily max and bucket must be set", ErrUploadLimits)
+	}
+
+	return nil
 }

@@ -17,6 +17,7 @@ const docTemplate = `{
     "paths": {
         "/channels/{id}/vods": {
             "get": {
+                "description": "Broadcast recordings (source LIVE) and uploaded videos (source UPLOAD); source filters them.",
                 "produces": [
                     "application/json"
                 ],
@@ -31,6 +32,16 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "enum": [
+                            "LIVE",
+                            "UPLOAD"
+                        ],
+                        "type": "string",
+                        "description": "filter",
+                        "name": "source",
+                        "in": "query"
                     },
                     {
                         "type": "string",
@@ -54,7 +65,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "VALIDATION_FAILED (cursor = INVALID)",
+                        "description": "VALIDATION_FAILED (source = ENUM, cursor = INVALID)",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -70,11 +81,6 @@ const docTemplate = `{
         },
         "/me/continue-watching": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Positions below 5 s and VODs watched to within 10 s of the end are left out, like expired VODs.",
                 "produces": [
                     "application/json"
@@ -105,16 +111,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/me/watch-progress/{vodId}": {
-            "put": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/me/watch-progress/{vodId}": {
+            "put": {
                 "description": "Clients send it at most every 15 s and when leaving. keepFurther=true keeps a further stored position (used to merge a browser's local progress after sign-in).",
                 "consumes": [
                     "application/json"
@@ -163,7 +169,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         },
         "/streams": {
@@ -278,11 +289,6 @@ const docTemplate = `{
         },
         "/streams/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "status may be SCHEDULED (an announced occurrence: scheduleId, scheduledStartAt) or CANCELLED. vodId is null while the VOD is hidden, except for the channel owner.",
                 "produces": [
                     "application/json"
@@ -319,16 +325,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/streams/{id}/playback": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/streams/{id}/playback": {
+            "post": {
                 "description": "Guests may call it; send X-NXL-Anon-Id when you have one. Mature streams return mature.required=true and no manifestUrl until called again with acknowledgeMature=true (signed-in viewers are remembered per channel). With STREAM_HLS_SIGNING the manifestUrl is /hls/t/{expires}/{md5}/streams/{id}/master.m3u8, valid until expiresAt; a suspended channel answers 403 CHANNEL_SUSPENDED.",
                 "consumes": [
                     "application/json"
@@ -394,16 +400,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/studio/dashboard": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/studio/dashboard": {
+            "get": {
                 "description": "Counted on the tables directly. Followers and the next broadcast come from GET /v1/studio/channel/stats (channel-svc).",
                 "produces": [
                     "application/json"
@@ -450,16 +456,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/studio/stream": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/studio/stream": {
+            "get": {
                 "description": "current is null when the channel is offline; health is the latest ingest report (5 s).",
                 "produces": [
                     "application/json"
@@ -487,14 +493,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            },
-            "put": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "put": {
                 "description": "Applies to the next broadcast and to the one on air, if any. Title 1–140, at most 10 tags of ≤ 25 characters.",
                 "consumes": [
                     "application/json"
@@ -542,16 +548,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/studio/stream-key": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/studio/stream-key": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -578,14 +584,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            },
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "post": {
                 "description": "The key is returned only here, once. The previous key stops working immediately.",
                 "produces": [
                     "application/json"
@@ -613,16 +619,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/studio/stream/end": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/studio/stream/end": {
+            "post": {
                 "description": "Moves the stream to ENDED; media-svc disconnects OBS and publishes the VOD.",
                 "tags": [
                     "studio"
@@ -650,23 +656,384 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/studio/vods": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
+                ]
+            }
+        },
+        "/studio/uploads": {
+            "post": {
+                "description": "Opens a session that takes the file in parts of partSize bytes (PUT …/parts/{n}, 1…partCount) until expiresAt. At most 3 uploads in flight (uploading or processing) and 10 sessions a day per channel.",
+                "consumes": [
+                    "application/json"
                 ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-uploads"
+                ],
+                "summary": "Studio: start uploading a video file",
+                "parameters": [
+                    {
+                        "description": "file and video details",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UploadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Upload"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (fileName / contentType / title / description = LENGTH, sizeBytes = MIN, categoryId = INVALID, visibility = ENUM)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR, CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "FILE_TOO_LARGE (details.maxBytes)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "UNSUPPORTED_FORMAT",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "UPLOAD_LIMIT_REACHED (details.limit = ACTIVE | DAILY, details.retryAfterSec)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "STORAGE_UNAVAILABLE",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/studio/uploads/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-uploads"
+                ],
+                "summary": "Studio: an upload session and the parts received so far",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "upload id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Upload"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "STORAGE_UNAVAILABLE (uploads turned off)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            },
+            "delete": {
+                "description": "Drops the parts received so far. A session already aborted or expired is 204 too.",
+                "tags": [
+                    "studio-uploads"
+                ],
+                "summary": "Studio: cancel an upload",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "upload id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (COMPLETED: delete the video instead)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "STORAGE_UNAVAILABLE (uploads turned off)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/studio/uploads/{id}/complete": {
+            "post": {
+                "description": "Assembles the parts and creates the video, PROCESSING until media-svc has transcoded it (follow it in GET /studio/vods). Calling it again on a COMPLETED session returns the same vodId.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-uploads"
+                ],
+                "summary": "Studio: finish the upload",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "upload id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_UploadCompleted"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR, CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "PARTS_MISSING (details.missing: part numbers)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "410": {
+                        "description": "UPLOAD_EXPIRED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "STORAGE_UNAVAILABLE",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/studio/uploads/{id}/parts/{n}": {
+            "put": {
+                "description": "The body is the part's bytes (application/octet-stream, at most 8 MiB): exactly partSize bytes for every part but the last, which carries the rest of the file. Sending a part again replaces it.",
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio-uploads"
+                ],
+                "summary": "Studio: send one part of the file",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "upload id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "part number, 1…partCount",
+                        "name": "n",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "format": "binary",
+                        "description": "the part's bytes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_PartReceived"
+                        }
+                    },
+                    "400": {
+                        "description": "INVALID_PART (details.expectedBytes when the size is wrong)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR, CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (COMPLETED)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "410": {
+                        "description": "UPLOAD_EXPIRED (EXPIRED or ABORTED)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "STORAGE_UNAVAILABLE",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/studio/vods": {
+            "get": {
+                "description": "Uploaded videos (source UPLOAD) are listed while PROCESSING (processing.percent) and when FAILED (failureReason, retryable); poll every 3 s while one is PROCESSING.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "studio"
                 ],
-                "summary": "Studio: the channel's VODs (READY and EXPIRED, hidden ones included), newest first",
+                "summary": "Studio: the channel's VODs (READY, EXPIRED, PROCESSING and FAILED, hidden ones included), newest first",
                 "parameters": [
                     {
                         "enum": [
@@ -681,11 +1048,23 @@ const docTemplate = `{
                     {
                         "enum": [
                             "READY",
-                            "EXPIRED"
+                            "EXPIRED",
+                            "PROCESSING",
+                            "FAILED"
                         ],
                         "type": "string",
                         "description": "filter",
                         "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "LIVE",
+                            "UPLOAD"
+                        ],
+                        "type": "string",
+                        "description": "filter",
+                        "name": "source",
                         "in": "query"
                     },
                     {
@@ -710,7 +1089,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "VALIDATION_FAILED (visibility / status = ENUM, cursor = INVALID)",
+                        "description": "VALIDATION_FAILED (visibility / status / source = ENUM, cursor = INVALID)",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -727,17 +1106,17 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/studio/vods/{id}": {
-            "delete": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
-                "description": "Soft delete; media-svc then removes its files (vod.deleted.v1). A VOD already deleted is 404.",
+                ]
+            }
+        },
+        "/studio/vods/{id}": {
+            "delete": {
+                "description": "Soft delete of a READY, EXPIRED, PROCESSING or FAILED VOD; media-svc then removes its files (vod.deleted.v1 carries playlistPrefix). A VOD already deleted is 404.",
                 "tags": [
                     "studio"
                 ],
@@ -773,15 +1152,15 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            },
-            "patch": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
-                "description": "A hidden VOD disappears from every public list, search and continue-watching; its URL is 404 for everyone but the owner.",
+                ]
+            },
+            "patch": {
+                "description": "A hidden VOD disappears from every public list, search and continue-watching; its URL is 404 for everyone but the owner. description, categoryId (\"\" removes it) and isMature apply to uploaded videos only (409 on a broadcast VOD); an uploaded video can change while READY or PROCESSING, a broadcast VOD while READY.",
                 "consumes": [
                     "application/json"
                 ],
@@ -791,7 +1170,7 @@ const docTemplate = `{
                 "tags": [
                     "studio"
                 ],
-                "summary": "Studio: rename, hide or show a VOD",
+                "summary": "Studio: rename, hide or show a VOD; describe an uploaded video",
                 "parameters": [
                     {
                         "type": "string",
@@ -818,7 +1197,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "VALIDATION_FAILED (body = REQUIRED, title = LENGTH, visibility = ENUM)",
+                        "description": "VALIDATION_FAILED (body = REQUIRED, title / description = LENGTH, visibility = ENUM, categoryId = INVALID)",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
@@ -842,12 +1221,81 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "INVALID_STATE (EXPIRED)",
+                        "description": "INVALID_STATE (EXPIRED, FAILED, or an upload-only field on a broadcast VOD)",
                         "schema": {
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/studio/vods/{id}/retry": {
+            "post": {
+                "description": "Only for an upload FAILED with retryable = true while its source file is still stored (3 days); the VOD goes back to PROCESSING.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "studio"
+                ],
+                "summary": "Studio: transcode a FAILED uploaded video again",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "vod id (uuid)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/Data-StudioVOD"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "NOT_CREATOR, CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE (not FAILED, not retryable, broadcast VOD or source gone)",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "STORAGE_UNAVAILABLE",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         },
         "/vods": {
@@ -926,11 +1374,6 @@ const docTemplate = `{
         },
         "/vods/{id}": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "With a token, viewer.positionSec is the caller's saved position (null when never watched). A HIDDEN VOD is 404 except for its channel owner.",
                 "produces": [
                     "application/json"
@@ -967,16 +1410,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/vods/{id}/playback": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/vods/{id}/playback": {
+            "post": {
                 "description": "Same rules as /streams/{id}/playback; a VOD inherits the mature flag of its broadcast.",
                 "consumes": [
                     "application/json"
@@ -1042,7 +1485,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         }
     },
@@ -1206,6 +1654,14 @@ const docTemplate = `{
                 }
             }
         },
+        "Data-internal_controller_restapi_v1_PartReceived": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/PartReceived"
+                }
+            }
+        },
         "Data-internal_controller_restapi_v1_Playback": {
             "type": "object",
             "properties": {
@@ -1254,6 +1710,22 @@ const docTemplate = `{
                 }
             }
         },
+        "Data-internal_controller_restapi_v1_Upload": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Upload"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_UploadCompleted": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/UploadCompleted"
+                }
+            }
+        },
         "Data-internal_controller_restapi_v1_VODList": {
             "type": "object",
             "properties": {
@@ -1270,9 +1742,7 @@ const docTemplate = `{
                 },
                 "details": {
                     "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
+                    "additionalProperties": {}
                 },
                 "message": {
                     "type": "string"
@@ -1318,6 +1788,17 @@ const docTemplate = `{
                 },
                 "required": {
                     "type": "boolean"
+                }
+            }
+        },
+        "PartReceived": {
+            "type": "object",
+            "properties": {
+                "partNumber": {
+                    "type": "integer"
+                },
+                "receivedBytes": {
+                    "type": "integer"
                 }
             }
         },
@@ -1595,26 +2076,62 @@ const docTemplate = `{
                 "createdAt": {
                     "type": "string"
                 },
+                "description": {
+                    "type": "string"
+                },
                 "durationSec": {
                     "type": "integer"
                 },
                 "expiresAt": {
+                    "description": "ExpiresAt is null for an uploaded video.",
+                    "type": "string"
+                },
+                "failureReason": {
+                    "description": "FailureReason and Retryable describe a FAILED upload (UNSUPPORTED_FORMAT, NO_VIDEO_STREAM, DURATION_TOO_LONG,\nFILE_CORRUPT, TRANSCODE_FAILED, STORAGE_ERROR); Retryable allows POST /studio/vods/{id}/retry.",
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
+                "isMature": {
+                    "type": "boolean"
+                },
                 "manifestUrl": {
+                    "description": "ManifestURL is empty until the VOD is READY.",
                     "type": "string"
+                },
+                "processing": {
+                    "description": "Processing is set only while PROCESSING.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/VODProcessing"
+                        }
+                    ]
+                },
+                "publishedAt": {
+                    "type": "string"
+                },
+                "retryable": {
+                    "type": "boolean"
+                },
+                "source": {
+                    "type": "string",
+                    "enum": [
+                        "LIVE",
+                        "UPLOAD"
+                    ]
                 },
                 "status": {
                     "type": "string",
                     "enum": [
                         "READY",
-                        "EXPIRED"
+                        "EXPIRED",
+                        "PROCESSING",
+                        "FAILED"
                     ]
                 },
                 "streamId": {
+                    "description": "StreamID is null for an uploaded video.",
                     "type": "string"
                 },
                 "thumbnailUrl": {
@@ -1646,6 +2163,97 @@ const docTemplate = `{
                 }
             }
         },
+        "Upload": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "expiresAt": {
+                    "type": "string"
+                },
+                "fileName": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "partCount": {
+                    "type": "integer"
+                },
+                "partSize": {
+                    "type": "integer"
+                },
+                "sizeBytes": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "UPLOADING",
+                        "COMPLETED",
+                        "ABORTED",
+                        "EXPIRED"
+                    ]
+                },
+                "uploadedParts": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "vodId": {
+                    "type": "string"
+                }
+            }
+        },
+        "UploadCompleted": {
+            "type": "object",
+            "properties": {
+                "upload": {
+                    "$ref": "#/definitions/Upload"
+                },
+                "vodId": {
+                    "type": "string"
+                }
+            }
+        },
+        "UploadRequest": {
+            "type": "object",
+            "properties": {
+                "categoryId": {
+                    "type": "string"
+                },
+                "contentType": {
+                    "description": "ContentType is video/mp4, video/quicktime, video/x-matroska, video/webm, or empty / application/octet-stream\n(the extension decides).",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "fileName": {
+                    "description": "FileName is shown to the creator only (never used as a path); .mp4, .mov, .mkv or .webm.",
+                    "type": "string"
+                },
+                "isMature": {
+                    "type": "boolean"
+                },
+                "sizeBytes": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "visibility": {
+                    "description": "Visibility defaults to PUBLIC.",
+                    "type": "string",
+                    "enum": [
+                        "PUBLIC",
+                        "HIDDEN"
+                    ]
+                }
+            }
+        },
         "VOD": {
             "type": "object",
             "properties": {
@@ -1661,10 +2269,14 @@ const docTemplate = `{
                 "createdAt": {
                     "type": "string"
                 },
+                "description": {
+                    "type": "string"
+                },
                 "durationSec": {
                     "type": "integer"
                 },
                 "expiresAt": {
+                    "description": "ExpiresAt is null for an uploaded video: it never expires.",
                     "type": "string"
                 },
                 "id": {
@@ -1676,10 +2288,22 @@ const docTemplate = `{
                 "manifestUrl": {
                     "type": "string"
                 },
+                "publishedAt": {
+                    "description": "PublishedAt is when the VOD became READY.",
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string",
+                    "enum": [
+                        "LIVE",
+                        "UPLOAD"
+                    ]
+                },
                 "status": {
                     "type": "string"
                 },
                 "streamId": {
+                    "description": "StreamID is null for an uploaded video.",
                     "type": "string"
                 },
                 "thumbnailUrl": {
@@ -1722,6 +2346,16 @@ const docTemplate = `{
         "VODPatchRequest": {
             "type": "object",
             "properties": {
+                "categoryId": {
+                    "description": "CategoryID: \"\" removes the category.",
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "isMature": {
+                    "type": "boolean"
+                },
                 "title": {
                     "type": "string"
                 },
@@ -1730,6 +2364,22 @@ const docTemplate = `{
                     "enum": [
                         "PUBLIC",
                         "HIDDEN"
+                    ]
+                }
+            }
+        },
+        "VODProcessing": {
+            "type": "object",
+            "properties": {
+                "percent": {
+                    "type": "integer"
+                },
+                "stage": {
+                    "type": "string",
+                    "enum": [
+                        "PROBING",
+                        "TRANSCODING",
+                        "UPLOADING"
                     ]
                 }
             }
@@ -1759,7 +2409,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/v1",
 	Schemes:          []string{},
 	Title:            "NexusLive stream-svc API",
-	Description:      "Stream keys, Studio, live catalog and VODs. Get a token from identity-svc (http://localhost:8090/swagger/index.html → /auth/login) and paste \"Bearer <accessToken>\" into Authorize.",
+	Description:      "Stream keys, Studio (video uploads included), live catalog and VODs. Get a token from identity-svc (http://localhost:8090/swagger/index.html → /auth/login) and paste \"Bearer <accessToken>\" into Authorize.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

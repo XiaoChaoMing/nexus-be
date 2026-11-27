@@ -168,8 +168,8 @@ func (r *routes) playbackBody(g entity.PlaybackGrant) Playback {
 	return out
 }
 
-// manifestURL is the single place playback URLs are built. Signed, the token covers the stream's directory
-// (streams/{id}/) so the variant playlists and segments the player resolves relative to it share it.
+// manifestURL is the single place playback URLs are built. Signed, the token covers the media directory
+// (streams/{id}/ or videos/{id}/) so the variant playlists and segments the player resolves relative to it share it.
 func (r *routes) manifestURL(key string, expires time.Time) string {
 	if !r.o.HLSSigning {
 		return r.objectURL(key)
@@ -183,10 +183,15 @@ func (r *routes) manifestURL(key string, expires time.Time) string {
 	return hlssign.Path(r.o.HLSBase, r.o.HLSSecret, prefix, file, expires)
 }
 
-// streamDir splits "streams/{id}/rest" into "streams/{id}/" and "rest".
+// streamDir splits "streams/{id}/rest" (a broadcast) or "videos/{id}/rest" (an uploaded video) into the directory
+// and "rest".
 func streamDir(key string) (prefix, file string, ok bool) {
-	parts := strings.SplitN(strings.TrimPrefix(key, "/"), "/", 3) //nolint:mnd // streams, id, rest
-	if len(parts) != 3 || parts[0] != "streams" || parts[2] == "" {
+	parts := strings.SplitN(strings.TrimPrefix(key, "/"), "/", 3) //nolint:mnd // root, id, rest
+	if len(parts) != 3 || (parts[0] != "streams" && parts[0] != "videos") || parts[2] == "" {
+		return "", "", false
+	}
+
+	if _, err := uuid.Parse(parts[1]); err != nil {
 		return "", "", false
 	}
 

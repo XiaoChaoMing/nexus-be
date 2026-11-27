@@ -17,7 +17,8 @@ import (
 
 var errDB = errors.New("db down")
 
-// fakeStreams: "s-plain" and "s-mature" exist; VOD "v-mature" records "s-mature", "v-plain" records "s-plain".
+// fakeStreams: "s-plain" and "s-mature" exist; VOD "v-mature" records "s-mature", "v-plain" records "s-plain";
+// "v-upload" is a mature uploaded video (no stream). A VOD carries its own mature flag.
 type fakeStreams struct{ repo.StreamRepo }
 
 func (fakeStreams) Get(_ context.Context, id string) (entity.Stream, error) {
@@ -32,14 +33,20 @@ func (fakeStreams) Get(_ context.Context, id string) (entity.Stream, error) {
 }
 
 func (fakeStreams) GetVOD(_ context.Context, id string) (entity.VOD, error) {
+	plain, mature := "s-plain", "s-mature"
+
 	switch id {
 	case "v-plain":
-		return entity.VOD{ID: id, StreamID: "s-plain", ChannelID: "ch1", PlaylistPath: "streams/s-plain/vod.m3u8", DurationSec: 600}, nil
+		return entity.VOD{ID: id, StreamID: &plain, ChannelID: "ch1", PlaylistPath: "streams/s-plain/vod.m3u8", DurationSec: 600}, nil
 	case "v-mature":
-		return entity.VOD{ID: id, StreamID: "s-mature", ChannelID: "ch1", PlaylistPath: "streams/s-mature/vod.m3u8"}, nil
+		return entity.VOD{ID: id, StreamID: &mature, ChannelID: "ch1", PlaylistPath: "streams/s-mature/vod.m3u8", IsMature: true}, nil
+	case "v-upload":
+		return entity.VOD{
+			ID: id, ChannelID: "ch1", Source: entity.SourceUpload, PlaylistPath: "videos/v-upload/master.m3u8", IsMature: true,
+		}, nil
 	case "v-hidden":
 		return entity.VOD{
-			ID: id, StreamID: "s-plain", ChannelID: "ch1", PlaylistPath: "streams/s-plain/vod.m3u8",
+			ID: id, StreamID: &plain, ChannelID: "ch1", PlaylistPath: "streams/s-plain/vod.m3u8",
 			Visibility: entity.VisibilityHidden,
 		}, nil
 	}
@@ -181,6 +188,14 @@ func openCases() []openCase {
 		{
 			name: "plain vod", in: usecase.PlaybackInput{Target: entity.PlaybackTarget{VODID: "v-plain"}, UserID: "u1"},
 			wantOpen: true, wantKey: "streams/s-plain/vod.m3u8",
+		},
+		{
+			name: "mature upload without a stream", in: usecase.PlaybackInput{Target: entity.PlaybackTarget{VODID: "v-upload"}, UserID: "u1"},
+			wantMature: true,
+		},
+		{
+			name: "upload acknowledged", in: usecase.PlaybackInput{Target: entity.PlaybackTarget{VODID: "v-upload"}, UserID: "u1", AcknowledgeMature: true},
+			wantOpen: true, wantMature: true, wantKey: "videos/v-upload/master.m3u8", wantConsent: true,
 		},
 	}
 }

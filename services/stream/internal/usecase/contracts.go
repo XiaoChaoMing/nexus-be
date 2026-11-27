@@ -3,6 +3,7 @@ package usecase
 
 import (
 	"context"
+	"io"
 
 	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/stream/internal/entity"
@@ -22,8 +23,48 @@ type (
 		// Dashboard returns entity.ErrInvalidState for an unknown range.
 		Dashboard(ctx context.Context, channelID string, r entity.Range) (entity.Dashboard, error)
 		StudioVODs(ctx context.Context, channelID string, f repo.StudioVODFilter, cursor string, limit int) (VODPage, error)
+		// UpdateVOD returns entity.ErrNotFound or entity.ErrInvalidState (entity.VOD.CanApply).
 		UpdateVOD(ctx context.Context, channelID, vodID string, p entity.VODPatch) (entity.VOD, error)
 		DeleteVOD(ctx context.Context, channelID, vodID string) error
+	}
+
+	// Uploads is a creator sending a video file in parts from the Studio. ch is the caller's channel (Studio.Channel):
+	// a suspended channel gets entity.ErrChannelSuspended; another channel's session is entity.ErrNotFound.
+	Uploads interface {
+		// Create checks format, size and quotas and opens the multipart upload.
+		Create(ctx context.Context, ch entity.Channel, in NewUpload) (entity.Upload, error)
+		// PutPart stores part n (size bytes of body); sending a part again replaces it.
+		PutPart(ctx context.Context, ch entity.Channel, uploadID string, n int, body io.Reader, size int64) error
+		Get(ctx context.Context, channelID, uploadID string) (entity.Upload, error)
+		// Complete creates the PROCESSING VOD (Upload.VODID); calling it again returns the same session.
+		Complete(ctx context.Context, ch entity.Channel, uploadID string) (entity.Upload, error)
+		// Abort cancels an UPLOADING session (an aborted or expired one is fine); entity.ErrInvalidState once COMPLETED.
+		Abort(ctx context.Context, channelID, uploadID string) error
+		// Retry transcodes a FAILED, retryable upload again while its source file still exists.
+		Retry(ctx context.Context, ch entity.Channel, vodID string) (entity.VOD, error)
+	}
+
+	// UploadEvents applies media-svc's transcoding results and channel suspensions to uploads. The handlers are
+	// idempotent through the VOD's state (media-svc's event ids are not uuids).
+	UploadEvents interface {
+		Progress(ctx context.Context, e events.UploadProgress) error
+		Processed(ctx context.Context, e events.UploadProcessed) error
+		Failed(ctx context.Context, e events.UploadFailed) error
+		// AbortChannel cancels the channel's sessions that are still UPLOADING.
+		AbortChannel(ctx context.Context, channelID string) error
+	}
+
+	// NewUpload is what the creator declares before sending a file.
+	NewUpload struct {
+		UserID      string
+		FileName    string
+		ContentType string
+		SizeBytes   int64
+		Title       string
+		Description string
+		CategoryID  *string
+		IsMature    bool
+		Visibility  string
 	}
 
 	// Ingest handles media-svc: the authorize call and ingest events.
@@ -59,6 +100,8 @@ type (
 	// Safety applies safety-svc's actions and channel-svc's suspensions; idempotent on eventID.
 	Safety interface {
 		Takedown(ctx context.Context, eventID string, e events.StreamTakedown) error
+		// VODTakedown deletes one VOD (uploaded or recorded); media-svc then removes its files.
+		VODTakedown(ctx context.Context, eventID string, e events.VODTakedown) error
 		ChannelSuspended(ctx context.Context, eventID string, e events.ChannelSuspended) error
 		ChannelRestored(ctx context.Context, eventID string, e events.ChannelSuspended) error
 	}
@@ -66,6 +109,8 @@ type (
 	// Snapshot pages through every stream for other services' backfill (internal API); next is "" on the last page.
 	Snapshot interface {
 		Streams(ctx context.Context, after string, limit int) (items []entity.StreamCopy, next string, err error)
+		// VOD returns any VOD, DELETED included; entity.ErrNotFound when unknown.
+		VOD(ctx context.Context, vodID string) (entity.VOD, error)
 	}
 
 	// Observer receives counters for /metrics; the use case never depends on a metrics library.
@@ -85,8 +130,8 @@ type (
 		GetVODFor(ctx context.Context, vodID, viewerID string) (entity.VOD, error)
 		VODs(ctx context.Context, f repo.VODFilter, cursor string, limit int) (VODPage, error)
 		RecommendedVODs(ctx context.Context, limit int) ([]entity.VOD, error)
-		// ChannelVODs returns entity.ErrNotFound for a channel stream-svc does not know.
-		ChannelVODs(ctx context.Context, channelID, cursor string, limit int) (VODPage, error)
+		// ChannelVODs returns entity.ErrNotFound for a channel stream-svc does not know; source "" is every source.
+		ChannelVODs(ctx context.Context, channelID, source, cursor string, limit int) (VODPage, error)
 	}
 
 	// StreamSort -.

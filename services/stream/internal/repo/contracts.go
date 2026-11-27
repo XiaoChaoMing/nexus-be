@@ -3,6 +3,7 @@ package repo
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/minhnn/nexuslive-be/pkg/events"
@@ -52,7 +53,7 @@ type (
 		ListOnAirFiltered(ctx context.Context, f StreamFilter, after *Cursor, limit int) ([]entity.Stream, error)
 		// ListOnAirAll returns at most max streams on air matching f, unordered (sorted by viewers in memory).
 		ListOnAirAll(ctx context.Context, f StreamFilter, maxRows int) ([]entity.Stream, error)
-		// GetVOD returns a READY, unexpired VOD whatever its visibility.
+		// GetVOD returns a READY, unexpired VOD (an uploaded one never expires) whatever its visibility.
 		GetVOD(ctx context.Context, vodID string) (entity.VOD, error)
 
 		// Scheduled streams (schedule.* events of channel-svc); eventID de-duplicates.
@@ -67,7 +68,7 @@ type (
 
 		// EndedByCreatorSince reports whether the channel's latest stream was ended by the creator after since.
 		EndedByCreatorSince(ctx context.Context, channelID string, since time.Time) (bool, error)
-		// ExpireVODs marks READY VODs past expires_at as EXPIRED; returns how many.
+		// ExpireVODs marks READY broadcast VODs past expires_at as EXPIRED (uploads never expire); returns how many.
 		ExpireVODs(ctx context.Context) (int64, error)
 		// CountOnAir returns how many streams are LIVE or INTERRUPTED.
 		CountOnAir(ctx context.Context) (int, error)
@@ -79,12 +80,66 @@ type (
 	VODRepo interface {
 		// ListPublic lists READY, PUBLIC, unexpired VODs, newest first; safeOnly leaves mature ones out.
 		ListPublic(ctx context.Context, f VODFilter, safeOnly bool, after *VODCursor, limit int) ([]entity.VOD, error)
-		// ListByChannel lists the channel's VODs: the public ones, or (public false) every READY / EXPIRED one.
+		// ListByChannel lists the channel's VODs: the public ones, or (public false) every READY / EXPIRED /
+		// PROCESSING / FAILED one.
 		ListByChannel(ctx context.Context, channelID string, public bool, f StudioVODFilter, after *VODCursor, limit int) ([]entity.VOD, error)
-		// UpdateVOD returns entity.ErrNotFound (other channel, deleted) or entity.ErrInvalidState (EXPIRED).
+		// UpdateVOD returns entity.ErrNotFound (other channel, deleted) or entity.ErrInvalidState (entity.VOD.CanApply).
 		UpdateVOD(ctx context.Context, channelID, vodID string, p entity.VODPatch) (entity.VOD, error)
-		// DeleteVOD soft-deletes a READY or EXPIRED VOD; entity.ErrNotFound otherwise.
+		// DeleteVOD soft-deletes a READY, EXPIRED, PROCESSING or FAILED VOD; entity.ErrNotFound otherwise.
 		DeleteVOD(ctx context.Context, channelID, vodID string) error
+	}
+
+	// UploadRepo stores upload sessions (video_uploads) and moves uploaded videos through PROCESSING → READY | FAILED.
+	// Every VOD change queues its event in the same transaction.
+	UploadRepo interface {
+		// UploadQuota counts the channel's uploads in flight and the sessions it created over entity.UploadQuotaWindow.
+		UploadQuota(ctx context.Context, channelID string) (entity.UploadQuota, error)
+		// CreateUpload checks the quota again under a per-channel lock (*entity.UploadLimitError) and inserts u.
+		CreateUpload(ctx context.Context, u entity.Upload, l entity.UploadLimits) (entity.Upload, error)
+		// GetUpload returns entity.ErrNotFound for another channel's session.
+		GetUpload(ctx context.Context, channelID, uploadID string) (entity.Upload, error)
+		// SavePart records part n of an UPLOADING session and returns the session; a session that is no longer
+		// UPLOADING is returned unchanged, so the caller sees its new status.
+		SavePart(ctx context.Context, uploadID string, n int, p entity.UploadPart) (entity.Upload, error)
+		// CompleteUpload creates the PROCESSING VOD, completes the session and queues upload.completed in one
+		// transaction. A COMPLETED session is returned as is; an ABORTED / EXPIRED one is entity.ErrUploadExpired.
+		CompleteUpload(ctx context.Context, uploadID, bucket string) (entity.Upload, error)
+		// AbortUpload moves an UPLOADING session to ABORTED; ok is false when it was not UPLOADING.
+		AbortUpload(ctx context.Context, channelID, uploadID string) (u entity.Upload, ok bool, err error)
+		// ExpireUploads moves at most limit UPLOADING sessions past expires_at to EXPIRED and returns them.
+		ExpireUploads(ctx context.Context, limit int) ([]entity.Upload, error)
+		// AbortChannelUploads moves the channel's UPLOADING sessions to ABORTED and returns them.
+		AbortChannelUploads(ctx context.Context, channelID string) ([]entity.Upload, error)
+		// SourcesToPurge returns at most limit sessions whose VOD is READY or DELETED and whose source still exists.
+		SourcesToPurge(ctx context.Context, limit int) ([]entity.Upload, error)
+		// MarkSourceDeleted records that the source object was removed.
+		MarkSourceDeleted(ctx context.Context, uploadID string) error
+		// UploadOfVOD returns the session behind the channel's uploaded VOD (entity.ErrNotFound otherwise).
+		UploadOfVOD(ctx context.Context, channelID, vodID string) (entity.Upload, error)
+		// RetryVOD moves a FAILED, retryable VOD back to PROCESSING and queues upload.completed again;
+		// entity.ErrInvalidState when it is not retryable.
+		RetryVOD(ctx context.Context, channelID, vodID, bucket string) (entity.VOD, error)
+		// SetProgress stores the transcoding progress of a PROCESSING upload; a lower report is ignored.
+		SetProgress(ctx context.Context, vodID string, percent int, stage string) error
+		// MarkVODReady applies upload.processed (see UploadOutcome).
+		MarkVODReady(ctx context.Context, in UploadReadyInput) (UploadOutcome, error)
+		// MarkVODFailed moves a PROCESSING upload to FAILED; ok is false when it was not PROCESSING.
+		MarkVODFailed(ctx context.Context, vodID, reason string, retryable bool) (ok bool, err error)
+	}
+
+	// ObjectStore is the private bucket of upload sources (S3 multipart uploads).
+	ObjectStore interface {
+		// NewMultipart starts a multipart upload of key and returns its storage upload id.
+		NewMultipart(ctx context.Context, key, contentType string) (string, error)
+		// PutPart stores part n (size bytes read from body) and returns its ETag; sending n again replaces it.
+		PutPart(ctx context.Context, key, uploadID string, n int, body io.Reader, size int64) (string, error)
+		// CompleteMultipart assembles the parts; a multipart upload already completed into key is not an error.
+		CompleteMultipart(ctx context.Context, key, uploadID string, parts []entity.UploadPartRef) error
+		// AbortMultipart drops the parts; an unknown upload is not an error.
+		AbortMultipart(ctx context.Context, key, uploadID string) error
+		Exists(ctx context.Context, key string) (bool, error)
+		// Remove deletes key; a missing key is not an error.
+		Remove(ctx context.Context, key string) error
 	}
 
 	// ViewerCountRepo reads the live viewer counts chat-svc maintains (read only).
@@ -113,6 +168,11 @@ type (
 		SetSuspended(ctx context.Context, eventID, channelID string, suspended bool) (ended, cancelled int, err error)
 		// Streams pages through every stream (id > after, ordered by id) for other services' backfill.
 		Streams(ctx context.Context, after string, limit int) ([]entity.StreamCopy, error)
+		// TakedownVOD deletes the VOD whatever its state and queues vod.deleted; found is false when the VOD does
+		// not exist or was already deleted.
+		TakedownVOD(ctx context.Context, eventID, vodID string) (found bool, err error)
+		// VODCopy returns any VOD, DELETED included (entity.ErrNotFound when unknown).
+		VODCopy(ctx context.Context, vodID string) (entity.VOD, error)
 	}
 
 	// ViewerRepo stores what viewers do: playback sessions, mature consents and VOD positions.
@@ -176,5 +236,34 @@ type (
 	StudioVODFilter struct {
 		Visibility *string
 		Status     *string
+		// Source is entity.SourceLive or entity.SourceUpload.
+		Source *string
 	}
+
+	// UploadReadyInput is upload.processed: the HLS of an uploaded video is stored under videos/{vodId}/.
+	UploadReadyInput struct {
+		VODID         string
+		DurationSec   int
+		PlaylistPath  string
+		ThumbnailPath string
+	}
+
+	// UploadOutcome says what MarkVODReady did.
+	UploadOutcome struct {
+		// Result is one of the UploadResult* values.
+		Result string
+		// Upload is the session behind the VOD (set unless Result is UploadResultIgnored).
+		Upload entity.Upload
+	}
+)
+
+// MarkVODReady results.
+const (
+	// UploadResultReady: the VOD went PROCESSING → READY and vod.published was queued.
+	UploadResultReady = "READY"
+	// UploadResultDeleted: the VOD was deleted while processing; vod.deleted was queued again so media-svc removes
+	// the files it has just written.
+	UploadResultDeleted = "DELETED"
+	// UploadResultIgnored: unknown VOD, or already READY / FAILED (a redelivery).
+	UploadResultIgnored = "IGNORED"
 )

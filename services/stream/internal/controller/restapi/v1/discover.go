@@ -20,6 +20,7 @@ const (
 
 	_detailEnum    = "ENUM"
 	_detailInvalid = "INVALID"
+	_detailLength  = "LENGTH"
 )
 
 var _languageRe = regexp.MustCompile(`^[a-z]{2}$`)
@@ -181,23 +182,41 @@ func (r *routes) recommendedVODs(ctx *fiber.Ctx) error {
 
 // channelVODs godoc
 //
-//	@Summary A channel's public VODs (Video tab), newest first
-//	@Tags    vods
-//	@Produce json
-//	@Param   id     path     string true  "channel id (uuid)"
-//	@Param   cursor query    string false "nextCursor of the previous page"
-//	@Param   limit  query    int    false "1–50" default(24)
-//	@Success 200    {object} Data[VODList]
-//	@Failure 400    {object} ErrorResponse "VALIDATION_FAILED (cursor = INVALID)"
-//	@Failure 404    {object} ErrorResponse "NOT_FOUND"
-//	@Router  /channels/{id}/vods [get]
+//	@Summary     A channel's public VODs (Video tab), newest first
+//	@Description Broadcast recordings (source LIVE) and uploaded videos (source UPLOAD); source filters them.
+//	@Tags        vods
+//	@Produce     json
+//	@Param       id     path     string true  "channel id (uuid)"
+//	@Param       source query    string false "filter" Enums(LIVE,UPLOAD)
+//	@Param       cursor query    string false "nextCursor of the previous page"
+//	@Param       limit  query    int    false "1–50" default(24)
+//	@Success     200    {object} Data[VODList]
+//	@Failure     400    {object} ErrorResponse "VALIDATION_FAILED (source = ENUM, cursor = INVALID)"
+//	@Failure     404    {object} ErrorResponse "NOT_FOUND"
+//	@Router      /channels/{id}/vods [get]
 func (r *routes) channelVODs(ctx *fiber.Ctx) error {
 	u, err := uuid.Parse(ctx.Params("id"))
 	if err != nil {
 		return errorJSON(ctx, http.StatusNotFound, CodeNotFound, "channel not found", nil)
 	}
 
-	page, err := r.catalog.ChannelVODs(ctx.UserContext(), u.String(), ctx.Query("cursor"), ctx.QueryInt("limit", _defaultLim))
+	errs := map[string]string{}
+	source := sourceQuery(ctx, errs)
+
+	if len(errs) > 0 {
+		return errorJSON(ctx, http.StatusBadRequest, CodeValidationFailed, "invalid query", errs)
+	}
+
+	page, err := r.catalog.ChannelVODs(ctx.UserContext(), u.String(), deref(source), ctx.Query("cursor"),
+		ctx.QueryInt("limit", _defaultLim))
 
 	return r.sendVODPage(ctx, "channelVODs", page, err)
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+
+	return *s
 }

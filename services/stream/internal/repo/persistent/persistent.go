@@ -609,11 +609,12 @@ func (r *Repo) OnVODProcessed(ctx context.Context, eventID string, v repo.VODInp
 
 		// The VOD of a stream an admin took down is recorded DELETED, so media-svc removes its files.
 		vod, err := scanVOD(tx.QueryRow(ctx,
-			`INSERT INTO vods (stream_id, channel_id, title, duration_sec, playlist_path, thumbnail_url, status, expires_at,
-			                  category_id, is_mature, deleted_at)
-			 SELECT id, channel_id, title, $2, $3, $4, CASE WHEN taken_down_at IS NULL THEN 'READY' ELSE 'DELETED' END,
+			`INSERT INTO vods (stream_id, channel_id, source, title, duration_sec, playlist_path, thumbnail_url, status,
+			                  expires_at, category_id, is_mature, deleted_at, published_at)
+			 SELECT id, channel_id, 'LIVE', title, $2, $3, $4,
+			        CASE WHEN taken_down_at IS NULL THEN 'READY' ELSE 'DELETED' END,
 			        now() + make_interval(secs => $5), category_id, is_mature,
-			        CASE WHEN taken_down_at IS NULL THEN NULL ELSE now() END
+			        CASE WHEN taken_down_at IS NULL THEN NULL ELSE now() END, now()
 			 FROM streams WHERE id = $1
 			 ON CONFLICT (stream_id) DO NOTHING
 			 RETURNING `+_vodCols,
@@ -627,14 +628,18 @@ func (r *Repo) OnVODProcessed(ctx context.Context, eventID string, v repo.VODInp
 		}
 
 		if vod.Status == entity.VODDeleted {
-			return addOutbox(ctx, tx, v.StreamID, events.TypeVODDeleted,
-				events.VODDeleted{VODID: vod.ID, StreamID: v.StreamID, ChannelID: vod.ChannelID})
+			return addOutbox(ctx, tx, v.StreamID, events.TypeVODDeleted, vodDeletedEvent(vod))
+		}
+
+		var expiresAt time.Time
+		if vod.ExpiresAt != nil {
+			expiresAt = vod.ExpiresAt.UTC()
 		}
 
 		return addOutbox(ctx, tx, v.StreamID, events.TypeStreamVODReady, events.StreamVODReady{
 			StreamID: v.StreamID, ChannelID: vod.ChannelID, VODID: vod.ID, Title: vod.Title,
 			ThumbnailURL: r.objectURL(vod.ThumbnailURL), DurationSec: vod.DurationSec, CategoryID: vod.CategoryID,
-			IsMature: vod.IsMature, ExpiresAt: vod.ExpiresAt.UTC(),
+			IsMature: vod.IsMature, ExpiresAt: expiresAt,
 		})
 	})
 }
@@ -652,9 +657,11 @@ func (r *Repo) SetPeakViewers(ctx context.Context, eventID, streamID string, pea
 	})
 }
 
-// ExpireVODs -.
+// ExpireVODs expires broadcast recordings only: an uploaded video stays until its creator deletes it.
 func (r *Repo) ExpireVODs(ctx context.Context) (int64, error) {
-	tag, err := r.Pool.Exec(ctx, `UPDATE vods SET status = 'EXPIRED' WHERE status = 'READY' AND expires_at <= now()`)
+	tag, err := r.Pool.Exec(ctx,
+		`UPDATE vods SET status = 'EXPIRED', updated_at = now()
+		 WHERE status = 'READY' AND source = 'LIVE' AND expires_at <= now()`)
 	if err != nil {
 		return 0, fmt.Errorf("Repo - ExpireVODs: %w", err)
 	}
@@ -748,7 +755,7 @@ func (r *Repo) ListOnAir(ctx context.Context, after *repo.Cursor, limit int) ([]
 // GetVOD returns READY, unexpired VODs only (hidden ones included: the use case decides who sees them).
 func (r *Repo) GetVOD(ctx context.Context, vodID string) (entity.VOD, error) {
 	v, err := scanVOD(r.Pool.QueryRow(ctx,
-		`SELECT `+_vodCols+` FROM vods WHERE id = $1 AND status = 'READY' AND expires_at > now()`, vodID))
+		`SELECT `+_vodCols+` FROM vods WHERE id = $1 AND status = 'READY' AND `+_unexpired, vodID))
 	if err != nil && !errors.Is(err, entity.ErrNotFound) {
 		return entity.VOD{}, fmt.Errorf("Repo - GetVOD: %w", err)
 	}
