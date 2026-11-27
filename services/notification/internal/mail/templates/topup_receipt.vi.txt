@@ -1,0 +1,11 @@
+{{define "subject"}}Nạp ví thành công {{.Invoice}}{{end}}{{define "body"}}Chào {{.Name}},
+
+Bạn đã nạp {{.Amount}} vào ví NexusLive (giao dịch {{.Invoice}}, {{.Method}}, lúc {{.When}}).
+
+Số dư ví dùng để tặng quà cho streamer; số dư không rút và không hoàn lại.
+
+Xem ví: {{.Link}}
+
+Đây là email giao dịch bắt buộc.
+— NexusLive
+{{end}}

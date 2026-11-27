@@ -95,6 +95,21 @@ const (
 	TypePaymentSucceeded      = "payment.succeeded.v1"
 	TypePaymentFailed         = "payment.failed.v1"
 	TypePaymentVoided         = "payment.voided.v1"
+
+	// Published by billing-svc (outbox) when a payout closes; notification-svc tells the channel owner.
+	TypePayoutPaid     = "payout.paid.v1"
+	TypePayoutFailed   = "payout.failed.v1"
+	TypePayoutRejected = "payout.rejected.v1"
+
+	// Published by billing-svc (outbox) when a viewer gives a gift; chat-svc announces it, notification-svc tells
+	// the channel owner.
+	TypeGiftSent = "gift.sent.v1"
+)
+
+// Values of PaymentSucceeded / PaymentFailed / PaymentVoided OrderType; absent means OrderTypeSubscription.
+const (
+	OrderTypeSubscription = "SUBSCRIPTION"
+	OrderTypeTopup        = "TOPUP"
 )
 
 // Values of SubscriptionUpdated.Change.
@@ -115,8 +130,10 @@ const (
 	PaymentAppliedActivated   = "ACTIVATED"
 	PaymentAppliedRenewed     = "RENEWED"
 	PaymentAppliedNeedsReview = "NEEDS_REVIEW"
-	PaymentSourceIPN          = "IPN"
-	PaymentSourceReconcile    = "RECONCILE"
+	// PaymentAppliedTopup: a wallet top-up was credited (no channel, tier or subscription).
+	PaymentAppliedTopup    = "TOPUP"
+	PaymentSourceIPN       = "IPN"
+	PaymentSourceReconcile = "RECONCILE"
 )
 
 // EndReasonAdminTakedown ends a stream an admin took down (stream.ended.v1 endReason).
@@ -770,6 +787,8 @@ type SubscriptionExpired struct {
 
 // PaymentSucceeded is published when a checkout order becomes PAID. Amount is in VND.
 type PaymentSucceeded struct {
+	// OrderType is SUBSCRIPTION or TOPUP ("" = SUBSCRIPTION); a top-up has an empty ChannelID and Tier 0.
+	OrderType        string     `json:"orderType"`
 	OrderID          string     `json:"orderId"`
 	InvoiceNumber    string     `json:"invoiceNumber"`
 	UserID           string     `json:"userId"`
@@ -788,6 +807,8 @@ type PaymentSucceeded struct {
 
 // PaymentFailed is published when a checkout order becomes FAILED, CANCELLED or EXPIRED.
 type PaymentFailed struct {
+	// OrderType is SUBSCRIPTION or TOPUP ("" = SUBSCRIPTION); a top-up has an empty ChannelID and Tier 0.
+	OrderType     string `json:"orderType"`
 	OrderID       string `json:"orderId"`
 	InvoiceNumber string `json:"invoiceNumber"`
 	UserID        string `json:"userId"`
@@ -799,6 +820,8 @@ type PaymentFailed struct {
 
 // PaymentVoided is published when the provider voids a paid order.
 type PaymentVoided struct {
+	// OrderType is SUBSCRIPTION or TOPUP ("" = SUBSCRIPTION); a top-up has an empty ChannelID and Tier 0.
+	OrderType          string     `json:"orderType"`
 	OrderID            string     `json:"orderId"`
 	InvoiceNumber      string     `json:"invoiceNumber"`
 	UserID             string     `json:"userId"`
@@ -808,4 +831,29 @@ type PaymentVoided struct {
 	SubscriptionID     *string    `json:"subscriptionId"`
 	SubscriptionStatus *string    `json:"subscriptionStatus"`
 	CurrentPeriodEnd   *time.Time `json:"currentPeriodEnd"`
+}
+
+// PayoutClosed is the payload of payout.paid / failed / rejected.v1. Reference is set on paid, Reason on failed and
+// rejected.
+type PayoutClosed struct {
+	PayoutID  string  `json:"payoutId"`
+	Code      string  `json:"code"`
+	ChannelID string  `json:"channelId"`
+	Amount    int64   `json:"amount"`
+	Reference *string `json:"reference"`
+	Reason    *string `json:"reason"`
+}
+
+// GiftSent is published when a viewer gives a gift to a channel; Message is the sender's text, unfiltered.
+type GiftSent struct {
+	GiftSendID string    `json:"giftSendId"`
+	UserID     string    `json:"userId"`
+	ChannelID  string    `json:"channelId"`
+	ItemID     string    `json:"itemId"`
+	ItemName   string    `json:"itemName"`
+	Icon       string    `json:"icon"`
+	Quantity   int       `json:"quantity"`
+	Total      int64     `json:"total"`
+	Message    *string   `json:"message"`
+	SentAt     time.Time `json:"sentAt"`
 }

@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.2 |
-| **Cập nhật** | 2026-11-04 (thêm A10 "Tải video lên + ABR" — DL-22) |
+| **Phiên bản** | 1.4 |
+| **Cập nhật** | 2026-11-27 (H3: Donate bằng vật phẩm trả từ ví VND — DL-24); 2026-11-27 (H2: vòng đời chi trả rút tiền — DL-23); 2026-11-04 (thêm A10 "Tải video lên + ABR" — DL-22) |
 | **Nguồn** | PRD v2.0 §4, Core Features & Roadmap §1; PRD v2.1 FR-VD-08 (E-36) |
 
 ## Cách đọc
@@ -97,8 +97,8 @@
 | # | Tính năng | PRD | Đồ án | Service | Spec | Giai đoạn | Ghi chú |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | H1 | Subscription 3 tier + Checkout + quản lý/hủy | P0 | ✅ | billing | NXL-H | GĐ6 | Giao dịch thật trên sandbox của PSP; gói tháng, tự gia hạn mô phỏng bằng job |
-| H2 | Payout cho Creator (số dư, lịch chi trả, KYC) | P0 | ◐ | billing | NXL-H | GĐ6 | Sổ cái số dư + yêu cầu rút tiền ở trạng thái chờ; không chi trả thật |
-| H3 | Gift Sub, Donate, Goals | P1 | ⬜ | billing | — | — | |
+| H2 | Payout cho Creator (số dư, lịch chi trả, KYC) | P0 | ◐ | billing | NXL-H | GĐ6 | Sổ cái số dư + yêu cầu rút tiền; vòng đời `REQUESTED → APPROVED → PROCESSING → PAID` / `REJECTED` / `FAILED`, giữ tiền khi gửi yêu cầu, hoàn lại khi từ chối / thất bại, Admin đánh dấu đã chi kèm mã tham chiếu (ADR-015); provider `manual` — không chuyển tiền thật; không lịch chi trả, KYC |
+| H3 | Gift Sub, Donate, Goals | P1 | ◐ | billing, chat, notification, web, admin | NXL-H v1.2 §3.11 | Sau GĐ6 (TSD `2026-11-27-donate`) | Chỉ **Donate**: ví VND (nạp qua checkout SePay, không rút / hoàn), Admin quản lý danh mục vật phẩm (12 icon dựng sẵn), viewer tặng vật phẩm cho kênh, Creator nhận doanh thu − phí 5 % vào sổ cái, dòng `GIFT` trong chat, thông báo `GIFT_RECEIVED` (DL-24, ADR-016); Gift Sub, Goals sau đồ án; không coin |
 | H4 | Lịch sử giao dịch, hóa đơn, hoàn tiền | P1 | ◐ | billing | NXL-H | GĐ6 | Chỉ lịch sử giao dịch |
 | H5 | Nexus Coins, quảng cáo | P2 | ⬜ | — | — | — | Q6 |
 
@@ -126,9 +126,9 @@ Nhóm I không có spec riêng: yêu cầu được ghi vào từng spec (Respon
 | E | 1 | 1 | 1 |
 | F | 2 | 2 | 1 |
 | G | 1 | 2 | 1 |
-| H | 1 | 2 | 2 |
+| H | 1 | 3 | 1 |
 | I | 0 | 4 | 1 |
-| **Tổng** | **17** | **19** | **14** |
+| **Tổng** | **17** | **20** | **13** |
 
 Mọi tính năng P0 của PRD đều có mặt trong đồ án ở mức ✅ hoặc ◐.
 

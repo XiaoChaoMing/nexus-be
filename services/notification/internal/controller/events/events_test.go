@@ -54,6 +54,24 @@ func (f *fakeSources) NewSubscriber(_ context.Context, _ string, e events.Subscr
 	return f.err
 }
 
+func (f *fakeSources) PayoutClosed(_ context.Context, _, eventType string, _ events.PayoutClosed) error {
+	f.calls = append(f.calls, eventType)
+
+	return f.err
+}
+
+func (f *fakeSources) Topup(_ context.Context, _ string, t usecase.TopupEvent) error {
+	f.calls = append(f.calls, t.Kind)
+
+	return f.err
+}
+
+func (f *fakeSources) GiftReceived(_ context.Context, _ string, e events.GiftSent) error {
+	f.calls = append(f.calls, fmt.Sprintf("gift:%d", e.Quantity))
+
+	return f.err
+}
+
 func (f *fakeSources) SubExpiring(_ context.Context, _ string, _ events.SubscriptionExpiring) error {
 	f.calls = append(f.calls, "expiring")
 
@@ -120,6 +138,30 @@ func TestSourcesHandler(t *testing.T) { //nolint:funlen // table
 		{
 			name: "subscription.expiring", typ: events.TypeSubscriptionExpiring, call: "expiring",
 			payload: events.SubscriptionExpiring{SubscriptionID: id1, UserID: id2, ChannelID: id1, Tier: 2},
+		},
+		{
+			name: "payment.succeeded of a top-up", typ: events.TypePaymentSucceeded, call: "TOPUP_SUCCEEDED",
+			payload: events.PaymentSucceeded{OrderID: id1, UserID: id2, Amount: 100000, OrderType: events.OrderTypeTopup},
+		},
+		{
+			name: "payment.failed of a top-up", typ: events.TypePaymentFailed, call: "TOPUP_FAILED",
+			payload: events.PaymentFailed{OrderID: id1, UserID: id2, Status: "EXPIRED", OrderType: events.OrderTypeTopup},
+		},
+		{
+			name: "top-up with a bad user is skipped", typ: events.TypePaymentVoided, skip: true,
+			payload: events.PaymentVoided{OrderID: id1, UserID: "x", OrderType: events.OrderTypeTopup},
+		},
+		{
+			name: "gift.sent", typ: events.TypeGiftSent, call: "gift:5",
+			payload: events.GiftSent{GiftSendID: id1, UserID: id2, ChannelID: id1, Quantity: 5},
+		},
+		{
+			name: "payout.failed", typ: events.TypePayoutFailed, call: events.TypePayoutFailed,
+			payload: events.PayoutClosed{PayoutID: id1, ChannelID: id2, Code: "PO-0001", Amount: 100000},
+		},
+		{
+			name: "payout.paid bad channel", typ: events.TypePayoutPaid, skip: true,
+			payload: events.PayoutClosed{PayoutID: id1, ChannelID: "x"},
 		},
 		{
 			name: "not JSON", skip: true,

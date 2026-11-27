@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,11 +12,11 @@ import (
 // adminPayouts -.
 //
 //	@Summary     Payout queue
-//	@Description status REQUESTED (default, oldest first), APPROVED, REJECTED or ALL (newest first); each row carries the channel balance.
+//	@Description status REQUESTED (default, oldest first), APPROVED, PROCESSING, PAID, REJECTED, FAILED or ALL (newest first); each row carries the channel balance (balance = available + held by open payouts).
 //	@Tags        admin-billing
 //	@Produce     json
 //	@Security    BearerAuth
-//	@Param       status query    string false "REQUESTED | APPROVED | REJECTED | ALL"
+//	@Param       status query    string false "REQUESTED | APPROVED | PROCESSING | PAID | REJECTED | FAILED | ALL"
 //	@Param       cursor query    string false "nextCursor of the previous page"
 //	@Param       limit  query    int    false "1–50, default 20"
 //	@Success     200    {object} Data[Page[AdminPayout]]
@@ -112,7 +113,7 @@ func (r *routes) bankAccount(ctx *fiber.Ctx) error {
 // approve -.
 //
 //	@Summary     Approve a payout
-//	@Description REQUESTED → APPROVED with a PAYOUT debit in the ledger (no money is moved). A reviewed payout → 409.
+//	@Description REQUESTED → APPROVED → handed to the payout provider: PROCESSING for the manual provider (the money was held at request time, no ledger entry). An APPROVED payout (failed provider call) is handed over again. Any other status → 409 INVALID_STATE reason PAYOUT_STATE.
 //	@Tags        admin-billing
 //	@Produce     json
 //	@Security    BearerAuth
@@ -140,7 +141,7 @@ func (r *routes) approve(ctx *fiber.Ctx) error {
 // reject -.
 //
 //	@Summary     Reject a payout
-//	@Description reason 10–500 characters after trim; the amount is available again. A reviewed payout → 409.
+//	@Description REQUESTED → REJECTED; reason 10–500 characters after trim; the hold is given back (CREDIT PAYOUT_REVERSAL). Any other status → 409 INVALID_STATE reason PAYOUT_STATE.
 //	@Tags        admin-billing
 //	@Accept      json
 //	@Produce     json
@@ -155,22 +156,49 @@ func (r *routes) approve(ctx *fiber.Ctx) error {
 //	@Failure     409  {object} Error "INVALID_STATE"
 //	@Router      /admin/payouts/{id}/reject [post]
 func (r *routes) reject(ctx *fiber.Ctx) error {
-	adminID, ok := caller(ctx)
-	if !ok {
-		return unauthorized(ctx)
-	}
+	return payoutAction(r, ctx, "reject", func(b RejectRequest) string { return b.Reason }, r.uc.Admin.Reject)
+}
 
-	var body RejectRequest
-	if err := ctx.BodyParser(&body); err != nil {
-		return validationFailed(ctx, map[string]string{_fieldBody: entity.DetailInvalid})
-	}
+// markPaid -.
+//
+//	@Summary     Mark a payout paid
+//	@Description PROCESSING → PAID with the bank transfer reference (4–64 of A–Z a–z 0–9 . _ / -, trimmed). No ledger entry: the held money has left. Any other status → 409 INVALID_STATE reason PAYOUT_STATE.
+//	@Tags        admin-billing
+//	@Accept      json
+//	@Produce     json
+//	@Security    BearerAuth
+//	@Param       id   path     string          true "payout id"
+//	@Param       body body     MarkPaidRequest true "reference"
+//	@Success     200  {object} Data[AdminPayout]
+//	@Failure     400  {object} Error "VALIDATION_FAILED"
+//	@Failure     401  {object} Error "UNAUTHORIZED"
+//	@Failure     403  {object} Error "FORBIDDEN"
+//	@Failure     404  {object} Error "NOT_FOUND"
+//	@Failure     409  {object} Error "INVALID_STATE"
+//	@Router      /admin/payouts/{id}/mark-paid [post]
+func (r *routes) markPaid(ctx *fiber.Ctx) error {
+	return payoutAction(r, ctx, "markPaid", func(b MarkPaidRequest) string { return b.Reference }, r.uc.Admin.MarkPaid)
+}
 
-	p, err := r.uc.Admin.Reject(ctx.UserContext(), adminID, ctx.Params("id"), body.Reason)
-	if err != nil {
-		return r.fail(ctx, "reject", err)
-	}
-
-	return ctx.JSON(Data[AdminPayout]{Data: NewAdminPayout(p)})
+// markFailed -.
+//
+//	@Summary     Mark a payout failed
+//	@Description APPROVED or PROCESSING → FAILED; reason 10–500 characters after trim; the hold is given back (CREDIT PAYOUT_REVERSAL). Any other status → 409 INVALID_STATE reason PAYOUT_STATE.
+//	@Tags        admin-billing
+//	@Accept      json
+//	@Produce     json
+//	@Security    BearerAuth
+//	@Param       id   path     string        true "payout id"
+//	@Param       body body     RejectRequest true "reason"
+//	@Success     200  {object} Data[AdminPayout]
+//	@Failure     400  {object} Error "VALIDATION_FAILED"
+//	@Failure     401  {object} Error "UNAUTHORIZED"
+//	@Failure     403  {object} Error "FORBIDDEN"
+//	@Failure     404  {object} Error "NOT_FOUND"
+//	@Failure     409  {object} Error "INVALID_STATE"
+//	@Router      /admin/payouts/{id}/mark-failed [post]
+func (r *routes) markFailed(ctx *fiber.Ctx) error {
+	return payoutAction(r, ctx, "markFailed", func(b RejectRequest) string { return b.Reason }, r.uc.Admin.MarkFailed)
 }
 
 // adminOrders -.
@@ -240,4 +268,26 @@ func (r *routes) adminOrder(ctx *fiber.Ctx) error {
 	}
 
 	return ctx.JSON(Data[AdminOrder]{Data: NewAdminOrder(o)})
+}
+
+// payoutAction runs an admin payout action whose JSON body carries one text field (reason or reference).
+func payoutAction[B any](r *routes, ctx *fiber.Ctx, op string, field func(B) string,
+	act func(ctx context.Context, adminID, id, text string) (usecase.AdminPayout, error),
+) error {
+	adminID, ok := caller(ctx)
+	if !ok {
+		return unauthorized(ctx)
+	}
+
+	var body B
+	if err := ctx.BodyParser(&body); err != nil {
+		return validationFailed(ctx, map[string]string{_fieldBody: entity.DetailInvalid})
+	}
+
+	p, err := act(ctx.UserContext(), adminID, ctx.Params("id"), field(body))
+	if err != nil {
+		return r.fail(ctx, op, err)
+	}
+
+	return ctx.JSON(Data[AdminPayout]{Data: NewAdminPayout(p)})
 }

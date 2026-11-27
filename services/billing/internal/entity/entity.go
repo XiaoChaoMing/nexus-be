@@ -26,7 +26,7 @@ type (
 	PayoutStatus string
 	// TxnType of a provider transaction row.
 	TxnType string
-	// OrderType selects the applier of a paid order; only subscriptions exist so far.
+	// OrderType selects the applier of a paid order: a subscription or a wallet top-up.
 	OrderType string
 )
 
@@ -72,9 +72,11 @@ const (
 
 // Ledger kinds and directions.
 const (
-	LedgerSubRevenue  LedgerKind = "SUB_REVENUE"
-	LedgerPlatformFee LedgerKind = "PLATFORM_FEE"
-	LedgerPayout      LedgerKind = "PAYOUT"
+	LedgerSubRevenue     LedgerKind = "SUB_REVENUE"
+	LedgerPlatformFee    LedgerKind = "PLATFORM_FEE"
+	LedgerPayoutHold     LedgerKind = "PAYOUT_HOLD"
+	LedgerPayoutReversal LedgerKind = "PAYOUT_REVERSAL"
+	LedgerGiftRevenue    LedgerKind = "GIFT_REVENUE"
 
 	Credit Direction = "CREDIT"
 	Debit  Direction = "DEBIT"
@@ -82,10 +84,21 @@ const (
 
 // Payout statuses.
 const (
-	PayoutRequested PayoutStatus = "REQUESTED"
-	PayoutApproved  PayoutStatus = "APPROVED"
-	PayoutRejected  PayoutStatus = "REJECTED"
+	PayoutRequested  PayoutStatus = "REQUESTED"
+	PayoutApproved   PayoutStatus = "APPROVED"
+	PayoutProcessing PayoutStatus = "PROCESSING"
+	PayoutPaid       PayoutStatus = "PAID"
+	PayoutRejected   PayoutStatus = "REJECTED"
+	PayoutFailed     PayoutStatus = "FAILED"
 )
+
+// Open reports whether a payout still holds money that has not left (BR-H39: one open payout per channel).
+func (s PayoutStatus) Open() bool {
+	return s == PayoutRequested || s == PayoutApproved || s == PayoutProcessing
+}
+
+// Reversed reports whether the hold of a payout in this status is given back (BR-H38).
+func (s PayoutStatus) Reversed() bool { return s == PayoutRejected || s == PayoutFailed }
 
 // Transaction types and sources.
 const (
@@ -96,8 +109,11 @@ const (
 	SourceReconcile = "RECONCILE"
 )
 
-// OrderTypeSubscription is the only order type of this phase.
-const OrderTypeSubscription OrderType = "SUBSCRIPTION"
+// Order types.
+const (
+	OrderTypeSubscription OrderType = "SUBSCRIPTION"
+	OrderTypeTopup        OrderType = "TOPUP"
+)
 
 // Channel statuses.
 const (
@@ -157,13 +173,30 @@ type Order struct {
 	CreatedAt      time.Time
 	PaidAt         *time.Time
 	UpdatedAt      time.Time
+	// OrderType is the stored order_type; a top-up has no channel, tier or sub action (zero values).
+	OrderType OrderType
 
 	Channel Channel
 	Tier    Tier
 }
 
-// Type derives the order type (§2.1 extension seam).
-func (Order) Type() OrderType { return OrderTypeSubscription }
+// Type is the order type; rows built before order_type existed are subscriptions.
+func (o Order) Type() OrderType {
+	if o.OrderType == "" {
+		return OrderTypeSubscription
+	}
+
+	return o.OrderType
+}
+
+// Description is the provider's order description (ASCII, ≤ 100 characters).
+func (o Order) Description() string {
+	if o.Type() == OrderTypeTopup {
+		return "NexusLive Nap vi"
+	}
+
+	return OrderDescription(o.Tier.Level, o.Channel.Handle, o.PeriodDays)
+}
 
 // Period is the length of the paid period.
 func (o Order) Period() time.Duration { return Days(o.PeriodDays) }
@@ -232,6 +265,7 @@ type LedgerEntry struct {
 	ChannelID     string
 	TransactionID *string
 	PayoutID      *string
+	GiftSendID    *string
 	Direction     Direction
 	Kind          LedgerKind
 	Amount        int64
@@ -257,6 +291,28 @@ type Payout struct {
 	ReviewedBy    *string
 	ReviewedAt    *time.Time
 	CreatedAt     time.Time
+	Provider      *string
+	ProviderRef   *string
+	PaidAt        *time.Time
+	SettledBy     *string
+	SettledAt     *time.Time
+	FailureReason *string
+}
+
+// CanMoveTo is the payout state machine: REQUESTED → APPROVED → PROCESSING → PAID, REJECTED from REQUESTED,
+// FAILED from APPROVED or PROCESSING. PAID and FAILED may also follow APPROVED directly (a synchronous provider).
+func (p Payout) CanMoveTo(to PayoutStatus) bool {
+	switch p.Status {
+	case PayoutRequested:
+		return to == PayoutApproved || to == PayoutRejected
+	case PayoutApproved:
+		return to == PayoutProcessing || to == PayoutPaid || to == PayoutFailed
+	case PayoutProcessing:
+		return to == PayoutPaid || to == PayoutFailed
+	case PayoutPaid, PayoutRejected, PayoutFailed:
+	}
+
+	return false
 }
 
 // Code is the human-readable payout code ("PO-0012").
@@ -285,6 +341,8 @@ type BankAccount struct {
 type Totals struct {
 	Gross       int64
 	PlatformFee int64
+	// Gifts is the gift part of Gross.
+	Gifts int64
 }
 
 // Summary is the Studio monetization overview.
@@ -295,6 +353,7 @@ type Summary struct {
 	Subscribers   map[int]int
 	Gross         int64
 	PlatformFee   int64
+	Gifts         int64
 	Net           int64
 	TodayNet      int64
 	Balance       int64

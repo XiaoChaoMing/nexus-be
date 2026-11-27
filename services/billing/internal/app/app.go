@@ -29,6 +29,7 @@ import (
 	"github.com/minhnn/nexuslive-be/services/billing/internal/repo/persistent"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/repo/provider"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/repo/provider/fake"
+	"github.com/minhnn/nexuslive-be/services/billing/internal/repo/provider/manual"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/repo/provider/sepay"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/repo/redisstore"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/repo/snapshot"
@@ -113,7 +114,8 @@ func build(ctx context.Context, cfg *config.Config, l logger.Interface) (*deps, 
 	d.uc = billing.New(billing.Repos{
 		Channels: d.store, Tiers: d.store, Orders: d.store, Subs: d.store, Ledger: d.store, Payouts: d.store,
 		Audit: d.store, Txns: d.store, Idem: d.store, Lock: d.rs, Sync: d.rs, Cipher: c,
-		Snapshot: snapshot.New(cfg.Internal.ChannelURL, cfg.Internal.Secret),
+		Snapshot:  snapshot.New(cfg.Internal.ChannelURL, cfg.Internal.Secret),
+		Disburser: manual.Provider{}, Wallet: d.store, Gifts: d.store,
 	}, d.prov, settings(cfg, loc), l, d.m, opts...)
 
 	return d, nil
@@ -127,6 +129,7 @@ func settings(cfg *config.Config, loc *time.Location) billing.Settings {
 
 	return billing.Settings{
 		TierPrices: cfg.Billing.Prices, FeeBps: cfg.Billing.FeeBps, PayoutMin: cfg.Billing.PayoutMin,
+		TopupMin: cfg.Billing.TopupMin, TopupMax: cfg.Billing.TopupMax, GiftMaxTotal: cfg.Billing.GiftMaxTotal,
 		OrderTTL: cfg.Billing.OrderTTL, ReconcileAfter: cfg.Billing.ReconcileAfter,
 		ReconcileInterval: cfg.Billing.ReconcileInterval, ReconcileGiveUp: cfg.Billing.ReconcileGiveUp,
 		RenewReminderDays: cfg.Billing.RenewReminderDays, Methods: methods, WebBaseURL: cfg.Billing.WebBaseURL,
@@ -176,6 +179,7 @@ func Run(cfg *config.Config) { //nolint:funlen // linear wiring
 	httpServer.App.Use(httpmetrics.New(d.m.Registerer()))
 	restapi.NewRouter(httpServer.App, v1.UseCases{
 		Catalog: d.uc, Checkout: d.uc, Subscriptions: d.uc, Studio: d.uc, Admin: d.uc, Idempotency: d.uc,
+		Wallet: d.uc, Gifts: d.uc,
 	}, jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l, cfg.Swagger.Enabled)
 	webhook.Register(httpServer.App, d.uc, l)
 

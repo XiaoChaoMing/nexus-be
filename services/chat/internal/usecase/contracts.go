@@ -86,6 +86,8 @@ type (
 		Expired(ctx context.Context, e events.SubscriptionExpired) error
 		// PaymentUpdated sends payment_updated to the buyer when they are connected.
 		PaymentUpdated(ctx context.Context, userID string, data entity.PaymentUpdate) error
+		// GiftSent announces a gift once per eventID in the channel's open rooms.
+		GiftSent(ctx context.Context, eventID string, e events.GiftSent) error
 	}
 
 	// Moderation is what the channel owner, its moderators and admins do in chat (NXL-F §3.1–3.6). Every

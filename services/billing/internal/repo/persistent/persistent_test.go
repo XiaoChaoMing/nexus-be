@@ -45,7 +45,8 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	t.Cleanup(pg.Close)
 
 	_, err = pg.Pool.Exec(context.Background(), `TRUNCATE ledger_entries, transactions, payout_requests, checkout_orders,
-		subscriptions, subscription_tiers, channels, outbox, processed_events, idempotency_keys RESTART IDENTITY`)
+		subscriptions, subscription_tiers, channels, outbox, processed_events, idempotency_keys, wallet_entries, gift_sends,
+		gift_items RESTART IDENTITY`)
 	require.NoError(t, err)
 
 	return persistent.New(pg), pg
@@ -165,10 +166,11 @@ func (alwaysLock) Hit(context.Context, string) (int, time.Duration, error) {
 func newUseCase(r *persistent.Repo, p provider.PaymentProvider) *billing.UseCase {
 	return billing.New(billing.Repos{
 		Channels: r, Tiers: r, Orders: r, Subs: r, Ledger: r, Payouts: r, Audit: r, Txns: r, Idem: r,
-		Lock: alwaysLock{}, Sync: alwaysLock{},
+		Lock: alwaysLock{}, Sync: alwaysLock{}, Wallet: r, Gifts: r,
 	}, p, billing.Settings{
 		TierPrices: [3]int64{59000, 119000, 299000}, FeeBps: 500, PayoutMin: 100000, OrderTTL: 30 * time.Minute,
 		ReconcileAfter: -time.Minute, ReconcileInterval: time.Minute, ReconcileGiveUp: 30 * time.Minute,
 		RenewReminderDays: 3, Methods: []entity.PaymentMethod{entity.MethodBankTransfer}, WebBaseURL: "http://localhost:5173",
+		TopupMin: 10000, TopupMax: 5000000, GiftMaxTotal: 5000000,
 	}, logger.New("error"), nopObserver{})
 }

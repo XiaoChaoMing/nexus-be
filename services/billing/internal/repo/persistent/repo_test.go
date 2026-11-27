@@ -270,7 +270,7 @@ func TestSubscriptionLifecycle(t *testing.T) { //nolint:paralleltest,funlen // s
 }
 
 func TestPayouts(t *testing.T) { //nolint:paralleltest,funlen // shared database, one story
-	r, _ := setup(t)
+	r, pg := setup(t)
 	ctx := context.Background()
 	ch, _, _ := seedChannel(t, r)
 	admin := newID()
@@ -325,33 +325,103 @@ func TestPayouts(t *testing.T) { //nolint:paralleltest,funlen // shared database
 	wg.Wait()
 	require.Equal(t, 1, wins)
 
+	// The request holds the money at once (BR-H37).
+	avail, held, err := r.Balance(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(184050), avail)
+	require.Equal(t, int64(100000), held)
+
 	list, err := r.ListPayouts(ctx, ptr(entity.PayoutRequested), nil, 10)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	require.Equal(t, int64(1), list[0].Number)
 	require.Equal(t, "PO-0001", list[0].Code())
 
-	approved, err := r.Review(ctx, list[0].ID, admin, entity.PayoutApproved, nil, time.Now(),
-		func(entity.Payout) []repo.Outbox { return nil })
-	require.NoError(t, err)
-	require.Equal(t, entity.PayoutApproved, approved.Status)
+	nop := func(entity.Payout) []repo.Outbox { return nil }
+	move := func(id string, m repo.PayoutMove) (entity.Payout, error) {
+		m.ActorID, m.At = admin, time.Now()
 
-	_, err = r.Review(ctx, list[0].ID, admin, entity.PayoutRejected, ptr("x"), time.Now(),
-		func(entity.Payout) []repo.Outbox { return nil })
+		return r.Move(ctx, id, m, nop)
+	}
+
+	// REQUESTED → APPROVED → PROCESSING → PAID: no ledger row after the hold, the money stays out.
+	_, err = move(list[0].ID, repo.PayoutMove{To: entity.PayoutApproved})
+	require.NoError(t, err)
+	processing, err := move(list[0].ID, repo.PayoutMove{To: entity.PayoutProcessing, Provider: ptr("MANUAL")})
+	require.NoError(t, err)
+	require.Equal(t, entity.PayoutProcessing, processing.Status)
+	require.Equal(t, "MANUAL", *processing.Provider)
+	require.NotNil(t, processing.ReviewedAt)
+
+	paid, err := move(list[0].ID, repo.PayoutMove{To: entity.PayoutPaid, Ref: ptr("FT123")})
+	require.NoError(t, err)
+	require.Equal(t, entity.PayoutPaid, paid.Status)
+	require.Equal(t, "FT123", *paid.ProviderRef)
+	require.NotNil(t, paid.PaidAt)
+	require.Equal(t, admin, *paid.SettledBy)
+
+	_, err = move(list[0].ID, repo.PayoutMove{To: entity.PayoutFailed, Reason: ptr("bank returned it")})
+	require.ErrorIs(t, err, entity.ErrInvalidState)
+	require.Equal(t, entity.ReasonPayoutState, entity.DetailsOf(err)["reason"])
+
+	avail, held, err = r.Balance(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(184050), avail)
+	require.Zero(t, held)
+
+	// REQUESTED → REJECTED gives the hold back (BR-H38).
+	second, err := mk(184050)
+	require.NoError(t, err)
+
+	avail, _, err = r.Balance(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Zero(t, avail)
+
+	_, err = mk(1)
+	require.ErrorIs(t, err, entity.ErrInvalidState)
+	require.Equal(t, entity.ReasonPayoutPending, entity.DetailsOf(err)["reason"])
+
+	rejected, err := move(second.ID, repo.PayoutMove{To: entity.PayoutRejected, Reason: ptr("name does not match")})
+	require.NoError(t, err)
+	require.Equal(t, "name does not match", *rejected.RejectReason)
+
+	// APPROVED → FAILED gives the hold back too; a second failure is refused and adds nothing.
+	third, err := mk(184050)
+	require.NoError(t, err)
+	_, err = move(third.ID, repo.PayoutMove{To: entity.PayoutApproved})
+	require.NoError(t, err)
+	failed, err := move(third.ID, repo.PayoutMove{To: entity.PayoutFailed, Reason: ptr("account closed")})
+	require.NoError(t, err)
+	require.Equal(t, "account closed", *failed.FailureReason)
+	require.NotNil(t, failed.SettledAt)
+
+	_, err = move(third.ID, repo.PayoutMove{To: entity.PayoutFailed, Reason: ptr("account closed")})
 	require.ErrorIs(t, err, entity.ErrInvalidState)
 
-	bal, _, err = r.Balance(ctx, ch.ID)
+	avail, held, err = r.Balance(ctx, ch.ID)
 	require.NoError(t, err)
-	require.Equal(t, int64(184050), bal)
+	require.Equal(t, int64(184050), avail)
+	require.Zero(t, held)
+
+	// Invariants: one hold per payout, one reversal per REJECTED / FAILED payout, none otherwise.
+	require.Equal(t, 3, count(t, pg, `SELECT count(*) FROM ledger_entries WHERE channel_id = $1 AND kind = 'PAYOUT_HOLD'`,
+		ch.ID))
+	require.Equal(t, 2, count(t, pg, `SELECT count(*) FROM ledger_entries l JOIN payout_requests p
+		ON p.id = l.payout_request_id WHERE l.channel_id = $1 AND l.kind = 'PAYOUT_REVERSAL'
+		AND p.status IN ('REJECTED', 'FAILED')`, ch.ID))
 
 	entries, err := r.Entries(ctx, ch.ID, nil, 10)
 	require.NoError(t, err)
-	require.Len(t, entries, 3)
-	require.Equal(t, entity.LedgerPayout, entries[0].Kind)
+	require.Len(t, entries, 7)
+	require.Equal(t, entity.LedgerPayoutReversal, entries[0].Kind)
+	require.Equal(t, entity.Credit, entries[0].Direction)
 	require.Equal(t, "PAYOUT", entries[0].Source)
-	require.Equal(t, int64(1), *entries[0].PayoutNumber)
-	require.Equal(t, "CHARGE", entries[1].Source)
-	require.Equal(t, o.InvoiceNumber, *entries[1].InvoiceNumber)
+	require.Equal(t, int64(3), *entries[0].PayoutNumber)
+	require.Equal(t, entity.LedgerPayoutHold, entries[1].Kind)
+	require.Equal(t, entity.LedgerPayoutHold, entries[4].Kind)
+	require.Equal(t, int64(1), *entries[4].PayoutNumber)
+	require.Equal(t, "CHARGE", entries[5].Source)
+	require.Equal(t, o.InvoiceNumber, *entries[5].InvoiceNumber)
 
 	totals, err := r.Totals(ctx, ch.ID, time.Now().Add(-time.Hour), time.Now())
 	require.NoError(t, err)
@@ -444,4 +514,111 @@ func TestAdminOrderFilters(t *testing.T) { //nolint:paralleltest // shared datab
 
 	_, err = r.ByID(ctx, newID())
 	require.ErrorIs(t, err, entity.ErrNotFound)
+}
+
+func TestWalletAndGifts(t *testing.T) { //nolint:paralleltest,funlen // shared database, one story
+	r, pg := setup(t)
+	ctx := context.Background()
+	ch, _, _ := seedChannel(t, r)
+	viewer := newID()
+	uc := newUseCase(r, &stubProvider{state: map[string]provider.OrderState{}})
+
+	// A top-up has no channel or tier; paid twice (IPN redelivered) it credits the wallet once.
+	amount := int64(100000)
+	o, _, created, err := uc.CreateTopup(ctx, viewer, usecase.TopupInput{Amount: &amount, IdempotencyKey: newID()})
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, entity.OrderTypeTopup, o.Type())
+	require.Empty(t, o.ChannelID)
+
+	for range 2 {
+		_, err = uc.Notify(ctx, secretHeader(), ipnBody(t, sepay.TypeOrderPaid, o.InvoiceNumber, "txn-topup", 100000))
+		require.NoError(t, err)
+	}
+
+	bal, err := r.WalletBalance(ctx, viewer)
+	require.NoError(t, err)
+	require.Equal(t, int64(100000), bal)
+
+	paid, err := r.UserOrder(ctx, viewer, o.ID)
+	require.NoError(t, err)
+	require.Equal(t, entity.OrderPaid, paid.Status)
+	require.Empty(t, paid.TierID)
+
+	it, err := r.CreateGiftItem(ctx, entity.GiftItem{Name: "Hoa hồng", Price: 30000, Icon: "rose", Active: true},
+		func(entity.GiftItem) []repo.Outbox { return nil })
+	require.NoError(t, err)
+
+	// Five concurrent gifts of 30.000 on 100.000: three win, the wallet never goes below zero.
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		wins int
+	)
+
+	for range 5 {
+		wg.Go(func() {
+			_, _, err := r.SendGift(ctx, entity.GiftSend{UserID: viewer, ChannelID: ch.ID, ItemID: it.ID, Quantity: 1},
+				repo.GiftRules{FeeBps: 500, MaxTotal: 5000000}, func(entity.GiftSend) []repo.Outbox { return nil })
+
+			mu.Lock()
+			defer mu.Unlock()
+
+			if err == nil {
+				wins++
+			} else {
+				assert.Equal(t, entity.ReasonInsufficientFunds, entity.DetailsOf(err)["reason"])
+			}
+		})
+	}
+
+	wg.Wait()
+	require.Equal(t, 3, wins)
+
+	bal, err = r.WalletBalance(ctx, viewer)
+	require.NoError(t, err)
+	require.Equal(t, int64(10000), bal)
+
+	// The channel got 3 × 30.000 less 5 % each; the ledger lists the gifts with source GIFT.
+	avail, _, err := r.Balance(ctx, ch.ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(3*(30000-1500)), avail)
+
+	totals, err := r.Totals(ctx, ch.ID, time.Now().Add(-time.Hour), time.Now())
+	require.NoError(t, err)
+	require.Equal(t, int64(90000), totals.Gifts)
+	require.Equal(t, int64(90000), totals.Gross)
+
+	entries, err := r.Entries(ctx, ch.ID, nil, 10)
+	require.NoError(t, err)
+	require.Len(t, entries, 6)
+	require.Equal(t, "GIFT", entries[0].Source)
+
+	wallet, err := r.WalletEntries(ctx, viewer, nil, 10)
+	require.NoError(t, err)
+	require.Len(t, wallet, 4)
+	require.Equal(t, entity.WalletGiftSpend, wallet[0].Kind)
+	require.NotNil(t, wallet[0].Gift)
+	require.Equal(t, "Hoa hồng", wallet[0].Gift.ItemName)
+	require.Equal(t, ch.Handle, wallet[0].Gift.Channel.Handle)
+	require.Equal(t, entity.WalletTopup, wallet[3].Kind)
+	require.Equal(t, o.InvoiceNumber, *wallet[3].InvoiceNumber)
+
+	// A price change does not touch history; an inactive item cannot be given; a too large total is refused.
+	_, err = r.UpdateGiftItem(ctx, it.ID, repo.GiftItemPatch{Price: ptr(int64(1000)), Active: ptr(false)},
+		func(_, _ entity.GiftItem) []repo.Outbox { return nil })
+	require.NoError(t, err)
+	require.Equal(t, 3, count(t, pg, `SELECT count(*) FROM gift_sends WHERE gift_item_id = $1 AND unit_price_vnd = 30000`, it.ID))
+
+	_, _, err = r.SendGift(ctx, entity.GiftSend{UserID: viewer, ChannelID: ch.ID, ItemID: it.ID, Quantity: 1},
+		repo.GiftRules{FeeBps: 500, MaxTotal: 5000000}, func(entity.GiftSend) []repo.Outbox { return nil })
+	require.Equal(t, entity.ReasonGiftInactive, entity.DetailsOf(err)["reason"])
+
+	active, err := r.ActiveGiftItems(ctx)
+	require.NoError(t, err)
+	require.Empty(t, active)
+
+	// The wallet and the gifts are append-only.
+	_, err = pg.Pool.Exec(ctx, `UPDATE wallet_entries SET amount_vnd = 1 WHERE user_id = $1`, viewer)
+	require.Error(t, err)
 }

@@ -23,6 +23,7 @@ func TestFakeDefaults(t *testing.T) { //nolint:paralleltest // t.Setenv
 	cfg, err := config.NewConfig()
 	require.NoError(t, err)
 	require.Equal(t, config.ProviderFake, cfg.Billing.Provider)
+	require.Equal(t, config.PayoutProviderManual, cfg.Billing.PayoutProvider)
 	require.Equal(t, [3]int64{59000, 119000, 299000}, cfg.Billing.Prices)
 	require.NotEmpty(t, cfg.SePay.IPNSecret, "drawn at startup")
 	require.True(t, cfg.SePay.IPNSecretGenerated)
@@ -38,6 +39,7 @@ func TestFailFast(t *testing.T) {
 	}{
 		{"fake outside dev", map[string]string{"NXL_ENV": "prod", "NXL_INTERNAL_SECRET": "x"}, config.ErrProvider},
 		{"unknown provider", map[string]string{"BILLING_PAYMENT_PROVIDER": "paypal"}, config.ErrProvider},
+		{"unknown payout provider", map[string]string{"BILLING_PAYOUT_PROVIDER": "wise"}, config.ErrPayoutProvider},
 		{"sepay without credentials", map[string]string{"BILLING_PAYMENT_PROVIDER": "sepay"}, config.ErrSePayCredentials},
 		{"sepay production host", map[string]string{
 			"BILLING_PAYMENT_PROVIDER": "sepay", "BILLING_SEPAY_MERCHANT_ID": "m", "BILLING_SEPAY_SECRET_KEY": "s",

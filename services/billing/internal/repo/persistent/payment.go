@@ -170,14 +170,19 @@ func (p paymentTx) InsertLedger(ctx context.Context, entries []entity.LedgerEntr
 
 func insertLedger(ctx context.Context, q querier, entries []entity.LedgerEntry) error {
 	for _, e := range entries {
-		if _, err := q.Exec(ctx, `INSERT INTO ledger_entries (channel_id, transaction_id, payout_request_id, direction, kind,
-			amount_vnd) VALUES ($1, $2, $3, $4, $5, $6)`, e.ChannelID, e.TransactionID, e.PayoutID, string(e.Direction),
-			string(e.Kind), e.Amount); err != nil {
+		if _, err := q.Exec(ctx, `INSERT INTO ledger_entries (channel_id, transaction_id, payout_request_id, gift_send_id,
+			direction, kind, amount_vnd) VALUES ($1, $2, $3, $4, $5, $6, $7)`, e.ChannelID, e.TransactionID, e.PayoutID,
+			e.GiftSendID, string(e.Direction), string(e.Kind), e.Amount); err != nil {
 			return fmt.Errorf("insert ledger: %w", err)
 		}
 	}
 
 	return nil
+}
+
+// InsertWallet -.
+func (p paymentTx) InsertWallet(ctx context.Context, entries []entity.WalletEntry) error {
+	return insertWallet(ctx, p.tx, entries)
 }
 
 // InsertOutbox -.

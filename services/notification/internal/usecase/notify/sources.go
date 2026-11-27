@@ -157,7 +157,7 @@ func (uc *UseCase) StreamStarting(ctx context.Context, eventID string, e events.
 		template: "stream_starting",
 		data: func(r entity.Recipient) map[string]string {
 			return map[string]string{
-				keyChannel: ch.DisplayName, keyTitle: e.Title, "When": uc.formatTime(e.OccurrenceAt, r), keyLink: uc.absolute(link),
+				keyChannel: ch.DisplayName, keyTitle: e.Title, keyWhen: uc.formatTime(e.OccurrenceAt, r), keyLink: uc.absolute(link),
 			}
 		},
 	}
@@ -240,7 +240,7 @@ func (uc *UseCase) ScheduleChanged(ctx context.Context, eventID string, e events
 			}
 
 			return map[string]string{
-				keyChannel: ch.DisplayName, keyTitle: e.Title, "When": uc.formatTime(e.OccurrenceAt, r), "NewWhen": newWhen,
+				keyChannel: ch.DisplayName, keyTitle: e.Title, keyWhen: uc.formatTime(e.OccurrenceAt, r), "NewWhen": newWhen,
 				keyReason: e.Reason, keyLink: uc.absolute(link),
 			}
 		},

@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.11 |
-| **Cập nhật** | 2026-10-21 |
+| **Phiên bản** | 1.13 |
+| **Cập nhật** | 2026-11-27 |
 | **Phạm vi** | REST công khai, API nội bộ giữa service, RTMP/HLS, sự kiện NATS. Gồm API đã chạy và API dự kiến theo lộ trình |
 
 Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, trạng thái nào, quy ước chung là gì.
@@ -51,9 +51,10 @@ Tài liệu này là **bản đồ** của mọi API: ở đâu, ai sở hữu, 
 | `/v1/ws` | chat-svc (upstream `nxl_chat`: `chat-1`, `chat-2`) | WebSocket (`Upgrade`), `proxy_read_timeout 75s`, không rate limit theo request (GĐ3) |
 | `/v1/chat/*`, `/v1/channels/{id}/(chat-settings\|timeouts\|bans\|restrictions\|blocked-terms\|roles\|users)*` | chat-svc | Đặt trước route channel-svc (GĐ3; GĐ5 thêm hành động mod, từ khóa chặn, vai trò, thẻ người dùng) |
 | `/v1/me/channel-roles` | chat-svc | Exact match (GĐ5) |
-| `/v1/channels/{id}/subscription-tiers` | billing-svc | GĐ6, trước route channel-svc |
-| `/v1/me/(subscriptions\|payments)*`, `/v1/checkout*` | billing-svc | GĐ6; `/v1/me` còn lại về identity |
-| `/v1/admin/(payouts\|checkout-orders)*` | billing-svc | GĐ6, trước route admin của identity / safety |
+| `/v1/channels/{id}/(subscription-tiers\|gifts)` | billing-svc | GĐ6, trước route channel-svc; `gifts` (exact `$`) từ Donate |
+| `= /v1/gift-items` | billing-svc | Donate: danh mục vật phẩm công khai |
+| `/v1/me/(subscriptions\|payments\|wallet)*`, `/v1/checkout*` | billing-svc | GĐ6 (`wallet` từ Donate); `/v1/me` còn lại về identity |
+| `/v1/admin/(payouts\|checkout-orders\|gift-items)*` | billing-svc | GĐ6 (`gift-items` từ Donate), trước route admin của identity / safety |
 | `/v1/studio/monetization*` | billing-svc | GĐ6, trước route Studio của channel-svc / stream-svc |
 | `/v1/me/notification-settings`, `/v1/notifications*` | notification-svc :8097 | GĐ5 (`/v1/notifications/unsubscribe` không cần token); service dừng → `503 SERVICE_UNAVAILABLE` của cổng vào |
 | `/v1/reports` | safety-svc :8099 | Exact match (GĐ5) |
@@ -170,7 +171,8 @@ Từ GĐ1 bỏ giả định `channelId = userId`: kênh do channel-svc tạo kh
 
 ### 3.6 Idempotency (GĐ6 🔧)
 
-- `POST /v1/checkout/orders`, `POST /v1/me/subscriptions/{id}/cancel`, `POST /v1/studio/monetization/payouts` bắt buộc header
+- `POST /v1/checkout/orders`, `POST /v1/me/subscriptions/{id}/cancel`, `POST /v1/studio/monetization/payouts`, `POST /v1/checkout/topups`,
+  `POST /v1/channels/{channelId}/gifts` bắt buộc header
   `Idempotency-Key` (UUID do client sinh; thiếu → `400 details.idempotencyKey = REQUIRED`, sai dạng → `FORMAT`).
 - Cùng key + cùng body (so sánh JSON đã chuẩn hóa) → trả lại đúng response `2xx` đã lưu, header `Idempotent-Replay: true`; cùng
   key, body khác → `422 IDEMPOTENCY_KEY_REUSED`; request đầu chưa xong → `409 CONFLICT` (treo quá 60 s thì được chạy lại).
@@ -349,6 +351,11 @@ Hợp đồng đầy đủ (khung WebSocket, snapshot, sự kiện, khóa Redis)
   `kaelenClutch` T2, `kaelenGOAT` T3; ảnh `deploy/emotes/channel/*.webp`, cổng vào phục vụ ở `/emotes/channel/`). `chat dev-grant
   sub --tier N [--minutes M]` ghi `"{N}:{now + M phút}"` (M = 0 → 30 ngày).
 
+**Donate — quà tặng** (ADR-016, NXL-B v1.3 BR21): consumer `gift.sent` → `chat:` `system` `data.type = GIFT`: `{type, text: "@an tặng
+5 × Hoa hồng (50.000 ₫): <lời nhắn>", meta: {userId, username, itemName, icon, quantity, total, message | null}}` — một lần mỗi sự
+kiện, vào mọi phòng `OPEN` của kênh (kênh không phát → không có dòng); lời nhắn qua từ khóa chặn + chặn link của kênh, bị từ
+chối hoặc không kiểm được → `message = null`, vẫn hiện quà. `payment_updated` cũng phát cho đơn nạp ví (`subscription = null`).
+
 Mã lỗi (REST và frame `error`): `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `RATE_LIMITED`, `EMAIL_NOT_VERIFIED`, `CHAT_CLOSED`, `CHAT_READ_ONLY`, `CHAT_DISABLED`, `CHAT_DUPLICATE`, `CHAT_SLOW_MODE`, `CHAT_FOLLOWERS_ONLY`, `CHAT_SUBS_ONLY`, `CHAT_TIMED_OUT`, `CHAT_BANNED`, `INTERNAL_ERROR`. `details` là chuỗi (`retryAfterSec: "5"`).
 
 **Ngoài REST:** `chat dev-grant follow|sub|mod|vip|owner --channel <id> --user <id> [--minutes N] [--tier N] [--revoke]` (`make nxl-chat-dev-grant`, chỉ `NXL_ENV=dev`) ghi dữ liệu demo cho Followers-only / Subs-only / Mod / VIP.
@@ -411,8 +418,11 @@ GĐ6 — `SUBSCRIPTION` (`payload.kind`; `channel` = `{id, handle, displayName, 
 | `SUB_EXPIRING` | `subscription.expiring` | người mua | `{kind, subscriptionId, channel, tier, currentPeriodEnd, price, renewable}` | `/{handle}?subscribe=renew` | `subscription_expiring` (theo cài đặt, có link hủy nhận) |
 | `SUB_EXPIRED` | `subscription.expired` | người mua | `{kind, subscriptionId, channel, tier, reason (PERIOD_ENDED\|VOIDED)}` | `/{handle}` | — |
 | `NEW_SUBSCRIBER` | `subscription.activated` (không `replay`) | chủ kênh | `{kind, channelId, lastSubscriber {id, username, displayName}, tier}`; gộp theo kênh 60 phút (`groupCount`) | `/studio/monetization` | — |
+| `PAYOUT_PAID` · `PAYOUT_FAILED` · `PAYOUT_REJECTED` | `payout.paid` · `payout.failed` · `payout.rejected` | chủ kênh (bản sao kênh) | `{kind, payoutId, code, channel, amount, reference, reason}` | `/studio/monetization` | `payout_update` (bắt buộc) |
+| `GIFT_RECEIVED` | `gift.sent` | chủ kênh (bản sao kênh) | `{kind, giftSendId, channelId, lastSender {id, username, displayName}, itemName, icon, quantity, total}`; gộp theo kênh 60 phút (`groupCount`) | `/studio/monetization` | — |
+| `TOPUP_SUCCEEDED` · `TOPUP_FAILED` · `TOPUP_VOIDED` | `payment.succeeded` · `payment.failed` · `payment.voided` với `orderType = TOPUP` | người nạp | `{kind, orderId, invoiceNumber, amount, failureReason}` | `/wallet` | `topup_receipt` (bắt buộc, chỉ `TOPUP_SUCCEEDED`) |
 
-Email bắt buộc (`payment_receipt`, `payment_voided`) bỏ qua công tắc email và trần 10 / ngày, không có link hủy nhận, nhưng vẫn
+Email bắt buộc (`payment_receipt`, `payment_voided`, `payout_update`, `topup_receipt`) bỏ qua công tắc email và trần 10 / ngày, không có link hủy nhận, nhưng vẫn
 chỉ gửi tới địa chỉ đã xác minh. Tiền hiển thị `59.000 ₫` (vi) / `59,000 ₫` (en). In-app `SUBSCRIPTION` theo công tắc `inApp`.
 
 Realtime: chat-svc chuyển `notification.created.v1` thành frame `notification` (`data` = `Notification`, client upsert theo
@@ -431,7 +441,7 @@ khởi động lại identity (identity xóa durable `identity-mailer`) — `mak
 thể gửi trùng, không mất. Rollback: `make nxl-mailer-rollback` (identity bật lại trước, durable tạo lại DeliverNew). Compose
 và `.env.example` đã ở trạng thái sau chuyển giao; mặc định trong code: identity `true`, notification `false`.
 
-## 6E. billing-svc — tier, checkout, IPN SePay, subscription, Thu nhập, rút tiền (GĐ6 🔧)
+## 6E. billing-svc — tier, checkout, IPN SePay, subscription, Thu nhập, rút tiền, ví và quà tặng (GĐ6 🔧)
 
 Cổng 8098, Swagger `/swagger/index.html`, `/healthz`, `/metrics` (`billing_ipn_total{type,result}`,
 `billing_ipn_duration_seconds`, `billing_checkout_orders_total{status,method,reason}`, `billing_provider_requests_total{op,result}`,
@@ -455,28 +465,42 @@ người gọi (không có → `403 NOT_CREATOR`) · `A` Bearer `role = ADMIN` (
 | POST | `/v1/me/subscriptions/{id}/cancel` · `/resume` | B (+ IK cho cancel) | Tắt / bật nhắc gia hạn (`ACTIVE` ↔ `CANCELLED_PENDING_END`), sai trạng thái → `409` |
 | GET | `/v1/me/payments?status=` | B | Đơn của người gọi, mới nhất trước (`status` CSV) |
 | GET · PATCH | `/v1/studio/monetization/tiers` · `/tiers/{level}` | C | Mọi tier + `activeSubscribers`; `PATCH {active?, description?}` (Tier 1 không tắt được → `active = INVALID`; mô tả ≤ 200) |
-| GET | `/v1/studio/monetization/summary?range=7d\|28d&tz=` | C | `gross, platformFee (5 %, làm tròn xuống), net, todayNet, balance, available, pendingPayout, subscribers{tier1..3,total}, feeBps, payoutMin` |
-| GET | `/v1/studio/monetization/ledger` | C | Sổ cái chỉ-thêm: `SUB_REVENUE` / `PLATFORM_FEE` / `PAYOUT`, `source` `CHARGE` / `VOID` / `PAYOUT` |
-| GET · POST | `/v1/studio/monetization/payouts` | C (+ IK cho POST) | `{amount, bankCode, accountNumber, accountName}` → `201 Payout` (`code PO-0001`, số tài khoản mã hóa AES-256-GCM, chỉ trả `last4`); `MIN` 100.000 / `MAX`; `409 INSUFFICIENT_BALANCE details.available` / `PAYOUT_PENDING` |
-| GET | `/v1/admin/payouts?status=` · `/pending-count` · `/{id}` | A | Hàng đợi (`REQUESTED` cũ trước; `APPROVED` / `REJECTED` / `ALL` mới trước), kèm số dư kênh |
+| GET | `/v1/studio/monetization/summary?range=7d\|28d&tz=` | C | `gross, platformFee (5 %, làm tròn xuống), net, todayNet, balance, available, pendingPayout, subscribers{tier1..3,total}, feeBps, payoutMin`; Donate: thêm `gifts` (doanh thu quà trong kỳ), `gross` / `net` / `todayNet` gồm quà |
+| GET | `/v1/studio/monetization/ledger` | C | Sổ cái chỉ-thêm: `SUB_REVENUE` / `PLATFORM_FEE` / `PAYOUT_HOLD` / `PAYOUT_REVERSAL` / `GIFT_REVENUE` (kind `PAYOUT` cũ đã đổi thành `PAYOUT_HOLD`), `source` `CHARGE` / `VOID` / `PAYOUT` / `GIFT` |
+| GET · POST | `/v1/studio/monetization/payouts` | C (+ IK cho POST) | `{amount, bankCode, accountNumber, accountName}` → `201 Payout` (`code PO-0001`, số tài khoản mã hóa AES-256-GCM, chỉ trả `last4`); `MIN` 100.000 / `MAX`; `409 INSUFFICIENT_BALANCE details.available` / `PAYOUT_PENDING` (đã có payout `REQUESTED` / `APPROVED` / `PROCESSING`); tạo xong ghi ngay `DEBIT PAYOUT_HOLD`. `Payout` thêm `provider, providerRef, failureReason, paidAt, settledAt` |
+| GET | `/v1/admin/payouts?status=` · `/pending-count` · `/{id}` | A | Hàng đợi (`REQUESTED` cũ trước; `APPROVED` / `PROCESSING` / `PAID` / `REJECTED` / `FAILED` / `ALL` mới trước), kèm số dư kênh (`available` = Σ sổ cái, `balance` = khả dụng + đang giữ); `AdminPayout` thêm `settledBy {id} \| null` |
 | GET | `/v1/admin/payouts/{id}/bank-account` | A | Số tài khoản đầy đủ, `Cache-Control: no-store`, mỗi lần xem ghi audit `PAYOUT_BANK_INFO_VIEWED` |
-| POST | `/v1/admin/payouts/{id}/approve` · `/reject` | A | `APPROVED` (ghi `DEBIT PAYOUT`, không chuyển tiền thật) / `REJECTED {reason 10–500}`; đã duyệt → `409` |
+| POST | `/v1/admin/payouts/{id}/approve` · `/reject` | A | `approve` (từ `REQUESTED`, hoặc `APPROVED` để thử lại) gọi `PayoutProvider` → **`PROCESSING`** (provider `manual`: không chuyển tiền thật); provider lỗi → `500 INTERNAL_ERROR`, giữ `APPROVED`. `reject {reason 10–500}` (từ `REQUESTED`) → `REJECTED` + `CREDIT PAYOUT_REVERSAL`. Sai trạng thái → `409 INVALID_STATE details.reason = PAYOUT_STATE, details.status` |
+| POST | `/v1/admin/payouts/{id}/mark-paid` | A | `{reference}` (trim, `^[A-Za-z0-9._/-]{4,64}$`) — `PROCESSING` → `PAID` (không ghi sổ cái); `400 details.reference = REQUIRED \| FORMAT`; sai trạng thái → `409 PAYOUT_STATE` |
+| POST | `/v1/admin/payouts/{id}/mark-failed` | A | `{reason}` (10–500 sau trim) — `APPROVED` / `PROCESSING` → `FAILED` + `CREDIT PAYOUT_REVERSAL`; `400 details.reason = REQUIRED \| LENGTH`; sai trạng thái → `409 PAYOUT_STATE` |
 | GET | `/v1/admin/checkout-orders?needsReview=&status=&failureReason=&q=` | A | Đơn (mới nhất trước); `status`, `failureReason` là CSV (AND); `q` không phân biệt hoa thường: đủ mã hóa đơn (`NXL` + 10 ký tự) → khớp chính xác, ngắn hơn → tiền tố |
 | GET | `/v1/admin/checkout-orders/{id}` | A | Một đơn bất kỳ theo id hoặc mã hóa đơn (không phân biệt hoa thường) → `AdminOrder`; không có → `404 NOT_FOUND` |
+| POST | `/v1/checkout/topups` | B, IK | Nạp ví (ADR-016): `{amount, paymentMethod?}` (`amount` số nguyên JSON, `BILLING_TOPUP_MIN` 10.000 – `BILLING_TOPUP_MAX` 5.000.000) → `201 {order, checkout}` (đơn `orderType = TOPUP`, cùng form ký / IPN / sync / reconcile như đơn sub); đơn nạp chờ cùng số tiền → `200` đơn đó, khác số tiền → `409 INVALID_STATE details.reason = ORDER_PENDING, details.orderId, details.amount`; `400 details.amount = REQUIRED \| FORMAT \| MIN \| MAX`. `PAID` → ví `CREDIT TOPUP`, `VOIDED` → `DEBIT TOPUP_VOID` (ví có thể âm) |
+| GET | `/v1/me/wallet` | B | `{balance}` — Σ(CREDIT − DEBIT) của `wallet_entries`; không rút / hoàn |
+| GET | `/v1/me/wallet/entries?cursor=&limit=` | B | `{items: [{id, kind (TOPUP\|TOPUP_VOID\|GIFT_SPEND), direction, amount, createdAt, invoiceNumber \| null, gift {item {name, icon}, quantity, channel} \| null}], nextCursor}` (mới nhất trước) |
+| GET | `/v1/gift-items` | — | `{items: [{id, name, price, icon, sortOrder}]}` — chỉ vật phẩm đang bật |
+| POST | `/v1/channels/{channelId}/gifts` | B, IK | `{itemId, quantity (số nguyên JSON, 1–99), message? (≤ 200 sau trim)}` → `201 {gift {id, item {id, name, icon}, quantity, unitPrice, total, message, channel, createdAt}, balance}`. Một transaction: khóa ví (advisory lock theo người gửi), vật phẩm `FOR SHARE`, tổng ≤ `BILLING_GIFT_MAX_TOTAL` (vượt → `400 details.quantity = MAX`), số dư đủ → `gift_sends` + ví `DEBIT GIFT_SPEND` + sổ cái `CREDIT GIFT_REVENUE` / `DEBIT PLATFORM_FEE` + outbox `gift.sent` + audit `GIFT_SENT`. Lỗi: `409 INVALID_STATE details.reason = INSUFFICIENT_FUNDS (details.balance) \| GIFT_INACTIVE`, `422 CANNOT_GIFT_SELF`, `403 CHANNEL_SUSPENDED`, `404` |
+| GET · POST | `/v1/admin/gift-items?active=` | A | Danh mục vật phẩm (cả đang tắt) → `{items: AdminGiftItem[]}`; `POST {name (1–40), price (số nguyên, 1.000–5.000.000), icon, active?, sortOrder? (0–9999)}` → `201`; audit `GIFT_ITEM_CREATED`. `icon` ∈ `heart, rose, star, fire, clap, cake, diamond, crown, trophy, rocket, car, castle` (`ENUM`) |
+| PATCH | `/v1/admin/gift-items/{id}` | A | Sửa một phần (cùng ràng buộc) → `200 AdminGiftItem` (`{id, name, price, icon, sortOrder, active, createdAt, updatedAt}`); audit `GIFT_ITEM_UPDATED`; không có xóa |
 | POST | `/v1/webhooks/sepay` | `X-Secret-Key` | IPN SePay (không envelope): `200 {"success": true}` (đã áp, trùng, bỏ qua, chưa duyệt, hóa đơn lạ, lệch tiền → đơn `FAILED AMOUNT_MISMATCH`), `401` sai secret, `400` hỏng, `500` lỗi tạm |
 
 Dev (⛔, `BILLING_PAYMENT_PROVIDER=fake`, `NXL_ENV=dev`): `POST http://localhost:8098/dev/fake-psp` nhận form checkout (kiểm chữ ký)
 và hiện 3 nút; `/dev/fake-psp/{invoice}/pay` gửi IPN `ORDER_PAID` đúng định dạng SePay tới webhook rồi `303` về
 `success_url`; `/cancel`, `/fail` → `303` `cancel_url` / `error_url` (không IPN). CLI cùng binary (`make nxl-billing CMD=…`):
 `backfill-channels`, `republish-entitlements [--channel]`, `dev-ipn replay --transaction <id> [--times N]`,
-`dev-ipn synth --invoice <NXL…> [--type ORDER_PAID|TRANSACTION_VOID]`, `dev-void --invoice` (chỉ sepay).
+`dev-ipn synth --invoice <NXL…> [--type ORDER_PAID|TRANSACTION_VOID]`, `dev-void --invoice` (chỉ sepay), `gift seed-demo` (6 vật
+phẩm mẫu, chỉ khi danh mục trống).
 
 Job (khóa Redis, một instance chạy): `reconcile-pending` mỗi `BILLING_RECONCILE_INTERVAL` (đơn chờ > 2 phút: tra cứu → `PAID`;
 quá hạn → `EXPIRED`), `subscription-expiry` mỗi phút (nhắc một lần mỗi kỳ khi còn ≤ 3 ngày, hết kỳ → `EXPIRED`),
 `reconcile-daily` sau 02:00 giờ VN (đối soát ngày trước), dọn `idempotency_keys` mỗi giờ.
 
 Sự kiện: nghe `channel.created/updated/suspended/restored` (durable `billing-svc`, DeliverAll; bản sao kênh + 3 tier mặc định);
-phát qua outbox `subscription.*`, `payment.*` (§8), `audit.recorded` (nguồn billing).
+phát qua outbox `subscription.*`, `payment.*`, `payout.*`, `gift.sent` (§8), `audit.recorded` (nguồn billing; Donate thêm
+`GIFT_ITEM_CREATED`, `GIFT_ITEM_UPDATED`, `GIFT_SENT`). Ví và quà tặng: ADR-016, TSD `docs/plans/technical/2026-11-27-donate.md`;
+`Order` thêm `orderType` (`SUBSCRIPTION` \| `TOPUP`), đơn nạp có `channelId`, `channel`, `tier`, `kind` = `null`; không thêm metric riêng. Chi trả: vòng đời và sổ cái giữ /
+hoàn tiền theo ADR-015, TSD `docs/plans/technical/2026-11-27-payout-settlement.md`; `BILLING_PAYOUT_PROVIDER` (mặc định và chỉ
+nhận `manual`).
 
 ## 7. Dịch vụ dự kiến
 
@@ -543,6 +567,9 @@ bằng đường dẫn của TSD GĐ6 §5.2.
 | `payment.succeeded.v1` | billing (outbox) | chat (`payment_updated`), notification | `orderId, invoiceNumber, userId, channelId, tier, kind, amount, paymentMethod, paidAt, applied (ACTIVATED\|RENEWED\|NEEDS_REVIEW), subscriptionId, currentPeriodEnd, late, source (IPN\|RECONCILE)` | 🔧 GĐ6 |
 | `payment.failed.v1` | billing (outbox) | chat, notification | `orderId, invoiceNumber, userId, channelId, tier, status (FAILED\|CANCELLED\|EXPIRED), failureReason` | 🔧 GĐ6 |
 | `payment.voided.v1` | billing (outbox) | chat, notification | `orderId, invoiceNumber, userId, channelId, tier, amount, subscriptionId, subscriptionStatus, currentPeriodEnd` | 🔧 GĐ6 |
+| `payout.paid.v1` · `payout.failed.v1` · `payout.rejected.v1` | billing (outbox, aggregate `payout`) | notification (`SUBSCRIPTION` `PAYOUT_*` + email `payout_update` cho chủ kênh) | `payoutId, code, channelId, amount, reference \| null, reason \| null` | 🔧 Chi trả |
+| `gift.sent.v1` | billing (outbox, cùng transaction tặng) | chat (system `GIFT`), notification (`GIFT_RECEIVED`) | `giftSendId, userId, channelId, itemId, itemName, icon, quantity, total, message \| null, sentAt` | 🔧 Donate |
+| `payment.succeeded/failed/voided.v1` — trường mới | billing | chat, notification | `orderType` (`SUBSCRIPTION` \| `TOPUP`; thiếu = `SUBSCRIPTION`); đơn nạp: `channelId = ""`, `tier = 0`, `applied = TOPUP` | 🔧 Donate |
 
 Consumer bền hiện có:
 
@@ -558,7 +585,8 @@ Consumer bền hiện có:
 
 - GĐ6 🔧: `billing-svc` (DeliverAll: `channel.created/updated/suspended/restored`; kênh có trước lấy bằng `billing backfill-channels`);
   `chat-svc` thêm `subscription.activated/renewed/updated/expired`, `payment.succeeded/failed/voided`; `notification-svc` thêm
-  `payment.succeeded/failed/voided`, `subscription.expiring/expired/activated`. Triển khai chat mới **trước** khi billing phát
+  `payment.succeeded/failed/voided`, `subscription.expiring/expired/activated`; chi trả 🔧: `notification-svc` thêm
+  `payout.paid/failed/rejected`; Donate 🔧: `chat-svc` và `notification-svc` thêm `gift.sent`. Triển khai chat mới **trước** khi billing phát
   sự kiện (chat cũ đọc `"{tier}:{until}"` thành không sub).
 
 Xem tồn đọng: `http://localhost:8222/jsz?consumers=1`.
@@ -580,6 +608,8 @@ Phá vỡ tương thích REST: xem §3.1.
 
 | Ngày | Thay đổi |
 | --- | --- |
+| 2026-11-27 | v1.13 — Donate bằng vật phẩm (ADR-016, DL-24): `POST /v1/checkout/topups`, `GET /v1/me/wallet`, `/v1/me/wallet/entries`, `GET /v1/gift-items`, `POST /v1/channels/{id}/gifts`, `GET · POST /v1/admin/gift-items`, `PATCH /v1/admin/gift-items/{id}`; `Order.orderType` (đơn nạp: kênh / tier / `kind` null); Studio `summary.gifts`, ledger `GIFT_REVENUE` / `source GIFT`; mã `422 CANNOT_GIFT_SELF`, lý do `409 INSUFFICIENT_FUNDS` / `GIFT_INACTIVE`; chat `system` `GIFT`; notification `GIFT_RECEIVED`, `TOPUP_*`, email `topup_receipt`; sự kiện `gift.sent.v1`, `payment.*` thêm `orderType`; route cổng vào `/v1/me/wallet`, `= /v1/gift-items`, `/v1/admin/gift-items`, `/v1/channels/{id}/gifts`; CLI `billing gift seed-demo` |
+| 2026-11-27 | v1.12 — Chi trả rút tiền (ADR-015): `POST /v1/admin/payouts/{id}/mark-paid` `{reference}`, `/mark-failed` `{reason}`; `approve` trả `PROCESSING` (thay `APPROVED`), thử lại từ `APPROVED`; `reject` ghi hoàn tiền; lọc `status` nhận 6 trạng thái + `ALL`; `Payout` thêm `provider, providerRef, failureReason, paidAt, settledAt`, `AdminPayout` thêm `settledBy`; sổ cái `PAYOUT_HOLD` / `PAYOUT_REVERSAL` (bỏ `PAYOUT`); lý do `409 PAYOUT_STATE`; sự kiện `payout.*`; notification `PAYOUT_*` + email `payout_update` |
 | 2026-10-21 | v1.11 — GĐ6 close-out (chỉ thêm): `GET /v1/admin/checkout-orders/{id}` (id hoặc mã hóa đơn), lọc `failureReason` trên danh sách đơn Admin, `q` khớp chính xác khi là mã hóa đơn đầy đủ (ngắn hơn vẫn là tiền tố) |
 | 2026-10-20 | v1.10 — GĐ6 phần B: chat (§6B: emote kênh theo tier trong `GET /v1/chat/emotes?channelId=`, snapshot `me.subTier` / `me.emoteTier`, `system` `SUB_NEW` / `SUB_RENEW`, `user:` `payment_updated`, `sub:` có hạn, CLI `chat emote`); notification (§6D: loại thứ 9 `SUBSCRIPTION`, 8 dạng payload, email `payment_receipt` / `payment_voided` bắt buộc, `subscription_expiring`) |
 | 2026-10-20 | v1.9 — GĐ6 phần A: billing-svc (§6E: tier, checkout + `Idempotency-Key`, IPN SePay / trang thanh toán giả, sync, subscription, Thu nhập Studio, rút tiền, Admin), route cổng vào + vùng `nxl_webhook`, 8 sự kiện `subscription.*` / `payment.*` (§8), mã `CANNOT_SUBSCRIBE_SELF`, `IDEMPOTENCY_KEY_REUSED` |

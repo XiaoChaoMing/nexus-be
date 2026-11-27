@@ -24,6 +24,7 @@ const (
 	CodeNotCreator       = "NOT_CREATOR"
 	CodeChannelSuspended = "CHANNEL_SUSPENDED"
 	CodeSubscribeSelf    = "CANNOT_SUBSCRIBE_SELF"
+	CodeGiftSelf         = "CANNOT_GIFT_SELF"
 	CodeInvalidState     = "INVALID_STATE"
 	CodeConflict         = "CONFLICT"
 	CodeRateLimited      = "RATE_LIMITED"
@@ -42,6 +43,8 @@ type UseCases struct {
 	Studio        usecase.Studio
 	Admin         usecase.Admin
 	Idempotency   usecase.Idempotency
+	Wallet        usecase.Wallet
+	Gifts         usecase.Gifts
 }
 
 type routes struct {
@@ -66,6 +69,11 @@ func NewRoutes(g fiber.Router, uc UseCases, auth, admin fiber.Handler, l logger.
 	g.Post("/me/subscriptions/:id/cancel", auth, idem, r.cancelSubscription)
 	g.Post("/me/subscriptions/:id/resume", auth, r.resumeSubscription)
 	g.Get("/me/payments", auth, r.myPayments)
+	g.Get("/me/wallet", auth, r.wallet)
+	g.Get("/me/wallet/entries", auth, r.walletEntries)
+	g.Post("/checkout/topups", auth, idem, r.createTopup)
+	g.Get("/gift-items", r.giftItems)
+	g.Post("/channels/:channelId/gifts", auth, idem, r.sendGift)
 
 	s := g.Group("/studio/monetization", auth)
 	s.Get("/tiers", r.studioTiers)
@@ -82,8 +90,13 @@ func NewRoutes(g fiber.Router, uc UseCases, auth, admin fiber.Handler, l logger.
 	a.Get("/payouts/:id/bank-account", r.bankAccount)
 	a.Post("/payouts/:id/approve", r.approve)
 	a.Post("/payouts/:id/reject", r.reject)
+	a.Post("/payouts/:id/mark-paid", r.markPaid)
+	a.Post("/payouts/:id/mark-failed", r.markFailed)
 	a.Get("/checkout-orders", r.adminOrders)
 	a.Get("/checkout-orders/:id", r.adminOrder)
+	a.Get("/gift-items", r.adminGiftItems)
+	a.Post("/gift-items", r.createGiftItem)
+	a.Patch("/gift-items/:id", r.updateGiftItem)
 }
 
 func errorJSON(ctx *fiber.Ctx, status int, code, message string, details map[string]string) error {
@@ -109,6 +122,8 @@ func (r *routes) fail(ctx *fiber.Ctx, op string, err error) error {
 		return errorJSON(ctx, http.StatusForbidden, CodeChannelSuspended, "the channel is suspended", nil)
 	case errors.Is(err, entity.ErrSubscribeSelf):
 		return errorJSON(ctx, http.StatusUnprocessableEntity, CodeSubscribeSelf, "you cannot subscribe to your own channel", nil)
+	case errors.Is(err, entity.ErrGiftSelf):
+		return errorJSON(ctx, http.StatusUnprocessableEntity, CodeGiftSelf, "you cannot give a gift to your own channel", nil)
 	case errors.Is(err, entity.ErrInvalidState):
 		return errorJSON(ctx, http.StatusConflict, CodeInvalidState, "invalid state", entity.DetailsOf(err))
 	case errors.Is(err, entity.ErrPendingLimit):

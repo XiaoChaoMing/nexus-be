@@ -1,0 +1,13 @@
+{{define "subject"}}{{if eq .Status "PAID"}}Payout {{.Code}} has been sent{{else if eq .Status "FAILED"}}Payout {{.Code}} failed{{else}}Payout {{.Code}} was rejected{{end}}{{end}}{{define "body"}}Hi {{.Name}},
+
+{{if eq .Status "PAID"}}Payout {{.Code}} ({{.Amount}}) has been transferred. Reference: {{.Reference}}.{{else if eq .Status "FAILED"}}The transfer for payout {{.Code}} ({{.Amount}}) did not go through. Reason: {{.Reason}}
+
+The amount is back in your available balance; you can request it again.{{else}}Payout {{.Code}} ({{.Amount}}) was rejected. Reason: {{.Reason}}
+
+The amount is back in your available balance; you can request it again.{{end}}
+
+View details: {{.Link}}
+
+This is a mandatory transactional e-mail.
+— NexusLive
+{{end}}

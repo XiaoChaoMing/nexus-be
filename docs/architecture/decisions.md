@@ -19,6 +19,8 @@ ADR mới với trạng thái *Thay thế ADR-xxx*, không sửa nội dung ADR 
 | [ADR-012](#adr-012) | Chi tiết media pipeline và giới hạn transcode đồng thời (kết quả PoC GĐ0) | Chấp nhận |
 | [ADR-013](#adr-013) | Ứng dụng quản trị tách khỏi web người dùng (`nexuslive-admin`) | Chấp nhận |
 | [ADR-014](#adr-014) | Tải video lên theo phần qua API + S3 multipart, hàng đợi chuyển mã trên JetStream, live được ưu tiên | Chấp nhận |
+| [ADR-015](#adr-015) | Chi trả rút tiền sau interface `PayoutProvider`, sổ cái giữ tiền / hoàn tiền | Chấp nhận |
+| [ADR-016](#adr-016) | Ví VND chỉ-thêm và quà tặng ngoài checkout; nạp ví đi chung pipeline đơn GĐ6, mỗi loại đơn một applier | Chấp nhận |
 
 ---
 
@@ -307,3 +309,101 @@ ADR mới với trạng thái *Thay thế ADR-xxx*, không sửa nội dung ADR 
 - **Việc kéo theo:** NXL-G2 v1.3 §3.8, §7.5; NXL-A v1.4 §7C; NXL-00 v1.6 (mã lỗi, sự kiện, hằng số); kiến trúc §7 (luồng
   upload), §8 (bucket); data-model v1.3; Nginx location `/v1/studio/uploads` và `/hls/(streams|videos)/`; cờ tắt nhanh
   `STREAM_UPLOAD_ENABLED=false`, `MEDIA_MAX_UPLOAD_TRANSCODES=0`.
+
+## ADR-015
+
+**Chi trả rút tiền sau interface `PayoutProvider`, sổ cái giữ tiền / hoàn tiền** — quyết định 27/11/2026 (Working Plan + TSD
+`docs/plans/{working,technical}/2026-11-27-payout-settlement.md`; DL-23)
+
+- **Bối cảnh:**
+  - GĐ6 coi "Admin duyệt" là "đã chi": `approve` ghi ngay `DEBIT PAYOUT` và `APPROVED` là trạng thái cuối. Chuyển khoản
+    thật làm tay, có thể hỏng (sai tài khoản, ngân hàng từ chối), nhưng hệ thống không có trạng thái đang xử lý / đã chi /
+    thất bại, không lưu mã tham chiếu và không hoàn được tiền về số dư.
+  - Số dư khả dụng tính bằng `Σ sổ cái − Σ payout REQUESTED` — hai nguồn sự thật.
+- **Quyết định:**
+  - **Máy trạng thái:** `REQUESTED → APPROVED → PROCESSING → PAID`; `REJECTED` từ `REQUESTED`; `FAILED` từ `APPROVED` hoặc
+    `PROCESSING`. `PAID` / `FAILED` cũng được đi thẳng từ `APPROVED` (chỗ cho provider đồng bộ). `approve` khi đang
+    `APPROVED` gọi lại provider (thử lại sau lỗi provider). Sai trạng thái → `409 INVALID_STATE`, `details.reason =
+    PAYOUT_STATE`.
+  - **Sổ cái hai pha** (như ADR-009 với tiền vào): tạo yêu cầu ghi `DEBIT PAYOUT_HOLD` cùng transaction; `REJECTED` /
+    `FAILED` ghi `CREDIT PAYOUT_REVERSAL`; `PAID` không ghi gì (dòng hold chính là tiền đã rời sổ). Khả dụng = `Σ(CREDIT −
+    DEBIT)`. Unique index `(payout_request_id, kind)` bảo đảm ≤ 1 hold, ≤ 1 reversal mỗi payout. Kind `PAYOUT` đổi tên
+    thành `PAYOUT_HOLD` trong migration.
+  - **`PayoutProvider`** (`internal/repo/provider`, đối xứng `PaymentProvider`): `Name()`, `Disburse(ctx,
+    PayoutInstruction{PayoutID, Code, Amount, Account}) (PayoutResult{Status, Ref, Reason}, error)`; idempotent theo
+    `PayoutID`, gọi **ngoài** transaction DB. Bản duy nhất `manual` trả `PROCESSING`, không gọi mạng; Admin đánh dấu
+    `mark-paid` (bắt buộc mã tham chiếu) hoặc `mark-failed`. Cấu hình `BILLING_PAYOUT_PROVIDER` (mặc định và chỉ nhận
+    `manual`).
+- **Lý do:**
+  - Tách "duyệt" khỏi "đã chi"; mọi khoản rút có mã tham chiếu để đối soát, chuyển khoản hỏng thì tiền về lại số dư.
+  - Một nguồn sự thật cho số dư; giữ tiền ngay lúc yêu cầu nên không rút vượt khi có VOID hay yêu cầu đồng thời.
+  - Thay rail thật sau này chỉ thêm một provider (và webhook / job đối soát `PROCESSING → PAID/FAILED`), không đổi use case.
+- **Cái giá:**
+  - Thêm 3 trạng thái, 6 cột, 4 CHECK; migration phải tạm tắt trigger chỉ-thêm để đổi tên kind và backfill hold cho
+    payout `REQUESTED` cũ.
+  - Ngữ nghĩa API đổi: `approve` trả `PROCESSING`; ledger không còn kind `PAYOUT`; `balance` = khả dụng + đang giữ. Web,
+    admin phải sửa cùng đợt.
+  - Lỗi provider khi `approve` trả `500 INTERNAL_ERROR`, payout ở lại `APPROVED` (Admin bấm duyệt lại); chưa có mã `503`
+    riêng. Bản `manual` không bao giờ lỗi.
+- **Phương án đã cân nhắc:**
+
+  | Phương án | Không chọn vì |
+  | --- | --- |
+  | Giữ mô hình GĐ6, chỉ thêm cờ "đã chi" | Không hoàn được tiền khi chuyển khoản hỏng; số dư vẫn trừ payout pending từ bảng khác |
+  | Ghi `DEBIT` lúc `PAID`, không giữ tiền lúc yêu cầu | Khả dụng phải trừ payout đang mở bằng truy vấn riêng; dễ rút vượt khi VOID xảy ra giữa chừng |
+  | Gọi provider trong transaction DB | Giữ khóa hàng trong lúc gọi mạng; rollback DB không thu hồi được lệnh chuyển tiền |
+
+- **Việc kéo theo:** NXL-H v1.1 (§3.10, §6 BR-H37…BR-H40, §7.3, §13.5, §13.8); NXL-00 (sự kiện `payout.*`, lý do
+  `PAYOUT_STATE`); data-model v1.4; ERD-billing v1.2; `docs/api/README.md`; notification-svc nghe `payout.paid/failed/rejected.v1`.
+
+## ADR-016
+
+**Ví VND chỉ-thêm và quà tặng ngoài checkout; nạp ví đi chung pipeline đơn GĐ6, mỗi loại đơn một applier** — quyết định
+27/11/2026 (Working Plan + TSD `docs/plans/{working,technical}/2026-11-27-donate.md`; DL-24)
+
+- **Bối cảnh:**
+  - Chủ đồ án đưa Donate (FR-MN-04) vào đồ án dưới dạng tặng vật phẩm, trả từ số dư của người xem. Hệ thống chưa có ví hay
+    chức năng nạp; DL-07 đã loại Nexus Coins.
+  - Pipeline checkout GĐ6 (SePay / fake, IPN, IPN trùng, tiền tới muộn, reconcile, void, idempotency) chỉ biết đơn
+    subscription: `channel_id`, `tier_id`, `sub_action` bắt buộc, việc áp thanh toán gắn cứng vào subscription.
+  - Rút tiền của Creator đọc khả dụng = `Σ(CREDIT − DEBIT)` sổ cái kênh (ADR-015).
+- **Quyết định:**
+  - **Ví VND trong billing-svc**, không tạo service mới, không coin: bảng `wallet_entries` chỉ-thêm (trigger), số dư =
+    `Σ(CREDIT − DEBIT)` theo `user_id`, không có cột số dư. Kind `TOPUP` / `TOPUP_VOID` / `GIFT_SPEND`; mỗi dòng đúng một nguồn
+    (`transaction_id` hoặc `gift_send_id`), unique `(nguồn, kind)`. Số dư không rút, không hoàn, được phép âm sau void.
+  - **Nạp ví đi chung pipeline đơn:** `checkout_orders.order_type` (`SUBSCRIPTION` mặc định / `TOPUP`); kênh, tier,
+    `sub_action` nullable với CHECK "có ⇔ `SUBSCRIPTION`"; một đơn nạp `PENDING` mỗi người (unique index một phần). Khi đơn
+    `PAID` / `VOIDED`, use case chọn **applier theo loại đơn** (`subscriptionApplier` giữ nguyên hành vi GĐ6;
+    `topupApplier` ghi `CREDIT TOPUP` / `DEBIT TOPUP_VOID`). IPN, reconcile, idempotency, BR-H20 không đổi.
+  - **Quà tặng ngoài checkout:** `POST /v1/channels/{id}/gifts` không qua PSP; một transaction DB: advisory lock theo người
+    gửi → vật phẩm `FOR SHARE` (giá đọc lúc này thắng) → trần tổng `BILLING_GIFT_MAX_TOTAL` → kiểm số dư → `gift_sends`
+    (chụp tên, icon, đơn giá) + ví `DEBIT GIFT_SPEND` + sổ cái kênh `CREDIT GIFT_REVENUE` / `DEBIT PLATFORM_FEE` (cùng
+    `BILLING_PLATFORM_FEE_BPS`) + outbox `gift.sent.v1` + audit. `ledger_entries` thêm nguồn `gift_send_id` (CHECK đúng một
+    trong ba nguồn).
+  - **Sự kiện:** `gift.sent.v1` mới; `payment.succeeded|failed|voided.v1` thêm `orderType` (thiếu = `SUBSCRIPTION`, đơn nạp có
+    `channelId = ""`, `tier = 0`) — chỉ thêm trường, giữ `v1`. chat-svc phát system `GIFT`, notification-svc phân nhánh theo
+    `orderType`.
+- **Lý do:**
+  - Một nguồn sự thật cho tiền, cùng kiểu sổ cái chỉ-thêm đã dùng cho kênh; IPN trùng hay tặng lại không thể cộng / trừ hai lần.
+  - Tặng quà tức thì, không phí PSP mỗi lần tặng; tiền thật chỉ đi qua PSP lúc nạp, nơi đã có đủ cơ chế an toàn.
+  - Doanh thu quà ghi thẳng vào sổ cái kênh nên rút tiền (ADR-015) và Studio dùng lại mà không sửa.
+  - Thêm loại đơn mới sau này chỉ thêm một applier, không đụng IPN / reconcile.
+- **Cái giá:**
+  - DTO `Order` đổi: `channelId`, `channel`, `tier`, `kind` có thể `null`; web / admin và consumer `payment.*` phải xử lý đơn
+    không kênh.
+  - Ví có thể âm khi đơn nạp bị void sau khi đã tặng; không thu hồi được quà đã tặng (doanh thu Creator giữ nguyên).
+  - Advisory lock tuần tự hóa các lần tặng của cùng một người (chấp nhận được ở tải đồ án).
+  - Không thêm metric riêng cho quà (lệch TSD 1.0, `billing_gifts_total`); đếm qua audit / DB.
+- **Phương án đã cân nhắc:**
+
+  | Phương án | Không chọn vì |
+  | --- | --- |
+  | Mỗi lần tặng là một đơn SePay | Chậm (chuyển trang, chờ IPN), tốn phí mỗi lần, dòng chat không tức thì |
+  | Coin + tỷ giá (FR-MN-06) | DL-07 đã loại; thêm quy đổi, làm tròn, khuyến mãi mà đồ án không cần |
+  | Cột `balance` trên bảng người dùng / ví | Hai nguồn sự thật, dễ lệch khi IPN trùng; khác cách tính sổ cái kênh |
+  | Service ví riêng | Tiền, checkout và sổ cái đều ở billing; tách ra cần giao dịch phân tán cho mỗi lần tặng |
+
+- **Việc kéo theo:** NXL-H v1.2 (§3.11, BR-H41…BR-H47, §7.6, §13.10); NXL-B v1.3 (system `GIFT`); NXL-E v1.2 (`GIFT_RECEIVED`,
+  `TOPUP_*`, `topup_receipt`); NXL-00 v1.8 (`CANNOT_GIFT_SELF`, `INSUFFICIENT_FUNDS`, `GIFT_INACTIVE`, `gift.sent.v1`,
+  `orderType`); data-model v1.5; ERD-billing v1.3; `docs/api/README.md` v1.13; Nginx (`/v1/me/wallet`, `/v1/gift-items`,
+  `/v1/admin/gift-items`, `/v1/channels/{id}/gifts`); `BILLING_TOPUP_MIN`, `BILLING_TOPUP_MAX`, `BILLING_GIFT_MAX_TOTAL`.

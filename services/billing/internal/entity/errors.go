@@ -63,6 +63,7 @@ const (
 	ReasonOrderPending        = "ORDER_PENDING"
 	ReasonInsufficientBalance = "INSUFFICIENT_BALANCE"
 	ReasonPayoutPending       = "PAYOUT_PENDING"
+	ReasonPayoutState         = "PAYOUT_STATE"
 )
 
 // RejectError adds machine-readable details to a sentinel.

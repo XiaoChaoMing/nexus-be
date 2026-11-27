@@ -1,0 +1,13 @@
+{{define "subject"}}{{if eq .Status "PAID"}}Yêu cầu rút {{.Code}} đã được chi{{else if eq .Status "FAILED"}}Rút tiền {{.Code}} thất bại{{else}}Yêu cầu rút {{.Code}} bị từ chối{{end}}{{end}}{{define "body"}}Chào {{.Name}},
+
+{{if eq .Status "PAID"}}Yêu cầu rút {{.Code}} ({{.Amount}}) đã được chuyển khoản. Mã tham chiếu: {{.Reference}}.{{else if eq .Status "FAILED"}}Chuyển khoản cho yêu cầu rút {{.Code}} ({{.Amount}}) không thành công. Lý do: {{.Reason}}
+
+Số tiền đã được hoàn về số dư khả dụng, bạn có thể gửi lại yêu cầu.{{else}}Yêu cầu rút {{.Code}} ({{.Amount}}) bị từ chối. Lý do: {{.Reason}}
+
+Số tiền đã được hoàn về số dư khả dụng, bạn có thể gửi lại yêu cầu.{{end}}
+
+Xem chi tiết: {{.Link}}
+
+Đây là email giao dịch bắt buộc.
+— NexusLive
+{{end}}

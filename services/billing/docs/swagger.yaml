@@ -1,5 +1,27 @@
 basePath: /v1
 definitions:
+  AdminGiftItem:
+    properties:
+      active:
+        type: boolean
+      createdAt:
+        type: string
+      icon:
+        example: rose
+        type: string
+      id:
+        type: string
+      name:
+        example: Hoa hồng
+        type: string
+      price:
+        $ref: '#/definitions/Money'
+      sortOrder:
+        example: 2
+        type: integer
+      updatedAt:
+        type: string
+    type: object
   AdminOrder:
     properties:
       amount:
@@ -24,6 +46,9 @@ definitions:
         type: string
       needsReview:
         type: boolean
+      orderType:
+        example: SUBSCRIPTION
+        type: string
       paidAt:
         type: string
       paymentMethod:
@@ -63,7 +88,17 @@ definitions:
         type: string
       createdAt:
         type: string
+      failureReason:
+        type: string
       id:
+        type: string
+      paidAt:
+        type: string
+      provider:
+        example: MANUAL
+        type: string
+      providerRef:
+        example: FT24123456789
         type: string
       rejectReason:
         type: string
@@ -71,8 +106,12 @@ definitions:
         type: string
       reviewedBy:
         $ref: '#/definitions/Ref'
+      settledAt:
+        type: string
+      settledBy:
+        $ref: '#/definitions/Ref'
       status:
-        example: REQUESTED
+        example: PROCESSING
         type: string
     type: object
   Bank:
@@ -163,6 +202,11 @@ definitions:
         example: 0199e001-0000-7000-8000-000000000001
         type: string
     type: object
+  Data-AdminGiftItem:
+    properties:
+      data:
+        $ref: '#/definitions/AdminGiftItem'
+    type: object
   Data-AdminOrder:
     properties:
       data:
@@ -197,6 +241,21 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/CheckoutConfig'
+    type: object
+  Data-internal_controller_restapi_v1_GiftResult:
+    properties:
+      data:
+        $ref: '#/definitions/GiftResult'
+    type: object
+  Data-internal_controller_restapi_v1_Items-internal_controller_restapi_v1_AdminGiftItem:
+    properties:
+      data:
+        $ref: '#/definitions/Items-internal_controller_restapi_v1_AdminGiftItem'
+    type: object
+  Data-internal_controller_restapi_v1_Items-internal_controller_restapi_v1_GiftItem:
+    properties:
+      data:
+        $ref: '#/definitions/Items-internal_controller_restapi_v1_GiftItem'
     type: object
   Data-internal_controller_restapi_v1_OrderCheckout:
     properties:
@@ -253,6 +312,11 @@ definitions:
       data:
         $ref: '#/definitions/Page-internal_controller_restapi_v1_Tier'
     type: object
+  Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_WalletEntry:
+    properties:
+      data:
+        $ref: '#/definitions/Page-internal_controller_restapi_v1_WalletEntry'
+    type: object
   Data-internal_controller_restapi_v1_PendingCount:
     properties:
       data:
@@ -267,6 +331,11 @@ definitions:
     properties:
       data:
         $ref: '#/definitions/TierContext'
+    type: object
+  Data-internal_controller_restapi_v1_Wallet:
+    properties:
+      data:
+        $ref: '#/definitions/Wallet'
     type: object
   Error:
     properties:
@@ -293,6 +362,103 @@ definitions:
       value:
         type: string
     type: object
+  GiftItem:
+    properties:
+      icon:
+        example: rose
+        type: string
+      id:
+        type: string
+      name:
+        example: Hoa hồng
+        type: string
+      price:
+        $ref: '#/definitions/Money'
+      sortOrder:
+        example: 2
+        type: integer
+    type: object
+  GiftItemRef:
+    properties:
+      icon:
+        example: rose
+        type: string
+      id:
+        type: string
+      name:
+        example: Hoa hồng
+        type: string
+    type: object
+  GiftItemRequest:
+    properties:
+      active:
+        example: true
+        type: boolean
+      icon:
+        example: rose
+        type: string
+      name:
+        example: Hoa hồng
+        type: string
+      price:
+        example: 10000
+        type: integer
+      sortOrder:
+        example: 2
+        type: integer
+    type: object
+  GiftRequest:
+    properties:
+      itemId:
+        type: string
+      message:
+        example: Chúc stream vui!
+        type: string
+      quantity:
+        example: 5
+        type: integer
+    type: object
+  GiftResult:
+    properties:
+      balance:
+        $ref: '#/definitions/Money'
+      gift:
+        $ref: '#/definitions/GiftSend'
+    type: object
+  GiftSend:
+    properties:
+      channel:
+        $ref: '#/definitions/ChannelRef'
+      createdAt:
+        type: string
+      id:
+        type: string
+      item:
+        $ref: '#/definitions/GiftItemRef'
+      message:
+        type: string
+      quantity:
+        example: 5
+        type: integer
+      total:
+        $ref: '#/definitions/Money'
+      unitPrice:
+        $ref: '#/definitions/Money'
+    type: object
+  Items-internal_controller_restapi_v1_AdminGiftItem:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/AdminGiftItem'
+        type: array
+    type: object
+  Items-internal_controller_restapi_v1_GiftItem:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/GiftItem'
+        type: array
+    type: object
   LedgerEntry:
     properties:
       amount:
@@ -315,6 +481,12 @@ definitions:
         type: string
       source:
         example: CHARGE
+        type: string
+    type: object
+  MarkPaidRequest:
+    properties:
+      reference:
+        example: FT24123456789
         type: string
     type: object
   Money:
@@ -350,6 +522,9 @@ definitions:
         type: string
       needsReview:
         type: boolean
+      orderType:
+        example: SUBSCRIPTION
+        type: string
       paidAt:
         type: string
       paymentMethod:
@@ -457,6 +632,15 @@ definitions:
       nextCursor:
         type: string
     type: object
+  Page-internal_controller_restapi_v1_WalletEntry:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/WalletEntry'
+        type: array
+      nextCursor:
+        type: string
+    type: object
   Payout:
     properties:
       amount:
@@ -468,14 +652,26 @@ definitions:
         type: string
       createdAt:
         type: string
+      failureReason:
+        type: string
       id:
+        type: string
+      paidAt:
+        type: string
+      provider:
+        example: MANUAL
+        type: string
+      providerRef:
+        example: FT24123456789
         type: string
       rejectReason:
         type: string
       reviewedAt:
         type: string
+      settledAt:
+        type: string
       status:
-        example: REQUESTED
+        example: PROCESSING
         type: string
     type: object
   PayoutChannel:
@@ -596,6 +792,8 @@ definitions:
         type: integer
       from:
         type: string
+      gifts:
+        $ref: '#/definitions/Money'
       gross:
         $ref: '#/definitions/Money'
       net:
@@ -700,6 +898,49 @@ definitions:
       price:
         $ref: '#/definitions/Money'
     type: object
+  TopupRequest:
+    properties:
+      amount:
+        example: 100000
+        type: integer
+      paymentMethod:
+        example: BANK_TRANSFER
+        type: string
+    type: object
+  Wallet:
+    properties:
+      balance:
+        $ref: '#/definitions/Money'
+    type: object
+  WalletEntry:
+    properties:
+      amount:
+        $ref: '#/definitions/Money'
+      createdAt:
+        type: string
+      direction:
+        example: CREDIT
+        type: string
+      gift:
+        $ref: '#/definitions/WalletGift'
+      id:
+        type: string
+      invoiceNumber:
+        type: string
+      kind:
+        example: TOPUP
+        type: string
+    type: object
+  WalletGift:
+    properties:
+      channel:
+        $ref: '#/definitions/ChannelRef'
+      item:
+        $ref: '#/definitions/GiftItemRef'
+      quantity:
+        example: 5
+        type: integer
+    type: object
 info:
   contact: {}
   description: Subscription tiers, checkout (SePay Payment Gateway or the dev fake),
@@ -800,12 +1041,128 @@ paths:
       summary: A checkout order (review panel)
       tags:
       - admin-billing
+  /admin/gift-items:
+    get:
+      parameters:
+      - description: 'true | false (default: all)'
+        in: query
+        name: active
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Items-internal_controller_restapi_v1_AdminGiftItem'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The gift catalog (admin)
+      tags:
+      - admin-billing
+    post:
+      consumes:
+      - application/json
+      description: name 1–40 characters, price 1.000–5.000.000 VND, icon one of heart,
+        rose, star, fire, clap, cake, diamond, crown, trophy, rocket, car, castle;
+        active (default true), sortOrder 0–9999 (default 0). Audited.
+      parameters:
+      - description: item
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/GiftItemRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-AdminGiftItem'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Add a gift to the catalog
+      tags:
+      - admin-billing
+  /admin/gift-items/{id}:
+    patch:
+      consumes:
+      - application/json
+      description: Only the given fields change; gifts already given keep their name,
+        icon and price. active=false hides the item from viewers. Audited.
+      parameters:
+      - description: item id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: fields to change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/GiftItemRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminGiftItem'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Change a catalog gift
+      tags:
+      - admin-billing
   /admin/payouts:
     get:
-      description: status REQUESTED (default, oldest first), APPROVED, REJECTED or
-        ALL (newest first); each row carries the channel balance.
+      description: status REQUESTED (default, oldest first), APPROVED, PROCESSING,
+        PAID, REJECTED, FAILED or ALL (newest first); each row carries the channel
+        balance (balance = available + held by open payouts).
       parameters:
-      - description: REQUESTED | APPROVED | REJECTED | ALL
+      - description: REQUESTED | APPROVED | PROCESSING | PAID | REJECTED | FAILED
+          | ALL
         in: query
         name: status
         type: string
@@ -875,8 +1232,10 @@ paths:
       - admin-billing
   /admin/payouts/{id}/approve:
     post:
-      description: REQUESTED → APPROVED with a PAYOUT debit in the ledger (no money
-        is moved). A reviewed payout → 409.
+      description: 'REQUESTED → APPROVED → handed to the payout provider: PROCESSING
+        for the manual provider (the money was held at request time, no ledger entry).
+        An APPROVED payout (failed provider call) is handed over again. Any other
+        status → 409 INVALID_STATE reason PAYOUT_STATE.'
       parameters:
       - description: payout id
         in: path
@@ -949,12 +1308,115 @@ paths:
       summary: The full bank account of a payout
       tags:
       - admin-billing
+  /admin/payouts/{id}/mark-failed:
+    post:
+      consumes:
+      - application/json
+      description: APPROVED or PROCESSING → FAILED; reason 10–500 characters after
+        trim; the hold is given back (CREDIT PAYOUT_REVERSAL). Any other status →
+        409 INVALID_STATE reason PAYOUT_STATE.
+      parameters:
+      - description: payout id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/RejectRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminPayout'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Mark a payout failed
+      tags:
+      - admin-billing
+  /admin/payouts/{id}/mark-paid:
+    post:
+      consumes:
+      - application/json
+      description: 'PROCESSING → PAID with the bank transfer reference (4–64 of A–Z
+        a–z 0–9 . _ / -, trimmed). No ledger entry: the held money has left. Any other
+        status → 409 INVALID_STATE reason PAYOUT_STATE.'
+      parameters:
+      - description: payout id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: reference
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/MarkPaidRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-AdminPayout'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Mark a payout paid
+      tags:
+      - admin-billing
   /admin/payouts/{id}/reject:
     post:
       consumes:
       - application/json
-      description: reason 10–500 characters after trim; the amount is available again.
-        A reviewed payout → 409.
+      description: REQUESTED → REJECTED; reason 10–500 characters after trim; the
+        hold is given back (CREDIT PAYOUT_REVERSAL). Any other status → 409 INVALID_STATE
+        reason PAYOUT_STATE.
       parameters:
       - description: payout id
         in: path
@@ -1021,6 +1483,67 @@ paths:
       summary: Requested payouts (admin menu badge)
       tags:
       - admin-billing
+  /channels/{channelId}/gifts:
+    post:
+      consumes:
+      - application/json
+      description: quantity 1–99 (JSON integer), total ≤ 5.000.000 VND; message ≤
+        200 characters (optional). The wallet pays item price × quantity; the channel
+        gets it less the platform fee. Requires Idempotency-Key. 409 INVALID_STATE
+        reason INSUFFICIENT_FUNDS (balance) or GIFT_INACTIVE.
+      parameters:
+      - description: UUID
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: channel id
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: gift
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/GiftRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_GiftResult'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: CHANNEL_SUSPENDED
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE / CONFLICT
+          schema:
+            $ref: '#/definitions/Error'
+        "422":
+          description: CANNOT_GIFT_SELF / IDEMPOTENCY_KEY_REUSED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Give a gift to a channel
+      tags:
+      - gifts
   /channels/{channelId}/subscription-tiers:
     get:
       description: Active tiers by level (AC-H01). Unknown channel → 404, suspended
@@ -1267,6 +1790,72 @@ paths:
       summary: A tier with its channel (for /checkout?tierId=)
       tags:
       - checkout
+  /checkout/topups:
+    post:
+      consumes:
+      - application/json
+      description: amount 10.000–5.000.000 VND (JSON integer). Creates a PENDING TOPUP
+        order and the signed form, like /checkout/orders; the caller's pending top-up
+        of the same amount is returned with 200. Paid → the wallet is credited. Requires
+        Idempotency-Key. 409 INVALID_STATE ORDER_PENDING (orderId, amount) for a pending
+        top-up of another amount; 409 CONFLICT for 5 pending orders.
+      parameters:
+      - description: UUID
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: top-up
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/TopupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: pending top-up of the same amount
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_OrderCheckout'
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_OrderCheckout'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "409":
+          description: INVALID_STATE / CONFLICT
+          schema:
+            $ref: '#/definitions/Error'
+        "422":
+          description: IDEMPOTENCY_KEY_REUSED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Start a wallet top-up checkout
+      tags:
+      - wallet
+  /gift-items:
+    get:
+      description: Active items, in display order. Public.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Items-internal_controller_restapi_v1_GiftItem'
+      summary: The gift catalog
+      tags:
+      - gifts
   /me/payments:
     get:
       description: Checkout orders, newest first; status is an optional CSV of PENDING,
@@ -1427,6 +2016,59 @@ paths:
       summary: Turn renewal reminders back on
       tags:
       - subscriptions
+  /me/wallet:
+    get:
+      description: Σ credits − Σ debits of the wallet (VND); negative after a spent
+        top-up was voided.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Wallet'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The caller's wallet balance
+      tags:
+      - wallet
+  /me/wallet/entries:
+    get:
+      description: Newest first. kind TOPUP | TOPUP_VOID (invoiceNumber set) or GIFT_SPEND
+        (gift set).
+      parameters:
+      - description: nextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: 1–50, default 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_WalletEntry'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: The caller's wallet history
+      tags:
+      - wallet
   /studio/monetization/ledger:
     get:
       description: 'Append-only entries, newest first: SUB_REVENUE / PLATFORM_FEE

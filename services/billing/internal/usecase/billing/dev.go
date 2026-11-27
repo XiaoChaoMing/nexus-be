@@ -94,7 +94,7 @@ func (uc *UseCase) FakePay(ctx context.Context, invoice string) (string, error) 
 
 	if err := uc.fake.Pay(ctx, provider.FakePayment{
 		Invoice: o.InvoiceNumber, Amount: o.Amount, Method: method, CustomerID: o.UserID,
-		Description: entity.OrderDescription(o.Tier.Level, o.Channel.Handle, o.PeriodDays),
+		Description: o.Description(),
 	}); err != nil {
 		return "", fmt.Errorf("billing - FakePay: %w", err)
 	}

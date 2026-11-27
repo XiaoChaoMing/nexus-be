@@ -9,8 +9,11 @@ import (
 	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
 )
 
-// _subSystemConsumer de-duplicates the subscriber announcements (processed_events).
-const _subSystemConsumer = "chat-sub-system"
+// Consumers that de-duplicate the announcements (processed_events).
+const (
+	_subSystemConsumer  = "chat-sub-system"
+	_giftSystemConsumer = "chat-gift-system"
+)
 
 // Activated stores the new grant; a replayed copy (republish-entitlements) is not announced.
 func (uc *UseCase) Activated(ctx context.Context, eventID string, e events.SubscriptionActivated) error {
@@ -60,9 +63,55 @@ func (uc *UseCase) setGrant(ctx context.Context, channelID, userID string, tier 
 // announceSub publishes the system message in every OPEN room of the channel, once per event. The event is
 // claimed before publishing: a crash in between loses the message rather than repeating it.
 func (uc *UseCase) announceSub(ctx context.Context, eventID, kind, channelID, userID string, tier int) error {
+	return uc.announceOnce(ctx, eventID, _subSystemConsumer, channelID, userID, func(username string) any {
+		return entity.NewSubAnnouncement(kind, userID, username, tier)
+	})
+}
+
+// GiftSent announces a gift once per eventID in the channel's open rooms (none: nothing to show). A message the
+// channel's AutoMod refuses, or that cannot be checked, is left out; the gift itself is still shown.
+func (uc *UseCase) GiftSent(ctx context.Context, eventID string, e events.GiftSent) error {
+	return uc.announceOnce(ctx, eventID, _giftSystemConsumer, e.ChannelID, e.UserID, func(username string) any {
+		return entity.NewGiftAnnouncement(entity.GiftMeta{
+			UserID: e.UserID, Username: username, ItemName: e.ItemName, Icon: e.Icon, Quantity: e.Quantity,
+			Total: e.Total, Message: uc.screen(ctx, e.ChannelID, e.Message),
+		})
+	})
+}
+
+// screen applies the channel's blocked terms and link blocking to a gift message (viewer standing).
+func (uc *UseCase) screen(ctx context.Context, channelID string, msg *string) *string {
+	if msg == nil || uc.r.Settings == nil || uc.r.Terms == nil {
+		return msg
+	}
+
+	settings, err := uc.r.Settings.Settings(ctx, channelID)
+	if err != nil {
+		uc.l.Warn("rooms - gift message settings %s: %v", channelID, err)
+
+		return nil
+	}
+
+	terms, err := uc.r.Terms.BlockedTerms(ctx, channelID)
+	if err != nil {
+		uc.l.Warn("rooms - gift message terms %s: %v", channelID, err)
+
+		return nil
+	}
+
+	rules := entity.AutoModRules{Terms: terms, BlockLinks: settings.BlockLinks}
+	if rules.Check(*msg, entity.Standing{}) != nil {
+		return nil
+	}
+
+	return msg
+}
+
+// announceOnce publishes build(username) as a `system` message in every open room of the channel, once per eventID.
+func (uc *UseCase) announceOnce(ctx context.Context, eventID, consumer, channelID, userID string, build func(username string) any) error {
 	streams, err := uc.r.Rooms.OpenRoomsOfChannel(ctx, channelID)
 	if err != nil {
-		return fmt.Errorf("RoomsUseCase - announceSub - rooms: %w", err)
+		return fmt.Errorf("RoomsUseCase - announceOnce - rooms: %w", err)
 	}
 
 	if len(streams) == 0 {
@@ -70,9 +119,9 @@ func (uc *UseCase) announceSub(ctx context.Context, eventID, kind, channelID, us
 	}
 
 	if eventID != "" {
-		first, cerr := uc.r.Events.Claim(ctx, eventID, _subSystemConsumer)
+		first, cerr := uc.r.Events.Claim(ctx, eventID, consumer)
 		if cerr != nil {
-			return fmt.Errorf("RoomsUseCase - announceSub - claim: %w", cerr)
+			return fmt.Errorf("RoomsUseCase - announceOnce - claim: %w", cerr)
 		}
 
 		if !first {
@@ -84,16 +133,16 @@ func (uc *UseCase) announceSub(ctx context.Context, eventID, kind, channelID, us
 
 	users, err := uc.r.Users.Users(ctx, []string{userID})
 	if err != nil {
-		uc.l.Warn("rooms - sub announcement user %s: %v", userID, err)
+		uc.l.Warn("rooms - announcement user %s: %v", userID, err)
 	} else if u, ok := users[userID]; ok {
 		username = u.Username
 	}
 
-	msg := entity.NewSubAnnouncement(kind, userID, username, tier)
+	msg := build(username)
 
 	for _, id := range streams {
 		if _, perr := uc.pub.Publish(ctx, entity.ChatTopic(id), entity.EventSystem, msg); perr != nil {
-			uc.l.Warn("rooms - sub announcement on %s: %v", id, perr)
+			uc.l.Warn("rooms - announcement on %s: %v", id, perr)
 		}
 	}
 

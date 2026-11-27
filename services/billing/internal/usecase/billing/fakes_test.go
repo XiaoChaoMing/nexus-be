@@ -60,12 +60,36 @@ type mem struct {
 	seq      int
 	syncHits int
 	failNext error
+	// disburseErr is returned once by the payout provider.
+	disburseErr error
+	wallet      []entity.WalletEntry
+	giftItems   map[string]*entity.GiftItem
+	gifts       []entity.GiftSend
+}
+
+// payoutProvider is the manual payout provider of the tests, failing once with mem.disburseErr.
+type payoutProvider struct{ m *mem }
+
+func (payoutProvider) Name() string { return provider.NamePayoutManual }
+
+func (p payoutProvider) Disburse(context.Context, provider.PayoutInstruction) (provider.PayoutResult, error) {
+	p.m.mu.Lock()
+	defer p.m.mu.Unlock()
+
+	if err := p.m.disburseErr; err != nil {
+		p.m.disburseErr = nil
+
+		return provider.PayoutResult{}, err
+	}
+
+	return provider.PayoutResult{Status: entity.PayoutProcessing}, nil
 }
 
 func newMem() *mem {
 	m := &mem{
 		channels: map[string]entity.Channel{}, tiers: map[string]entity.Tier{}, orders: map[string]*entity.Order{},
 		subs: map[string]*entity.Subscription{}, txns: map[string]entity.Transaction{}, payouts: map[string]*entity.Payout{},
+		giftItems: map[string]*entity.GiftItem{},
 	}
 	m.channels[channelID] = entity.Channel{
 		ID: channelID, OwnerID: ownerID, Handle: "kaelen", DisplayName: "Kaelen",
@@ -270,19 +294,12 @@ func (m *mem) CreateOrReuse(_ context.Context, o entity.Order, rules repo.Create
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	o.SubAction = entity.SubActionNew
-
-	if s := m.liveSub(o.UserID, o.ChannelID); s != nil && s.CurrentPeriodEnd.After(rules.Now) {
-		if s.TierID != o.TierID {
-			return o, false, entity.StateError(entity.ReasonTierChange)
-		}
-
-		if entity.RenewedEnd(s.CurrentPeriodEnd, rules.Now, o.Period()).After(rules.Now.Add(rules.MaxPrepaid)) {
-			return o, false, entity.StateError(entity.ReasonMaxPrepaid)
-		}
-
-		o.SubAction = entity.SubActionRenew
+	action, err := m.subAction(o, rules)
+	if err != nil {
+		return o, false, err
 	}
+
+	o.SubAction = action
 
 	if p, err := m.samePending(o); p != nil || err != nil {
 		if p != nil {
@@ -309,13 +326,34 @@ func (m *mem) CreateOrReuse(_ context.Context, o entity.Order, rules repo.Create
 	return m.fill(o), true, nil
 }
 
+func (m *mem) subAction(o entity.Order, rules repo.CreateRules) (entity.SubAction, error) {
+	if o.Type() == entity.OrderTypeTopup {
+		return "", nil
+	}
+
+	s := m.liveSub(o.UserID, o.ChannelID)
+	if s == nil || !s.CurrentPeriodEnd.After(rules.Now) {
+		return entity.SubActionNew, nil
+	}
+
+	if s.TierID != o.TierID {
+		return "", entity.StateError(entity.ReasonTierChange)
+	}
+
+	if entity.RenewedEnd(s.CurrentPeriodEnd, rules.Now, o.Period()).After(rules.Now.Add(rules.MaxPrepaid)) {
+		return "", entity.StateError(entity.ReasonMaxPrepaid)
+	}
+
+	return entity.SubActionRenew, nil
+}
+
 func (m *mem) samePending(o entity.Order) (*entity.Order, error) {
 	for _, p := range m.orders {
-		if p.UserID != o.UserID || p.Status != entity.OrderPending || p.ChannelID != o.ChannelID {
+		if p.UserID != o.UserID || p.Status != entity.OrderPending || p.Type() != o.Type() || p.ChannelID != o.ChannelID {
 			continue
 		}
 
-		if p.TierID != o.TierID {
+		if p.TierID != o.TierID || p.Amount != o.Amount {
 			return nil, entity.StateError(entity.ReasonOrderPending)
 		}
 
@@ -626,6 +664,12 @@ func (t *memTx) InsertLedger(_ context.Context, e []entity.LedgerEntry) error {
 	return nil
 }
 
+func (t *memTx) InsertWallet(_ context.Context, e []entity.WalletEntry) error {
+	t.ops = append(t.ops, func() { t.m.wallet = append(t.m.wallet, e...) })
+
+	return nil
+}
+
 func (t *memTx) InsertOutbox(_ context.Context, rows []repo.Outbox) error {
 	t.ops = append(t.ops, func() { t.m.outbox = append(t.m.outbox, rows...) })
 
@@ -778,6 +822,9 @@ func (m *mem) Totals(_ context.Context, ch string, _, _ time.Time) (entity.Total
 		case e.ChannelID != ch:
 		case e.Kind == entity.LedgerSubRevenue:
 			t.Gross += sign * e.Amount
+		case e.Kind == entity.LedgerGiftRevenue:
+			t.Gross += sign * e.Amount
+			t.Gifts += sign * e.Amount
 		case e.Kind == entity.LedgerPlatformFee:
 			t.PlatformFee -= sign * e.Amount
 		}
@@ -786,7 +833,7 @@ func (m *mem) Totals(_ context.Context, ch string, _, _ time.Time) (entity.Total
 	return t, nil
 }
 
-func (m *mem) Balance(_ context.Context, ch string) (bal, pending int64, err error) {
+func (m *mem) Balance(_ context.Context, ch string) (bal, held int64, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -801,12 +848,12 @@ func (m *mem) Balance(_ context.Context, ch string) (bal, pending int64, err err
 	}
 
 	for _, p := range m.payouts {
-		if p.ChannelID == ch && p.Status == entity.PayoutRequested {
-			pending += p.Amount
+		if p.ChannelID == ch && p.Status.Open() {
+			held += p.Amount
 		}
 	}
 
-	return bal, pending, nil
+	return bal, held, nil
 }
 
 func (m *mem) Entries(context.Context, string, *repo.Cursor, int) ([]entity.LedgerEntry, error) {
@@ -817,24 +864,27 @@ func (m *mem) Entries(context.Context, string, *repo.Cursor, int) ([]entity.Ledg
 }
 
 func (m *mem) CreatePayout(ctx context.Context, p entity.Payout, out func(entity.Payout) []repo.Outbox) (entity.Payout, error) {
-	bal, pending, _ := m.Balance(ctx, p.ChannelID) //nolint:errcheck // never fails
+	bal, _, _ := m.Balance(ctx, p.ChannelID) //nolint:errcheck // never fails
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for _, q := range m.payouts {
-		if q.ChannelID == p.ChannelID && q.Status == entity.PayoutRequested {
+		if q.ChannelID == p.ChannelID && q.Status.Open() {
 			return p, entity.StateError(entity.ReasonPayoutPending)
 		}
 	}
 
-	if bal-pending < p.Amount {
-		return p, entity.StateError(entity.ReasonInsufficientBalance, "available", fmt.Sprint(bal-pending))
+	if bal < p.Amount {
+		return p, entity.StateError(entity.ReasonInsufficientBalance, "available", fmt.Sprint(bal))
 	}
 
 	p.ID, p.Status, p.CreatedAt = m.id(), entity.PayoutRequested, now
 	p.Number = int64(len(m.payouts) + 1)
 	m.payouts[p.ID] = &p
+	m.ledger = append(m.ledger, entity.LedgerEntry{
+		ChannelID: p.ChannelID, PayoutID: &p.ID, Direction: entity.Debit, Kind: entity.LedgerPayoutHold, Amount: p.Amount,
+	})
 	m.outbox = append(m.outbox, out(p)...)
 
 	return p, nil
@@ -871,8 +921,7 @@ func (m *mem) Payout(_ context.Context, id string) (entity.Payout, error) {
 	return *p, nil
 }
 
-func (m *mem) Review(_ context.Context, id, admin string, to entity.PayoutStatus, reason *string, at time.Time,
-	out func(entity.Payout) []repo.Outbox,
+func (m *mem) Move(_ context.Context, id string, mv repo.PayoutMove, out func(entity.Payout) []repo.Outbox,
 ) (entity.Payout, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -882,15 +931,33 @@ func (m *mem) Review(_ context.Context, id, admin string, to entity.PayoutStatus
 		return entity.Payout{}, entity.ErrNotFound
 	}
 
-	if p.Status != entity.PayoutRequested {
-		return *p, entity.ErrInvalidState
+	if !p.CanMoveTo(mv.To) {
+		return *p, entity.StateError(entity.ReasonPayoutState, "status", string(p.Status))
 	}
 
-	p.Status, p.ReviewedBy, p.ReviewedAt, p.RejectReason = to, &admin, &at, reason
-	if to == entity.PayoutApproved {
+	if p.Status == entity.PayoutRequested {
+		p.ReviewedBy, p.ReviewedAt = &mv.ActorID, &mv.At
+	}
+
+	switch mv.To {
+	case entity.PayoutRejected:
+		p.RejectReason = mv.Reason
+	case entity.PayoutFailed:
+		p.FailureReason, p.SettledBy, p.SettledAt = mv.Reason, &mv.ActorID, &mv.At
+	case entity.PayoutPaid:
+		p.ProviderRef, p.PaidAt, p.SettledBy, p.SettledAt = mv.Ref, &mv.At, &mv.ActorID, &mv.At
+	case entity.PayoutRequested, entity.PayoutApproved, entity.PayoutProcessing:
+	}
+
+	if mv.Provider != nil {
+		p.Provider = mv.Provider
+	}
+
+	p.Status = mv.To
+	if mv.To.Reversed() {
 		m.ledger = append(m.ledger, entity.LedgerEntry{
-			ChannelID: p.ChannelID, PayoutID: &p.ID, Direction: entity.Debit,
-			Kind: entity.LedgerPayout, Amount: p.Amount,
+			ChannelID: p.ChannelID, PayoutID: &p.ID, Direction: entity.Credit,
+			Kind: entity.LedgerPayoutReversal, Amount: p.Amount,
 		})
 	}
 
@@ -1051,7 +1118,7 @@ func newEnvWith(mod func(*settings), opts ...billing.Option) env {
 		TierPrices: [3]int64{59000, 119000, 299000}, FeeBps: 500, PayoutMin: 100000, OrderTTL: 30 * time.Minute,
 		ReconcileAfter: 2 * time.Minute, ReconcileInterval: time.Minute, ReconcileGiveUp: 30 * time.Minute,
 		RenewReminderDays: 3, Methods: []entity.PaymentMethod{entity.MethodBankTransfer, entity.MethodCard},
-		WebBaseURL: "http://localhost:5173/",
+		WebBaseURL: "http://localhost:5173/", TopupMin: 10000, TopupMax: 5000000, GiftMaxTotal: 5000000,
 	}
 
 	if mod != nil {
@@ -1061,10 +1128,162 @@ func newEnvWith(mod func(*settings), opts ...billing.Option) env {
 	opts = append([]billing.Option{billing.WithClock(func() time.Time { return now }), billing.WithRand(zeroReader{})}, opts...)
 	uc := billing.New(billing.Repos{
 		Channels: m, Tiers: m, Orders: m, Subs: m, Ledger: m, Payouts: m, Audit: m, Txns: m, Lock: m, Sync: m,
-		Cipher: plainCipher{}, Snapshot: m,
+		Cipher: plainCipher{}, Snapshot: m, Disburser: payoutProvider{m: m}, Wallet: m, Gifts: m,
 	}, psp, s, logger.New("error"), &obs{}, opts...)
 
 	return env{m: m, psp: psp, uc: uc}
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// ---- WalletRepo / GiftRepo ----
+
+func (m *mem) balanceLocked(user string) int64 {
+	var b int64
+
+	for _, e := range m.wallet {
+		if e.UserID != user {
+			continue
+		}
+
+		if e.Direction == entity.Credit {
+			b += e.Amount
+		} else {
+			b -= e.Amount
+		}
+	}
+
+	return b
+}
+
+func (m *mem) WalletBalance(_ context.Context, user string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.balanceLocked(user), nil
+}
+
+func (m *mem) WalletEntries(_ context.Context, user string, _ *repo.Cursor, _ int) ([]entity.WalletEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var out []entity.WalletEntry
+
+	for _, e := range m.wallet {
+		if e.UserID == user {
+			out = append(out, e)
+		}
+	}
+
+	return out, nil
+}
+
+func (m *mem) ActiveGiftItems(ctx context.Context) ([]entity.GiftItem, error) {
+	return m.GiftItems(ctx, ptr(true))
+}
+
+func (m *mem) GiftItems(_ context.Context, active *bool) ([]entity.GiftItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var out []entity.GiftItem
+
+	for _, it := range m.giftItems {
+		if active == nil || it.Active == *active {
+			out = append(out, *it)
+		}
+	}
+
+	return out, nil
+}
+
+func (m *mem) CreateGiftItem(_ context.Context, it entity.GiftItem, out func(entity.GiftItem) []repo.Outbox) (entity.GiftItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	it.ID, it.CreatedAt, it.UpdatedAt = m.id(), now, now
+	m.giftItems[it.ID] = &it
+	m.outbox = append(m.outbox, out(it)...)
+
+	return it, nil
+}
+
+func (m *mem) UpdateGiftItem(_ context.Context, id string, p repo.GiftItemPatch,
+	out func(before, after entity.GiftItem) []repo.Outbox,
+) (entity.GiftItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	it, ok := m.giftItems[id]
+	if !ok {
+		return entity.GiftItem{}, entity.ErrNotFound
+	}
+
+	before := *it
+
+	if p.Name != nil {
+		it.Name = *p.Name
+	}
+
+	if p.Price != nil {
+		it.Price = *p.Price
+	}
+
+	if p.Icon != nil {
+		it.Icon = *p.Icon
+	}
+
+	if p.Active != nil {
+		it.Active = *p.Active
+	}
+
+	if p.SortOrder != nil {
+		it.SortOrder = *p.SortOrder
+	}
+
+	m.outbox = append(m.outbox, out(before, *it)...)
+
+	return *it, nil
+}
+
+func (m *mem) SendGift(_ context.Context, g entity.GiftSend, rules repo.GiftRules, out func(entity.GiftSend) []repo.Outbox,
+) (entity.GiftSend, int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	it, ok := m.giftItems[g.ItemID]
+	if !ok {
+		return g, 0, entity.ErrNotFound
+	}
+
+	if !it.Active {
+		return g, 0, entity.StateError(entity.ReasonGiftInactive)
+	}
+
+	qty := int64(g.Quantity)
+	if _, err := entity.GiftQuantity(&qty, it.Price, rules.MaxTotal); err != nil {
+		return g, 0, err
+	}
+
+	g.ItemName, g.Icon, g.UnitPrice, g.Total = it.Name, it.Icon, it.Price, it.Price*qty
+	g.Fee = entity.Fee(g.Total, rules.FeeBps)
+
+	bal := m.balanceLocked(g.UserID)
+	if bal < g.Total {
+		return g, 0, entity.StateError(entity.ReasonInsufficientFunds, "balance", fmt.Sprint(bal))
+	}
+
+	g.ID, g.CreatedAt = m.id(), now
+	m.gifts = append(m.gifts, g)
+	m.wallet = append(m.wallet, entity.WalletEntry{
+		UserID: g.UserID, Direction: entity.Debit, Kind: entity.WalletGiftSpend, Amount: g.Total, GiftSendID: &g.ID,
+	})
+	m.ledger = append(m.ledger, entity.LedgerEntry{
+		ChannelID: g.ChannelID, GiftSendID: &g.ID, Direction: entity.Credit, Kind: entity.LedgerGiftRevenue, Amount: g.Total,
+	}, entity.LedgerEntry{
+		ChannelID: g.ChannelID, GiftSendID: &g.ID, Direction: entity.Debit, Kind: entity.LedgerPlatformFee, Amount: g.Fee,
+	})
+	m.outbox = append(m.outbox, out(g)...)
+
+	return g, bal - g.Total, nil
+}

@@ -218,7 +218,7 @@ func (uc *UseCase) settle(ctx context.Context, tx repo.PaymentTx, o entity.Order
 ) (paidResult, error) {
 	paid := paidResult{At: uc.now(), Method: paidMethod(o, p.Method)}
 
-	applied, err := subscriptionApplier{}.Apply(ctx, tx, o, paid.At)
+	applied, err := applierOf(o).Apply(ctx, tx, o, paid.At)
 	if err != nil {
 		return paid, err
 	}
@@ -242,18 +242,7 @@ func (uc *UseCase) settle(ctx context.Context, tx repo.PaymentTx, o entity.Order
 		return paid, err
 	}
 
-	fee := entity.Fee(o.Amount, uc.s.FeeBps)
-	entries := []entity.LedgerEntry{{
-		ChannelID: o.ChannelID, TransactionID: &txnID, Direction: entity.Credit, Kind: entity.LedgerSubRevenue, Amount: o.Amount,
-	}}
-
-	if fee > 0 {
-		entries = append(entries, entity.LedgerEntry{
-			ChannelID: o.ChannelID, TransactionID: &txnID, Direction: entity.Debit, Kind: entity.LedgerPlatformFee, Amount: fee,
-		})
-	}
-
-	if err := tx.InsertLedger(ctx, entries); err != nil {
+	if err := uc.moneyIn(ctx, tx, o, txnID); err != nil {
 		return paid, err
 	}
 
@@ -348,28 +337,12 @@ func (uc *UseCase) reverse(ctx context.Context, tx repo.PaymentTx, o entity.Orde
 		return err
 	}
 
-	effect, err := subscriptionApplier{}.Void(ctx, tx, o, uc.now())
+	effect, err := applierOf(o).Void(ctx, tx, o, uc.now())
 	if err != nil {
 		return err
 	}
 
-	// The fee rate of the charge, not today's setting.
-	fee, err := tx.ChargeFee(ctx, o.ID)
-	if err != nil {
-		return err
-	}
-
-	entries := []entity.LedgerEntry{{
-		ChannelID: o.ChannelID, TransactionID: &txnID, Direction: entity.Debit, Kind: entity.LedgerSubRevenue, Amount: o.Amount,
-	}}
-
-	if fee > 0 {
-		entries = append(entries, entity.LedgerEntry{
-			ChannelID: o.ChannelID, TransactionID: &txnID, Direction: entity.Credit, Kind: entity.LedgerPlatformFee, Amount: fee,
-		})
-	}
-
-	if err := tx.InsertLedger(ctx, entries); err != nil {
+	if err := moneyOut(ctx, tx, o, txnID); err != nil {
 		return err
 	}
 
@@ -389,7 +362,82 @@ type applied struct {
 	Events      []repo.Outbox
 }
 
-// subscriptionApplier is the OrderApplier of subscription orders (§2.1): a donation type would add its own.
+// orderApplier is what a paid or voided order changes besides the money (§2.1).
+type orderApplier interface {
+	Apply(ctx context.Context, tx repo.PaymentTx, o entity.Order, paidAt time.Time) (applied, error)
+	Void(ctx context.Context, tx repo.PaymentTx, o entity.Order, at time.Time) (voided, error)
+}
+
+func applierOf(o entity.Order) orderApplier {
+	if o.Type() == entity.OrderTypeTopup {
+		return topupApplier{}
+	}
+
+	return subscriptionApplier{}
+}
+
+// topupApplier: a top-up changes nothing but the wallet (moneyIn / moneyOut).
+type topupApplier struct{}
+
+func (topupApplier) Apply(context.Context, repo.PaymentTx, entity.Order, time.Time) (applied, error) {
+	return applied{Kind: events.PaymentAppliedTopup}, nil
+}
+
+func (topupApplier) Void(context.Context, repo.PaymentTx, entity.Order, time.Time) (voided, error) {
+	return voided{}, nil
+}
+
+// moneyIn records a captured payment: the channel ledger (revenue less the platform fee) for a subscription, the
+// buyer's wallet for a top-up (no fee: it is taken when a gift is given).
+func (uc *UseCase) moneyIn(ctx context.Context, tx repo.PaymentTx, o entity.Order, txnID string) error {
+	if o.Type() == entity.OrderTypeTopup {
+		return tx.InsertWallet(ctx, []entity.WalletEntry{{
+			UserID: o.UserID, Direction: entity.Credit, Kind: entity.WalletTopup, Amount: o.Amount, TransactionID: &txnID,
+		}})
+	}
+
+	fee := entity.Fee(o.Amount, uc.s.FeeBps)
+	entries := []entity.LedgerEntry{{
+		ChannelID: o.ChannelID, TransactionID: &txnID, Direction: entity.Credit, Kind: entity.LedgerSubRevenue, Amount: o.Amount,
+	}}
+
+	if fee > 0 {
+		entries = append(entries, entity.LedgerEntry{
+			ChannelID: o.ChannelID, TransactionID: &txnID, Direction: entity.Debit, Kind: entity.LedgerPlatformFee, Amount: fee,
+		})
+	}
+
+	return tx.InsertLedger(ctx, entries)
+}
+
+// moneyOut reverses moneyIn on a void; a spent top-up leaves the wallet negative.
+func moneyOut(ctx context.Context, tx repo.PaymentTx, o entity.Order, txnID string) error {
+	if o.Type() == entity.OrderTypeTopup {
+		return tx.InsertWallet(ctx, []entity.WalletEntry{{
+			UserID: o.UserID, Direction: entity.Debit, Kind: entity.WalletTopupVoid, Amount: o.Amount, TransactionID: &txnID,
+		}})
+	}
+
+	// The fee rate of the charge, not today's setting.
+	fee, err := tx.ChargeFee(ctx, o.ID)
+	if err != nil {
+		return err
+	}
+
+	entries := []entity.LedgerEntry{{
+		ChannelID: o.ChannelID, TransactionID: &txnID, Direction: entity.Debit, Kind: entity.LedgerSubRevenue, Amount: o.Amount,
+	}}
+
+	if fee > 0 {
+		entries = append(entries, entity.LedgerEntry{
+			ChannelID: o.ChannelID, TransactionID: &txnID, Direction: entity.Credit, Kind: entity.LedgerPlatformFee, Amount: fee,
+		})
+	}
+
+	return tx.InsertLedger(ctx, entries)
+}
+
+// subscriptionApplier is the orderApplier of subscription orders.
 type subscriptionApplier struct{}
 
 // Apply creates, extends or flags the subscription of a paid order; the order row is already locked.

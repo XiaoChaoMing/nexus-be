@@ -17,11 +17,6 @@ const docTemplate = `{
     "paths": {
         "/admin/checkout-orders": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Newest first. needsReview=true lists paid orders that could not be applied (another tier was live); status and failureReason are CSV (AND); q (case-insensitive) is a whole invoice number (exact match) or a prefix of one.",
                 "produces": [
                     "application/json"
@@ -93,16 +88,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/admin/checkout-orders/{id}": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/checkout-orders/{id}": {
+            "get": {
                 "description": "id is the order id or its invoice number (case-insensitive). Any order, whatever its status.",
                 "produces": [
                     "application/json"
@@ -145,17 +140,192 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/admin/payouts": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
+                ]
+            }
+        },
+        "/admin/gift-items": {
+            "get": {
+                "produces": [
+                    "application/json"
                 ],
-                "description": "status REQUESTED (default, oldest first), APPROVED, REJECTED or ALL (newest first); each row carries the channel balance.",
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "The gift catalog (admin)",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "true | false (default: all)",
+                        "name": "active",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Items-internal_controller_restapi_v1_AdminGiftItem"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "description": "name 1–40 characters, price 1.000–5.000.000 VND, icon one of heart, rose, star, fire, clap, cake, diamond, crown, trophy, rocket, car, castle; active (default true), sortOrder 0–9999 (default 0). Audited.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Add a gift to the catalog",
+                "parameters": [
+                    {
+                        "description": "item",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/GiftItemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminGiftItem"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/admin/gift-items/{id}": {
+            "patch": {
+                "description": "Only the given fields change; gifts already given keep their name, icon and price. active=false hides the item from viewers. Audited.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Change a catalog gift",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "item id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "fields to change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/GiftItemRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminGiftItem"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/admin/payouts": {
+            "get": {
+                "description": "status REQUESTED (default, oldest first), APPROVED, PROCESSING, PAID, REJECTED, FAILED or ALL (newest first); each row carries the channel balance (balance = available + held by open payouts).",
                 "produces": [
                     "application/json"
                 ],
@@ -166,7 +336,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "REQUESTED | APPROVED | REJECTED | ALL",
+                        "description": "REQUESTED | APPROVED | PROCESSING | PAID | REJECTED | FAILED | ALL",
                         "name": "status",
                         "in": "query"
                     },
@@ -208,16 +378,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/admin/payouts/pending-count": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/payouts/pending-count": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -244,16 +414,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/admin/payouts/{id}": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/payouts/{id}": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -295,17 +465,17 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/admin/payouts/{id}/approve": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
-                "description": "REQUESTED → APPROVED with a PAYOUT debit in the ledger (no money is moved). A reviewed payout → 409.",
+                ]
+            }
+        },
+        "/admin/payouts/{id}/approve": {
+            "post": {
+                "description": "REQUESTED → APPROVED → handed to the payout provider: PROCESSING for the manual provider (the money was held at request time, no ledger entry). An APPROVED payout (failed provider call) is handed over again. Any other status → 409 INVALID_STATE reason PAYOUT_STATE.",
                 "produces": [
                     "application/json"
                 ],
@@ -353,16 +523,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/admin/payouts/{id}/bank-account": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/payouts/{id}/bank-account": {
+            "get": {
                 "description": "Decrypted on demand; every view is written to the audit log (PAYOUT_BANK_INFO_VIEWED). Not cached.",
                 "produces": [
                     "application/json"
@@ -411,17 +581,169 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/admin/payouts/{id}/reject": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
+                ]
+            }
+        },
+        "/admin/payouts/{id}/mark-failed": {
+            "post": {
+                "description": "APPROVED or PROCESSING → FAILED; reason 10–500 characters after trim; the hold is given back (CREDIT PAYOUT_REVERSAL). Any other status → 409 INVALID_STATE reason PAYOUT_STATE.",
+                "consumes": [
+                    "application/json"
                 ],
-                "description": "reason 10–500 characters after trim; the amount is available again. A reviewed payout → 409.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Mark a payout failed",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "payout id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/RejectRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminPayout"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/admin/payouts/{id}/mark-paid": {
+            "post": {
+                "description": "PROCESSING → PAID with the bank transfer reference (4–64 of A–Z a–z 0–9 . _ / -, trimmed). No ledger entry: the held money has left. Any other status → 409 INVALID_STATE reason PAYOUT_STATE.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-billing"
+                ],
+                "summary": "Mark a payout paid",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "payout id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "reference",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/MarkPaidRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-AdminPayout"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/admin/payouts/{id}/reject": {
+            "post": {
+                "description": "REQUESTED → REJECTED; reason 10–500 characters after trim; the hold is given back (CREDIT PAYOUT_REVERSAL). Any other status → 409 INVALID_STATE reason PAYOUT_STATE.",
                 "consumes": [
                     "application/json"
                 ],
@@ -487,7 +809,101 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/channels/{channelId}/gifts": {
+            "post": {
+                "description": "quantity 1–99 (JSON integer), total ≤ 5.000.000 VND; message ≤ 200 characters (optional). The wallet pays item price × quantity; the channel gets it less the platform fee. Requires Idempotency-Key. 409 INVALID_STATE reason INSUFFICIENT_FUNDS (balance) or GIFT_INACTIVE.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gifts"
+                ],
+                "summary": "Give a gift to a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "UUID",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "channel id",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "gift",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/GiftRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_GiftResult"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "CHANNEL_SUSPENDED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE / CONFLICT",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "422": {
+                        "description": "CANNOT_GIFT_SELF / IDEMPOTENCY_KEY_REUSED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         },
         "/channels/{channelId}/subscription-tiers": {
@@ -553,11 +969,6 @@ const docTemplate = `{
         },
         "/checkout/orders": {
             "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Creates a PENDING order (30 min) and the signed form to post to the payment page, fields in order. The caller's pending order of the same tier is returned with 200 (re-signed). Requires Idempotency-Key (UUID): same key and body → the stored answer with Idempotent-Replay: true; same key, other body → 422 IDEMPOTENCY_KEY_REUSED; still running → 409 CONFLICT. 409 INVALID_STATE details.reason: TIER_INACTIVE, TIER_CHANGE (currentTier, currentPeriodEnd), MAX_PREPAID (currentPeriodEnd, maxPeriodEnd), ORDER_PENDING (orderId, tierLevel). 409 CONFLICT details.limit = 5 pending orders.",
                 "consumes": [
                     "application/json"
@@ -636,16 +1047,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/checkout/orders/{id}": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/checkout/orders/{id}": {
+            "get": {
                 "description": "With the subscription it created; an order in review shows the caller's current subscription of the channel. Another user's order → 404.",
                 "produces": [
                     "application/json"
@@ -682,16 +1093,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/checkout/orders/{id}/cancel": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/checkout/orders/{id}/cancel": {
+            "post": {
                 "description": "Only PENDING orders (else 409). The payment provider is told best effort; money that still arrives wins (the order becomes PAID).",
                 "produces": [
                     "application/json"
@@ -734,16 +1145,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/checkout/orders/{id}/sync": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/checkout/orders/{id}/sync": {
+            "post": {
                 "description": "Called by /checkout/result. Paid at the provider → PAID; outcome CANCEL → CANCELLED; ERROR → FAILED (reason from the lookup); SUCCESS and not paid yet → stays PENDING (poll GET). The redirect alone never marks an order paid. At most 10 calls a minute per order (429 details.retryAfterSec).",
                 "consumes": [
                     "application/json"
@@ -804,7 +1215,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         },
         "/checkout/tiers/{tierId}": {
@@ -848,13 +1264,104 @@ const docTemplate = `{
                 }
             }
         },
-        "/me/payments": {
-            "get": {
+        "/checkout/topups": {
+            "post": {
+                "description": "amount 10.000–5.000.000 VND (JSON integer). Creates a PENDING TOPUP order and the signed form, like /checkout/orders; the caller's pending top-up of the same amount is returned with 200. Paid → the wallet is credited. Requires Idempotency-Key. 409 INVALID_STATE ORDER_PENDING (orderId, amount) for a pending top-up of another amount; 409 CONFLICT for 5 pending orders.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wallet"
+                ],
+                "summary": "Start a wallet top-up checkout",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "UUID",
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "top-up",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/TopupRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "pending top-up of the same amount",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_OrderCheckout"
+                        }
+                    },
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_OrderCheckout"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE / CONFLICT",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "422": {
+                        "description": "IDEMPOTENCY_KEY_REUSED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
+                ]
+            }
+        },
+        "/gift-items": {
+            "get": {
+                "description": "Active items, in display order. Public.",
+                "produces": [
+                    "application/json"
                 ],
+                "tags": [
+                    "gifts"
+                ],
+                "summary": "The gift catalog",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Items-internal_controller_restapi_v1_GiftItem"
+                        }
+                    }
+                }
+            }
+        },
+        "/me/payments": {
+            "get": {
                 "description": "Checkout orders, newest first; status is an optional CSV of PENDING, PAID, CANCELLED, FAILED, EXPIRED, VOIDED.",
                 "produces": [
                     "application/json"
@@ -902,16 +1409,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/me/subscriptions": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/me/subscriptions": {
+            "get": {
                 "description": "status=current (default, by period end ascending) or expired (newest first). With channelId and no status: at most one row — the current subscription of that channel, else the most recently ended one (Subscribe button state).",
                 "produces": [
                     "application/json"
@@ -965,16 +1472,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/me/subscriptions/{id}/cancel": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/me/subscriptions/{id}/cancel": {
+            "post": {
                 "description": "ACTIVE → CANCELLED_PENDING_END; benefits stay until currentPeriodEnd. Requires Idempotency-Key. A second cancel → 409.",
                 "produces": [
                     "application/json"
@@ -1036,16 +1543,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/me/subscriptions/{id}/resume": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/me/subscriptions/{id}/resume": {
+            "post": {
                 "description": "CANCELLED_PENDING_END → ACTIVE while the period runs; otherwise 409.",
                 "produces": [
                     "application/json"
@@ -1088,16 +1595,98 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/studio/monetization/ledger": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
+                ]
+            }
+        },
+        "/me/wallet": {
+            "get": {
+                "description": "Σ credits − Σ debits of the wallet (VND); negative after a spent top-up was voided.",
+                "produces": [
+                    "application/json"
                 ],
+                "tags": [
+                    "wallet"
+                ],
+                "summary": "The caller's wallet balance",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Wallet"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/me/wallet/entries": {
+            "get": {
+                "description": "Newest first. kind TOPUP | TOPUP_VOID (invoiceNumber set) or GIFT_SPEND (gift set).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "wallet"
+                ],
+                "summary": "The caller's wallet history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "nextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "1–50, default 20",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_WalletEntry"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/studio/monetization/ledger": {
+            "get": {
                 "description": "Append-only entries, newest first: SUB_REVENUE / PLATFORM_FEE of each payment (reversed by a void) and PAYOUT debits.",
                 "produces": [
                     "application/json"
@@ -1145,16 +1734,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/studio/monetization/payouts": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/studio/monetization/payouts": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -1201,14 +1790,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            },
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "post": {
                 "description": "amount: integer 100000–1000000000 (REQUIRED / MIN / MAX); bankCode one of VCB, TCB, BIDV, VTB, ACB, MB, VPB, TPB, STB, VIB, SHB, HDB (ENUM); accountNumber 6–20 digits (FORMAT); accountName is trimmed, spaces collapsed, upper-cased, 2–100 chars (LENGTH), A–Z and spaces only (FORMAT). 409 INVALID_STATE details.reason: INSUFFICIENT_BALANCE (+ available) or PAYOUT_PENDING. Requires Idempotency-Key.",
                 "consumes": [
                     "application/json"
@@ -1275,16 +1864,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/studio/monetization/summary": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/studio/monetization/summary": {
+            "get": {
                 "description": "Gross, platform fee (5%, rounded down) and net over the range (days start at 00:00 in tz), today's net for the dashboard tile, the ledger balance, pending payouts and live subscribers.",
                 "produces": [
                     "application/json"
@@ -1332,16 +1921,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/studio/monetization/tiers": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/studio/monetization/tiers": {
+            "get": {
                 "description": "Every tier of the caller's channel, inactive ones included, with live subscriber counts. No channel → 403 NOT_CREATOR.",
                 "produces": [
                     "application/json"
@@ -1369,16 +1958,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/studio/monetization/tiers/{level}": {
-            "patch": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/studio/monetization/tiers/{level}": {
+            "patch": {
                 "description": "Prices are fixed. Tier 1 cannot be turned off (active = INVALID); description ≤ 200 characters after trim; an empty body → body = REQUIRED.",
                 "consumes": [
                     "application/json"
@@ -1433,7 +2022,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         },
         "/webhooks/sepay": {
@@ -1476,6 +2070,38 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "AdminGiftItem": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "icon": {
+                    "type": "string",
+                    "example": "rose"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Hoa hồng"
+                },
+                "price": {
+                    "$ref": "#/definitions/Money"
+                },
+                "sortOrder": {
+                    "type": "integer",
+                    "example": 2
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
         "AdminOrder": {
             "type": "object",
             "properties": {
@@ -1510,6 +2136,10 @@ const docTemplate = `{
                 },
                 "needsReview": {
                     "type": "boolean"
+                },
+                "orderType": {
+                    "type": "string",
+                    "example": "SUBSCRIPTION"
                 },
                 "paidAt": {
                     "type": "string"
@@ -1568,8 +2198,22 @@ const docTemplate = `{
                 "createdAt": {
                     "type": "string"
                 },
+                "failureReason": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
+                },
+                "paidAt": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string",
+                    "example": "MANUAL"
+                },
+                "providerRef": {
+                    "type": "string",
+                    "example": "FT24123456789"
                 },
                 "rejectReason": {
                     "type": "string"
@@ -1580,9 +2224,15 @@ const docTemplate = `{
                 "reviewedBy": {
                     "$ref": "#/definitions/Ref"
                 },
+                "settledAt": {
+                    "type": "string"
+                },
+                "settledBy": {
+                    "$ref": "#/definitions/Ref"
+                },
                 "status": {
                     "type": "string",
-                    "example": "REQUESTED"
+                    "example": "PROCESSING"
                 }
             }
         },
@@ -1712,6 +2362,14 @@ const docTemplate = `{
                 }
             }
         },
+        "Data-AdminGiftItem": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/AdminGiftItem"
+                }
+            }
+        },
         "Data-AdminOrder": {
             "type": "object",
             "properties": {
@@ -1765,6 +2423,30 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/CheckoutConfig"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_GiftResult": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/GiftResult"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Items-internal_controller_restapi_v1_AdminGiftItem": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Items-internal_controller_restapi_v1_AdminGiftItem"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Items-internal_controller_restapi_v1_GiftItem": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Items-internal_controller_restapi_v1_GiftItem"
                 }
             }
         },
@@ -1856,6 +2538,14 @@ const docTemplate = `{
                 }
             }
         },
+        "Data-internal_controller_restapi_v1_Page-internal_controller_restapi_v1_WalletEntry": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Page-internal_controller_restapi_v1_WalletEntry"
+                }
+            }
+        },
         "Data-internal_controller_restapi_v1_PendingCount": {
             "type": "object",
             "properties": {
@@ -1877,6 +2567,14 @@ const docTemplate = `{
             "properties": {
                 "data": {
                     "$ref": "#/definitions/TierContext"
+                }
+            }
+        },
+        "Data-internal_controller_restapi_v1_Wallet": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/Wallet"
                 }
             }
         },
@@ -1918,6 +2616,149 @@ const docTemplate = `{
                 }
             }
         },
+        "GiftItem": {
+            "type": "object",
+            "properties": {
+                "icon": {
+                    "type": "string",
+                    "example": "rose"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Hoa hồng"
+                },
+                "price": {
+                    "$ref": "#/definitions/Money"
+                },
+                "sortOrder": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "GiftItemRef": {
+            "type": "object",
+            "properties": {
+                "icon": {
+                    "type": "string",
+                    "example": "rose"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Hoa hồng"
+                }
+            }
+        },
+        "GiftItemRequest": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "icon": {
+                    "type": "string",
+                    "example": "rose"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Hoa hồng"
+                },
+                "price": {
+                    "type": "integer",
+                    "example": 10000
+                },
+                "sortOrder": {
+                    "type": "integer",
+                    "example": 2
+                }
+            }
+        },
+        "GiftRequest": {
+            "type": "object",
+            "properties": {
+                "itemId": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "Chúc stream vui!"
+                },
+                "quantity": {
+                    "type": "integer",
+                    "example": 5
+                }
+            }
+        },
+        "GiftResult": {
+            "type": "object",
+            "properties": {
+                "balance": {
+                    "$ref": "#/definitions/Money"
+                },
+                "gift": {
+                    "$ref": "#/definitions/GiftSend"
+                }
+            }
+        },
+        "GiftSend": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "$ref": "#/definitions/ChannelRef"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "item": {
+                    "$ref": "#/definitions/GiftItemRef"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "integer",
+                    "example": 5
+                },
+                "total": {
+                    "$ref": "#/definitions/Money"
+                },
+                "unitPrice": {
+                    "$ref": "#/definitions/Money"
+                }
+            }
+        },
+        "Items-internal_controller_restapi_v1_AdminGiftItem": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/AdminGiftItem"
+                    }
+                }
+            }
+        },
+        "Items-internal_controller_restapi_v1_GiftItem": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/GiftItem"
+                    }
+                }
+            }
+        },
         "LedgerEntry": {
             "type": "object",
             "properties": {
@@ -1950,6 +2791,15 @@ const docTemplate = `{
                 "source": {
                     "type": "string",
                     "example": "CHARGE"
+                }
+            }
+        },
+        "MarkPaidRequest": {
+            "type": "object",
+            "properties": {
+                "reference": {
+                    "type": "string",
+                    "example": "FT24123456789"
                 }
             }
         },
@@ -2000,6 +2850,10 @@ const docTemplate = `{
                 },
                 "needsReview": {
                     "type": "boolean"
+                },
+                "orderType": {
+                    "type": "string",
+                    "example": "SUBSCRIPTION"
                 },
                 "paidAt": {
                     "type": "string"
@@ -2166,6 +3020,20 @@ const docTemplate = `{
                 }
             }
         },
+        "Page-internal_controller_restapi_v1_WalletEntry": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/WalletEntry"
+                    }
+                },
+                "nextCursor": {
+                    "type": "string"
+                }
+            }
+        },
         "Payout": {
             "type": "object",
             "properties": {
@@ -2182,8 +3050,22 @@ const docTemplate = `{
                 "createdAt": {
                     "type": "string"
                 },
+                "failureReason": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
+                },
+                "paidAt": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string",
+                    "example": "MANUAL"
+                },
+                "providerRef": {
+                    "type": "string",
+                    "example": "FT24123456789"
                 },
                 "rejectReason": {
                     "type": "string"
@@ -2191,9 +3073,12 @@ const docTemplate = `{
                 "reviewedAt": {
                     "type": "string"
                 },
+                "settledAt": {
+                    "type": "string"
+                },
                 "status": {
                     "type": "string",
-                    "example": "REQUESTED"
+                    "example": "PROCESSING"
                 }
             }
         },
@@ -2373,6 +3258,9 @@ const docTemplate = `{
                 "from": {
                     "type": "string"
                 },
+                "gifts": {
+                    "$ref": "#/definitions/Money"
+                },
                 "gross": {
                     "$ref": "#/definitions/Money"
                 },
@@ -2524,6 +3412,70 @@ const docTemplate = `{
                 },
                 "price": {
                     "$ref": "#/definitions/Money"
+                }
+            }
+        },
+        "TopupRequest": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer",
+                    "example": 100000
+                },
+                "paymentMethod": {
+                    "type": "string",
+                    "example": "BANK_TRANSFER"
+                }
+            }
+        },
+        "Wallet": {
+            "type": "object",
+            "properties": {
+                "balance": {
+                    "$ref": "#/definitions/Money"
+                }
+            }
+        },
+        "WalletEntry": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "$ref": "#/definitions/Money"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "direction": {
+                    "type": "string",
+                    "example": "CREDIT"
+                },
+                "gift": {
+                    "$ref": "#/definitions/WalletGift"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "invoiceNumber": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "TOPUP"
+                }
+            }
+        },
+        "WalletGift": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "$ref": "#/definitions/ChannelRef"
+                },
+                "item": {
+                    "$ref": "#/definitions/GiftItemRef"
+                },
+                "quantity": {
+                    "type": "integer",
+                    "example": 5
                 }
             }
         }

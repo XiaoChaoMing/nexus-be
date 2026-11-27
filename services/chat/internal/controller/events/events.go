@@ -35,6 +35,7 @@ var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeNotificationCreated, events.TypeNotificationUnreadChanged,
 	events.TypeSubscriptionActivated, events.TypeSubscriptionRenewed, events.TypeSubscriptionUpdated,
 	events.TypeSubscriptionExpired, events.TypePaymentSucceeded, events.TypePaymentFailed, events.TypePaymentVoided,
+	events.TypeGiftSent,
 }
 
 // Handler routes one event to the rooms, grants, safety or entitlements use case.
@@ -55,6 +56,9 @@ func Handler(rooms usecase.Rooms, grants usecase.Grants, safety usecase.Safety, 
 	for t, h := range paymentHandlers(ent) {
 		handlers[t] = h
 	}
+
+	handlers[events.TypeGiftSent] = handle(func(p events.GiftSent) []string { return []string{p.UserID, p.ChannelID, p.GiftSendID} },
+		ent.GiftSent)
 
 	return func(ctx context.Context, e eventbus.Event) error {
 		if h, ok := handlers[e.Type]; ok {

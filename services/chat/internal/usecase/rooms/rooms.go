@@ -38,6 +38,14 @@ type Repos struct {
 	Broker   repo.Broker
 	Snapshot repo.ChannelSnapshot
 	Events   repo.EventLog
+	// Settings and Terms screen a gift message with the channel's AutoMod rules.
+	Settings repo.SettingsRepo
+	Terms    TermSource
+}
+
+// TermSource returns a channel's normalized blocked terms (the moderation use case, cached).
+type TermSource interface {
+	BlockedTerms(ctx context.Context, channelID string) ([]string, error)
 }
 
 // UseCase implements usecase.Rooms and usecase.Grants.

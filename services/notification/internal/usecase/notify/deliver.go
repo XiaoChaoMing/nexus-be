@@ -15,6 +15,7 @@ const (
 	keyName    = "Name"
 	keyLink    = "Link"
 	keyChannel = "Channel"
+	keyWhen    = "When"
 	keyTitle   = "Title"
 	keyReason  = "Reason"
 	keyUnsub   = "UnsubscribeURL"

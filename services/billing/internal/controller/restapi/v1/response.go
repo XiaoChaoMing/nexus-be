@@ -104,22 +104,23 @@ type (
 
 	// Order -.
 	Order struct {
-		ID            string     `json:"id"`
-		InvoiceNumber string     `json:"invoiceNumber" example:"NXL7Q2K9M4X1C"`
-		ChannelID     string     `json:"channelId"`
-		Channel       ChannelRef `json:"channel"`
-		Tier          TierRef    `json:"tier"`
-		Kind          string     `json:"kind"          example:"NEW"`
-		Amount        Money      `json:"amount"`
-		PaymentMethod *string    `json:"paymentMethod" example:"BANK_TRANSFER"`
-		Status        string     `json:"status"        example:"PENDING"`
-		FailureReason *string    `json:"failureReason"`
-		NeedsReview   bool       `json:"needsReview"`
-		PeriodDays    int        `json:"periodDays"    example:"30"`
-		ExpiresAt     time.Time  `json:"expiresAt"`
-		CreatedAt     time.Time  `json:"createdAt"`
-		PaidAt        *time.Time `json:"paidAt"`
-		UpdatedAt     time.Time  `json:"updatedAt"`
+		ID            string      `json:"id"`
+		InvoiceNumber string      `json:"invoiceNumber" example:"NXL7Q2K9M4X1C"`
+		OrderType     string      `json:"orderType"     example:"SUBSCRIPTION"`
+		ChannelID     *string     `json:"channelId"`
+		Channel       *ChannelRef `json:"channel"`
+		Tier          *TierRef    `json:"tier"`
+		Kind          *string     `json:"kind"          example:"NEW"`
+		Amount        Money       `json:"amount"`
+		PaymentMethod *string     `json:"paymentMethod" example:"BANK_TRANSFER"`
+		Status        string      `json:"status"        example:"PENDING"`
+		FailureReason *string     `json:"failureReason"`
+		NeedsReview   bool        `json:"needsReview"`
+		PeriodDays    int         `json:"periodDays"    example:"30"`
+		ExpiresAt     time.Time   `json:"expiresAt"`
+		CreatedAt     time.Time   `json:"createdAt"`
+		PaidAt        *time.Time  `json:"paidAt"`
+		UpdatedAt     time.Time   `json:"updatedAt"`
 	}
 
 	// Field is one checkout form input.
@@ -190,14 +191,19 @@ type (
 
 	// Payout -.
 	Payout struct {
-		ID           string     `json:"id"`
-		Code         string     `json:"code"         example:"PO-0001"`
-		Amount       Money      `json:"amount"`
-		Bank         Bank       `json:"bank"`
-		Status       string     `json:"status"       example:"REQUESTED"`
-		RejectReason *string    `json:"rejectReason"`
-		CreatedAt    time.Time  `json:"createdAt"`
-		ReviewedAt   *time.Time `json:"reviewedAt"`
+		ID            string     `json:"id"`
+		Code          string     `json:"code"         example:"PO-0001"`
+		Amount        Money      `json:"amount"`
+		Bank          Bank       `json:"bank"`
+		Status        string     `json:"status"        example:"PROCESSING"`
+		RejectReason  *string    `json:"rejectReason"`
+		CreatedAt     time.Time  `json:"createdAt"`
+		ReviewedAt    *time.Time `json:"reviewedAt"`
+		Provider      *string    `json:"provider"      example:"MANUAL"`
+		ProviderRef   *string    `json:"providerRef"   example:"FT24123456789"`
+		FailureReason *string    `json:"failureReason"`
+		PaidAt        *time.Time `json:"paidAt"`
+		SettledAt     *time.Time `json:"settledAt"`
 	}
 
 	// PayoutChannel -.
@@ -220,6 +226,7 @@ type (
 		Balance    Money         `json:"balance"`
 		Available  Money         `json:"available"`
 		ReviewedBy *Ref          `json:"reviewedBy"`
+		SettledBy  *Ref          `json:"settledBy"`
 	}
 
 	// PendingCount -.
@@ -266,6 +273,7 @@ type (
 		Balance       Money       `json:"balance"`
 		Available     Money       `json:"available"`
 		PendingPayout Money       `json:"pendingPayout"`
+		Gifts         Money       `json:"gifts"`
 		FeeBps        int         `json:"feeBps"   example:"500"`
 		PayoutMin     Money       `json:"payoutMin"`
 	}
@@ -337,13 +345,21 @@ func str[T ~string](v *T) *string {
 }
 
 // NewOrder -.
+// NewOrder -: a top-up has no channel, tier or kind (null).
 func NewOrder(o entity.Order) Order {
-	return Order{
-		ID: o.ID, InvoiceNumber: o.InvoiceNumber, ChannelID: o.ChannelID, Channel: channelRef(o.Channel), Tier: tierRef(o.Tier),
-		Kind: string(o.SubAction), Amount: VND(o.Amount), PaymentMethod: str(o.PaymentMethod), Status: string(o.Status),
-		FailureReason: str(o.FailureReason), NeedsReview: o.NeedsReview, PeriodDays: o.PeriodDays, ExpiresAt: o.ExpiresAt,
-		CreatedAt: o.CreatedAt, PaidAt: o.PaidAt, UpdatedAt: o.UpdatedAt,
+	out := Order{
+		ID: o.ID, InvoiceNumber: o.InvoiceNumber, OrderType: string(o.Type()), Amount: VND(o.Amount),
+		PaymentMethod: str(o.PaymentMethod), Status: string(o.Status), FailureReason: str(o.FailureReason),
+		NeedsReview: o.NeedsReview, PeriodDays: o.PeriodDays, ExpiresAt: o.ExpiresAt, CreatedAt: o.CreatedAt,
+		PaidAt: o.PaidAt, UpdatedAt: o.UpdatedAt,
 	}
+
+	if o.Type() == entity.OrderTypeSubscription {
+		ch, tier, kind := channelRef(o.Channel), tierRef(o.Tier), string(o.SubAction)
+		out.ChannelID, out.Channel, out.Tier, out.Kind = &o.ChannelID, &ch, &tier, &kind
+	}
+
+	return out
 }
 
 // NewCheckout -.
@@ -438,7 +454,8 @@ func NewPayout(v usecase.PayoutView) Payout {
 
 	return Payout{
 		ID: p.ID, Code: p.Code(), Amount: VND(p.Amount), Status: string(p.Status), RejectReason: p.RejectReason,
-		CreatedAt: p.CreatedAt, ReviewedAt: p.ReviewedAt,
+		CreatedAt: p.CreatedAt, ReviewedAt: p.ReviewedAt, Provider: p.Provider, ProviderRef: p.ProviderRef,
+		FailureReason: p.FailureReason, PaidAt: p.PaidAt, SettledAt: p.SettledAt,
 		Bank: Bank{Code: p.BankCode, Name: entity.BankName(p.BankCode), Last4: p.AccountLast4, AccountName: v.AccountName},
 	}
 }
@@ -462,6 +479,10 @@ func NewAdminPayout(a usecase.AdminPayout) AdminPayout {
 
 	if a.Payout.ReviewedBy != nil {
 		out.ReviewedBy = &Ref{ID: *a.Payout.ReviewedBy}
+	}
+
+	if a.Payout.SettledBy != nil {
+		out.SettledBy = &Ref{ID: *a.Payout.SettledBy}
 	}
 
 	return out
@@ -491,5 +512,6 @@ func NewSummary(s entity.Summary) Summary {
 		Range: s.Range, TZ: s.TZ, From: s.From, To: s.To, Subscribers: subs, Gross: VND(s.Gross),
 		PlatformFee: VND(s.PlatformFee), Net: VND(s.Net), TodayNet: VND(s.TodayNet), Balance: VND(s.Balance),
 		Available: VND(s.Available), PendingPayout: VND(s.PendingPayout), FeeBps: s.FeeBps, PayoutMin: VND(s.PayoutMin),
+		Gifts: VND(s.Gifts),
 	}
 }

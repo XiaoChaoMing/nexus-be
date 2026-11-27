@@ -201,3 +201,45 @@ func TestPaymentUpdatedOnlyOnline(t *testing.T) {
 	require.Equal(t, []string{"user:" + buyer + ` payment_updated {"orderId":"o1","invoiceNumber":"NXL1","status":"PAID",` +
 		`"failureReason":null,"needsReview":false,"subscription":null}`}, f.pub.got)
 }
+
+type settingsRepo struct {
+	repo.SettingsRepo
+	blockLinks bool
+}
+
+func (s settingsRepo) Settings(context.Context, string) (entity.ChatSettings, error) {
+	return entity.ChatSettings{BlockLinks: s.blockLinks}, nil
+}
+
+type terms []string
+
+func (t terms) BlockedTerms(context.Context, string) ([]string, error) { return t, nil }
+
+func TestGiftSentAnnouncesOnceAndScreens(t *testing.T) {
+	t.Parallel()
+
+	pb := &pub{}
+	uc := rooms.New(rooms.Repos{
+		Rooms: openRooms{streams: []string{stream}}, Users: users{}, Events: &claims{seen: map[string]bool{}},
+		Settings: settingsRepo{blockLinks: true}, Terms: terms{entity.Normalize("đồ ngốc")},
+	}, pb, time.Hour, logger.New("error"))
+	ctx := context.Background()
+	msg := "Chúc stream vui!"
+	e := events.GiftSent{
+		GiftSendID: "g1", UserID: buyer, ChannelID: channel, ItemName: "Hoa hồng", Icon: "rose", Quantity: 5,
+		Total: 50000, Message: &msg,
+	}
+
+	require.NoError(t, uc.GiftSent(ctx, "ev1", e))
+	require.NoError(t, uc.GiftSent(ctx, "ev1", e), "redelivery")
+	require.Equal(t, []string{"chat:" + stream + ` system {"type":"GIFT","text":"@an tặng 5 × Hoa hồng (50.000 ₫): Chúc stream vui!",` +
+		`"meta":{"userId":"` + buyer + `","username":"an","itemName":"Hoa hồng","icon":"rose","quantity":5,"total":50000,` +
+		`"message":"Chúc stream vui!"}}`}, pb.got)
+
+	for i, bad := range []string{"Đồ   NGỐC", "xem tại abc.com nhé"} {
+		e.Message = &bad
+		require.NoError(t, uc.GiftSent(ctx, "ev-bad-"+string(rune('a'+i)), e))
+		require.Contains(t, pb.got[len(pb.got)-1], `"text":"@an tặng 5 × Hoa hồng (50.000 ₫)","meta"`)
+		require.Contains(t, pb.got[len(pb.got)-1], `"message":null`)
+	}
+}

@@ -23,12 +23,49 @@ type fakeUC struct {
 	usecase.Catalog
 	usecase.Subscriptions
 	usecase.Admin
+	usecase.Wallet
+	usecase.Gifts
 
 	err     error
 	created bool
 	payout  usecase.PayoutInput
 	outcome usecase.Outcome
 	orders  usecase.AdminOrderQuery
+	marked  string
+	topup   *int64
+	gift    usecase.GiftInput
+}
+
+func (f *fakeUC) CreateTopup(_ context.Context, _ string, in usecase.TopupInput) (entity.Order, entity.Checkout, bool, error) {
+	f.topup = in.Amount
+
+	return entity.Order{OrderType: entity.OrderTypeTopup, Amount: 100000}, entity.Checkout{}, true, f.err
+}
+
+func (f *fakeUC) GiftItems(context.Context) ([]entity.GiftItem, error) {
+	return []entity.GiftItem{{ID: "g1", Name: "Hoa hồng", Price: 10000, Icon: "rose"}}, f.err
+}
+
+func (f *fakeUC) SendGift(_ context.Context, _, _ string, in usecase.GiftInput) (entity.GiftSend, int64, error) {
+	f.gift = in
+
+	return entity.GiftSend{ID: "s1", ItemName: "Hoa hồng", Quantity: 5, Total: 50000}, 50000, f.err
+}
+
+func (f *fakeUC) MarkPaid(_ context.Context, _, _, reference string) (usecase.AdminPayout, error) {
+	f.marked = reference
+
+	return usecase.AdminPayout{PayoutView: usecase.PayoutView{Payout: entity.Payout{
+		Number: 3, Status: entity.PayoutPaid, ProviderRef: &reference, SettledBy: &reference,
+	}}}, f.err
+}
+
+func (f *fakeUC) MarkFailed(_ context.Context, _, _, reason string) (usecase.AdminPayout, error) {
+	f.marked = reason
+
+	return usecase.AdminPayout{PayoutView: usecase.PayoutView{Payout: entity.Payout{
+		Number: 3, Status: entity.PayoutFailed, FailureReason: &reason,
+	}}}, f.err
 }
 
 func (f *fakeUC) PublicTiers(context.Context, string) ([]entity.Tier, error) {
@@ -111,7 +148,7 @@ func app(uc *fakeUC, role string) *fiber.App {
 	a := fiber.New()
 	v1.NewRoutes(a.Group("/v1"), v1.UseCases{
 		Catalog: uc, Checkout: uc, Subscriptions: uc, Studio: uc, Admin: uc,
-		Idempotency: uc,
+		Idempotency: uc, Wallet: uc, Gifts: uc,
 	}, as("u1", role), middleware.RequireAdmin(), logger.New("error"))
 
 	return a
@@ -226,6 +263,79 @@ func TestRoutes(t *testing.T) { //nolint:funlen // one walk through the routes
 	status, body = call(t, a, http.MethodGet, "/v1/admin/payouts", ``)
 	require.Equal(t, http.StatusForbidden, status)
 	require.Contains(t, body, "FORBIDDEN")
+}
+
+func TestWalletGiftRoutes(t *testing.T) {
+	t.Parallel()
+
+	uc := &fakeUC{}
+	a := app(uc, "USER")
+
+	status, body := call(t, a, http.MethodPost, "/v1/checkout/topups", `{"amount":"100000"}`)
+	require.Equal(t, http.StatusCreated, status)
+	require.Nil(t, uc.topup, "a string amount is not an integer")
+	require.Contains(t, body, `"orderType":"TOPUP"`)
+	require.Contains(t, body, `"channel":null`)
+	require.Contains(t, body, `"tier":null`)
+	require.Contains(t, body, `"kind":null`)
+
+	status, _ = call(t, a, http.MethodPost, "/v1/checkout/topups", `{"amount":100000}`)
+	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, int64(100000), *uc.topup)
+
+	status, body = call(t, a, http.MethodGet, "/v1/gift-items", ``)
+	require.Equal(t, http.StatusOK, status)
+	require.Contains(t, body, `"items":[{"id":"g1","name":"Hoa hồng","price":{"amount":10000,"currency":"VND"},"icon":"rose"`)
+
+	status, body = call(t, a, http.MethodPost, "/v1/channels/c1/gifts", `{"itemId":"g1","quantity":5,"message":"hi"}`)
+	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, int64(5), *uc.gift.Quantity)
+	require.Equal(t, "hi", uc.gift.Message)
+	require.Contains(t, body, `"balance":{"amount":50000,"currency":"VND"}`)
+
+	uc.err = entity.ErrGiftSelf
+	status, body = call(t, a, http.MethodPost, "/v1/channels/c1/gifts", `{"itemId":"g1","quantity":1}`)
+	require.Equal(t, http.StatusUnprocessableEntity, status)
+	require.Contains(t, body, `"CANNOT_GIFT_SELF"`)
+
+	uc.err = entity.StateError(entity.ReasonInsufficientFunds, "balance", "0")
+	status, body = call(t, a, http.MethodPost, "/v1/channels/c1/gifts", `{"itemId":"g1","quantity":1}`)
+	require.Equal(t, http.StatusConflict, status)
+	require.Contains(t, body, `"reason":"INSUFFICIENT_FUNDS"`)
+
+	status, _ = call(t, a, http.MethodGet, "/v1/admin/gift-items", ``)
+	require.Equal(t, http.StatusForbidden, status)
+}
+
+func TestMarkRoutes(t *testing.T) {
+	t.Parallel()
+
+	uc := &fakeUC{}
+	a := app(uc, "ADMIN")
+
+	status, body := call(t, a, http.MethodPost, "/v1/admin/payouts/p1/mark-paid", `{"reference":"FT123"}`)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "FT123", uc.marked)
+	require.Contains(t, body, `"status":"PAID"`)
+	require.Contains(t, body, `"providerRef":"FT123"`)
+	require.Contains(t, body, `"settledBy":{"id":"FT123"}`)
+
+	status, body = call(t, a, http.MethodPost, "/v1/admin/payouts/p1/mark-failed", `{"reason":"account closed"}`)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "account closed", uc.marked)
+	require.Contains(t, body, `"failureReason":"account closed"`)
+
+	status, body = call(t, a, http.MethodPost, "/v1/admin/payouts/p1/mark-paid", `not json`)
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Contains(t, body, `"body":"INVALID"`)
+
+	uc.err = entity.StateError(entity.ReasonPayoutState, "status", "PAID")
+	status, body = call(t, a, http.MethodPost, "/v1/admin/payouts/p1/mark-failed", `{"reason":"account closed"}`)
+	require.Equal(t, http.StatusConflict, status)
+	require.Contains(t, body, `"details":{"reason":"PAYOUT_STATE","status":"PAID"}`)
+
+	status, _ = call(t, app(uc, "USER"), http.MethodPost, "/v1/admin/payouts/p1/mark-paid", `{"reference":"FT123"}`)
+	require.Equal(t, http.StatusForbidden, status)
 }
 
 func TestAdminOrderRoutes(t *testing.T) {

@@ -49,6 +49,34 @@ type (
 		SubscriptionID  *string
 	}
 
+	// PayoutMove is one payout state change; the repo sets the columns of the target status.
+	PayoutMove struct {
+		To      entity.PayoutStatus
+		ActorID string
+		At      time.Time
+		// Reason of REJECTED / FAILED.
+		Reason *string
+		// Provider of PROCESSING (and of PAID / FAILED reported by a synchronous provider).
+		Provider *string
+		// Ref is the provider reference; required for PAID.
+		Ref *string
+	}
+
+	// GiftItemPatch changes a catalog item; nil fields stay.
+	GiftItemPatch struct {
+		Name      *string
+		Price     *int64
+		Icon      *string
+		Active    *bool
+		SortOrder *int
+	}
+
+	// GiftRules are the settings a gift is checked against inside the transaction.
+	GiftRules struct {
+		FeeBps   int
+		MaxTotal int64
+	}
+
 	// SubFilter selects the caller's subscriptions.
 	SubFilter struct {
 		Expired   bool
@@ -156,6 +184,7 @@ type (
 		// ChargeFee is the platform fee recorded when the order was paid.
 		ChargeFee(ctx context.Context, orderID string) (int64, error)
 		InsertLedger(ctx context.Context, e []entity.LedgerEntry) error
+		InsertWallet(ctx context.Context, e []entity.WalletEntry) error
 		InsertOutbox(ctx context.Context, rows []Outbox) error
 	}
 
@@ -180,22 +209,45 @@ type (
 	// LedgerRepo -.
 	LedgerRepo interface {
 		Totals(ctx context.Context, channelID string, from, to time.Time) (entity.Totals, error)
-		// Balance is Σ CREDIT − Σ DEBIT; pending is the sum of REQUESTED payouts.
-		Balance(ctx context.Context, channelID string) (balance, pending int64, err error)
+		// Balance: available is Σ CREDIT − Σ DEBIT (payout holds included); held is the sum of open payouts.
+		Balance(ctx context.Context, channelID string) (available, held int64, err error)
 		Entries(ctx context.Context, channelID string, after *Cursor, limit int) ([]entity.LedgerEntry, error)
 	}
 
 	// PayoutRepo -.
 	PayoutRepo interface {
-		// CreatePayout checks PAYOUT_PENDING and INSUFFICIENT_BALANCE under a per-channel lock.
+		// CreatePayout checks PAYOUT_PENDING and INSUFFICIENT_BALANCE under a per-channel lock and holds the
+		// amount (DEBIT PAYOUT_HOLD).
 		CreatePayout(ctx context.Context, p entity.Payout, out func(entity.Payout) []Outbox) (entity.Payout, error)
 		ForChannel(ctx context.Context, channelID string, after *Cursor, limit int) ([]entity.Payout, error)
 		ListPayouts(ctx context.Context, status *entity.PayoutStatus, after *Cursor, limit int) ([]entity.Payout, error)
 		Payout(ctx context.Context, id string) (entity.Payout, error)
-		// Review moves a REQUESTED payout to APPROVED (with the DEBIT PAYOUT entry) or REJECTED.
-		Review(ctx context.Context, id, adminID string, to entity.PayoutStatus, reason *string, now time.Time,
-			out func(entity.Payout) []Outbox) (entity.Payout, error)
+		// Move applies one state change under a row lock: a move CanMoveTo refuses is StateError(PAYOUT_STATE);
+		// REJECTED and FAILED give the hold back (CREDIT PAYOUT_REVERSAL).
+		Move(ctx context.Context, id string, m PayoutMove, out func(entity.Payout) []Outbox) (entity.Payout, error)
 		CountRequested(ctx context.Context) (int, error)
+	}
+
+	// WalletRepo reads the users' wallets.
+	WalletRepo interface {
+		// Balance is Σ CREDIT − Σ DEBIT of the wallet; it is negative after a spent top-up was voided.
+		WalletBalance(ctx context.Context, userID string) (int64, error)
+		WalletEntries(ctx context.Context, userID string, after *Cursor, limit int) ([]entity.WalletEntry, error)
+	}
+
+	// GiftRepo is the gift catalog and the gifts.
+	GiftRepo interface {
+		// ActiveGiftItems is the catalog viewers pick from; GiftItems is the admin list (active nil = all).
+		ActiveGiftItems(ctx context.Context) ([]entity.GiftItem, error)
+		GiftItems(ctx context.Context, active *bool) ([]entity.GiftItem, error)
+		CreateGiftItem(ctx context.Context, it entity.GiftItem, out func(entity.GiftItem) []Outbox) (entity.GiftItem, error)
+		UpdateGiftItem(ctx context.Context, id string, p GiftItemPatch,
+			out func(before, after entity.GiftItem) []Outbox) (entity.GiftItem, error)
+		// SendGift locks the sender's wallet and the item, refuses an inactive item (GIFT_INACTIVE), a total above
+		// rules.MaxTotal (quantity MAX) or above the balance (INSUFFICIENT_FUNDS), then writes the gift, the wallet
+		// debit, the channel ledger and out() in one transaction. It returns the balance after the gift.
+		SendGift(ctx context.Context, g entity.GiftSend, rules GiftRules, out func(entity.GiftSend) []Outbox,
+		) (entity.GiftSend, int64, error)
 	}
 
 	// AuditRepo writes event rows that change nothing else (audit-only actions).

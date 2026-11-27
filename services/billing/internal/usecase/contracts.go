@@ -56,6 +56,50 @@ type (
 		GetOrder(ctx context.Context, userID, orderID string) (OrderView, error)
 		SyncOrder(ctx context.Context, userID, orderID string, outcome Outcome) (OrderView, error)
 		CancelOrder(ctx context.Context, userID, orderID string) (entity.Order, error)
+		// CreateTopup returns created = false for the caller's pending top-up of the same amount (200).
+		CreateTopup(ctx context.Context, userID string, in TopupInput) (entity.Order, entity.Checkout, bool, error)
+	}
+
+	// TopupInput is the top-up form; Amount nil = missing or not an integer.
+	TopupInput struct {
+		Amount         *int64
+		PaymentMethod  *string
+		IdempotencyKey string
+	}
+
+	// WalletPage -.
+	WalletPage struct {
+		Items []entity.WalletEntry
+		Next  *string
+	}
+
+	// Wallet is the caller's wallet.
+	Wallet interface {
+		WalletBalance(ctx context.Context, userID string) (int64, error)
+		WalletEntries(ctx context.Context, userID, cursor string, limit int) (WalletPage, error)
+	}
+
+	// GiftInput is the gift form; Quantity nil = missing or not an integer.
+	GiftInput struct {
+		ItemID   string
+		Quantity *int64
+		Message  string
+	}
+
+	// Gifts is the viewer side of the gift catalog.
+	Gifts interface {
+		GiftItems(ctx context.Context) ([]entity.GiftItem, error)
+		// SendGift returns the gift and the balance after it.
+		SendGift(ctx context.Context, userID, channelID string, in GiftInput) (entity.GiftSend, int64, error)
+	}
+
+	// GiftItemInput is the admin form; nil fields are missing (create) or unchanged (update).
+	GiftItemInput struct {
+		Name      *string
+		Price     *int64
+		Icon      *string
+		Active    *bool
+		SortOrder *int
 	}
 
 	// IPNResult is the label of billing_ipn_total{result}.
@@ -168,17 +212,25 @@ type (
 
 	// Admin is the payout queue and the order review page.
 	Admin interface {
-		// AdminPayouts lists by status ("" = REQUESTED, "ALL").
+		// AdminPayouts lists by status ("" = REQUESTED, "ALL", or one of the six statuses).
 		AdminPayouts(ctx context.Context, status, cursor string, limit int) (AdminPayoutPage, error)
 		PendingCount(ctx context.Context) (int, error)
 		AdminPayout(ctx context.Context, id string) (AdminPayout, error)
 		// BankAccount decrypts the account and audits PAYOUT_BANK_INFO_VIEWED.
 		BankAccount(ctx context.Context, adminID, id string) (entity.BankAccount, error)
+		// Approve: REQUESTED (or APPROVED after a failed provider call) → the provider's status, PROCESSING for manual.
 		Approve(ctx context.Context, adminID, id string) (AdminPayout, error)
+		// Reject: REQUESTED → REJECTED; MarkPaid: PROCESSING → PAID; MarkFailed: APPROVED | PROCESSING → FAILED.
 		Reject(ctx context.Context, adminID, id, reason string) (AdminPayout, error)
+		MarkPaid(ctx context.Context, adminID, id, reference string) (AdminPayout, error)
+		MarkFailed(ctx context.Context, adminID, id, reason string) (AdminPayout, error)
 		AdminOrders(ctx context.Context, q AdminOrderQuery, cursor string, limit int) (OrderPage, error)
 		// AdminOrder is one order by id or invoice number (case-insensitive).
 		AdminOrder(ctx context.Context, ref string) (entity.Order, error)
+		// AdminGiftItems is the whole catalog (active nil = all).
+		AdminGiftItems(ctx context.Context, active *bool) ([]entity.GiftItem, error)
+		CreateGiftItem(ctx context.Context, adminID string, in GiftItemInput) (entity.GiftItem, error)
+		UpdateGiftItem(ctx context.Context, adminID, id string, in GiftItemInput) (entity.GiftItem, error)
 	}
 
 	// Replica keeps the channel copy (durable billing-svc and backfill).

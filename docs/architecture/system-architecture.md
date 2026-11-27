@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.2 (Draft) |
-| **Cập nhật** | 2026-11-04 |
-| **Quyết định nền** | [decisions.md](decisions.md) — ADR-001 → ADR-014 |
+| **Phiên bản** | 1.4 (Draft) |
+| **Cập nhật** | 2026-11-27 |
+| **Quyết định nền** | [decisions.md](decisions.md) — ADR-001 → ADR-016 |
 | **Dữ liệu** | [data-model.md](data-model.md) |
 
 > Tài liệu ở mức kiến trúc. Chi tiết hợp đồng API, mã lỗi, sự kiện được chốt trong spec `NXL-00`;
@@ -141,10 +141,10 @@ dựng từ sự kiện. Không service nào đọc database của service khác
 | **channel-svc** | Kênh, Creator Profile, Follow, Schedule + Reminder, Category, khám phá và tìm kiếm | Channel, Follow, Schedule, Reminder, Category, bảng đọc tìm kiếm | REST (cổng 8094) | `channel.created` (GĐ1); 📋 `channel.updated`, `follow.created`, `follow.deleted`, `schedule.created`, `schedule.cancelled`, `reminder.due` | `creator.approved` (tạo kênh), `stream.started`/`stream.ended` (`is_live`) — GĐ1; 📋 `user.profile_updated`; tải lên: `vod.published` (bảng tìm kiếm) | **GĐ1 tối thiểu** (tạo kênh, `GET /v1/channels/{handle}`) · GĐ4 đầy đủ |
 | **stream-svc** | Stream key, vòng đời Stream (state machine NXL-A §7A), playback session, VOD, tiến độ xem, viewer count; phiên tải video lên (ADR-014) | StreamKey, Stream, StreamSettings, Vod, WatchProgress, PlaybackSession (📋), bản sao `creator_channels`; VideoUpload + bucket `nxl-uploads` (tải lên) | REST, HTTP nội bộ (authorize; `GET /internal/v1/vods/{id}` cho safety) | `stream.scheduled`, `stream.started`, `stream.interrupted`, `stream.resumed`, `stream.ended`, `vod.ready`, `stream.viewers`; tải lên: `upload.completed`, `vod.published` | `ingest.*`, `vod.processed`, `channel.created` (GĐ1); 📋 `safety.stream_takedown`, `schedule.*`; tải lên: `upload.progress`, `upload.processed`, `upload.failed`, `safety.vod_takedown` | GĐ0 (PoC L1–L4) |
 | **media-svc** | RTMP ingest, điều phối ffmpeg, ghi HLS + VOD, sinh thumbnail, đo sức khỏe ingest; chuyển mã video tải lên | Không có dữ liệu nghiệp vụ (chỉ trạng thái tiến trình) | RTMP, HTTP nội bộ (client), HTTP health/metrics | `ingest.started`, `ingest.stopped`, `ingest.health`, `vod.processed`; tải lên: `upload.progress`, `upload.processed`, `upload.failed` | `stream.ended` (kick + chốt VOD); `vod.deleted` (xóa theo `playlistPrefix`); tải lên: `upload.completed` (durable `media-transcode`) | GĐ0 (PoC L1–L4) |
-| **chat-svc** | **Realtime gateway** (một kết nối WebSocket cho mọi chủ đề), phòng chat, tin nhắn, emote, chế độ chat, hành động mod trong chat, từ khóa chặn | ChatRoom, ChatMessage, ChatSettings, Emote, ModAction, BlockedTerm, ChannelRole (Mod/VIP) | WebSocket, REST | `chat.message_sent`, `chat.mention`, `chat.mod_action` | `stream.*`, `follow.*`, `subscription.*`, `notification.created`, `user.locked` | GĐ3 |
+| **chat-svc** | **Realtime gateway** (một kết nối WebSocket cho mọi chủ đề), phòng chat, tin nhắn, emote, chế độ chat, hành động mod trong chat, từ khóa chặn | ChatRoom, ChatMessage, ChatSettings, Emote, ModAction, BlockedTerm, ChannelRole (Mod/VIP) | WebSocket, REST | `chat.message_sent`, `chat.mention`, `chat.mod_action` | `stream.*`, `follow.*`, `subscription.*`, `payment.*`, `gift.sent` (system `GIFT`), `notification.created`, `user.locked` | GĐ3 |
 | **safety-svc** | Report, xử lý của Admin (khóa tài khoản/kênh, gỡ stream, gỡ video), audit log nền tảng | Report, AdminAction, AuditLog; bản sao VOD (report target `VOD`) | REST | `safety.stream_takedown`, `safety.user_actioned`, `safety.report_resolved`; `safety.vod_takedown` | `chat.mod_action` (để audit); `vod.published`, `vod.updated`, `vod.deleted` (bản sao VOD) | GĐ5 |
-| **notification-svc** | Tạo thông báo, notification center, gửi email, cài đặt nhận thông báo | Notification, NotificationSetting, EmailOutbox | REST | `notification.created` | `stream.started`, `reminder.due`, `chat.mention`, `safety.report_resolved`, `subscription.*` | GĐ5 |
-| **billing-svc** | Tier subscription, Checkout, giao dịch với PSP, webhook, trạng thái Subscription, sổ cái số dư Creator, yêu cầu rút tiền | SubscriptionTier, Subscription, CheckoutOrder, Transaction, LedgerEntry, PayoutRequest | REST, webhook | `subscription.activated`, `subscription.renewed`, `subscription.expired`, `subscription.cancelled` | `creator.approved` (tạo tier mặc định) | GĐ6 |
+| **notification-svc** | Tạo thông báo, notification center, gửi email, cài đặt nhận thông báo | Notification, NotificationSetting, EmailOutbox | REST | `notification.created` | `stream.started`, `reminder.due`, `chat.mention`, `safety.report_resolved`, `subscription.*`, `payment.*` (theo `orderType`), `payout.*`, `gift.sent` | GĐ5 |
+| **billing-svc** | Tier subscription, Checkout, giao dịch với PSP, webhook, trạng thái Subscription, sổ cái số dư Creator, yêu cầu rút tiền; ví VND của người dùng, nạp ví, danh mục vật phẩm, tặng quà (ADR-016) | SubscriptionTier, Subscription, CheckoutOrder, Transaction, LedgerEntry, PayoutRequest, WalletEntry, GiftItem, GiftSend | REST, webhook | `subscription.activated`, `subscription.renewed`, `subscription.expired`, `subscription.cancelled`, `payment.succeeded/failed/voided` (+ `orderType`), `payout.paid`, `payout.failed`, `payout.rejected`, `gift.sent` | `creator.approved` (tạo tier mặc định) | GĐ6 |
 
 **Nguyên tắc ranh giới**
 
@@ -486,6 +486,8 @@ Hợp đồng gRPC nội bộ (`proto/`) sẽ thêm khi có lời gọi gRPC đ�
 
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
+| 1.4 | 2026-11-27 | Ví và quà tặng (ADR-016, DL-24): §4 billing sở hữu WalletEntry, GiftItem, GiftSend, phát `gift.sent` và `payment.*` có `orderType`; chat nghe `gift.sent` (system `GIFT`), notification nghe `gift.sent`, `payment.*` theo `orderType` |
+| 1.3 | 2026-11-27 | Chi trả rút tiền (ADR-015, DL-23): §4 billing phát `payout.paid/failed/rejected`, notification nghe `payout.*` |
 | 1.2 | 2026-11-04 | Tải video lên (ADR-014, DL-22): §3 container (stream-svc ghi multipart, media-svc đọc file gốc); §4 stream / media / safety / channel thêm sự kiện `upload.*`, `vod.published`, `safety.vod_takedown`; §7 hạn 14 ngày chỉ cho VOD `source = LIVE`, `/hls` nhận `videos/`; §7.1 luồng tải lên (sơ đồ tuần tự, hàng đợi, ưu tiên live); §8 sửa danh sách bucket cũ (`hls-live`, `vod`, `thumbnails`, `media-public`) thành `nxl-media`, `nxl-public`, `nxl-uploads` |
 | 1.1 | 2026-10-13 | GĐ1: thêm container web quản trị `nexuslive-admin` (ADR-013), bảng cổng dev; channel-svc có từ GĐ1 (cổng 8094); identity gửi email qua `identity-mailer`; cổng vào có rate limit, CORS, CSRF header; §7 trỏ ADR-012/NXL-G1 và ghi phần hiện thực; authorize là HTTP nội bộ |
 | 1.0 | 2026-10-10 | Bản đầu (§5.2 sửa 13/10 theo errata E-11) |

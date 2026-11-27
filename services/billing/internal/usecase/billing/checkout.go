@@ -103,20 +103,46 @@ func (uc *UseCase) CreateOrder(ctx context.Context, userID string, in usecase.Cr
 		return entity.Order{}, entity.Checkout{}, false, err
 	}
 
-	now := uc.now()
-
-	o, created, err := uc.r.Orders.CreateOrReuse(ctx, entity.Order{
+	return uc.openOrder(ctx, entity.Order{
 		UserID: userID, ChannelID: tier.ChannelID, TierID: tier.ID, Amount: tier.Price, PSP: uc.p.Name(),
 		PeriodDays: entity.SubPeriodDays, PaymentMethod: method, IdempotencyKey: in.IdempotencyKey,
-		ExpiresAt: now.Add(uc.s.OrderTTL),
-	}, repo.CreateRules{
+		OrderType: entity.OrderTypeSubscription,
+	})
+}
+
+// CreateTopup files a wallet top-up order and signs the form.
+func (uc *UseCase) CreateTopup(ctx context.Context, userID string, in usecase.TopupInput,
+) (entity.Order, entity.Checkout, bool, error) {
+	amount, err := entity.NewTopup(in.Amount, uc.s.TopupMin, uc.s.TopupMax)
+	if err != nil {
+		return entity.Order{}, entity.Checkout{}, false, err
+	}
+
+	method, err := uc.method(in.PaymentMethod)
+	if err != nil {
+		return entity.Order{}, entity.Checkout{}, false, err
+	}
+
+	// period_days is a subscription column; it keeps its default on a top-up.
+	return uc.openOrder(ctx, entity.Order{
+		UserID: userID, Amount: amount, PSP: uc.p.Name(), PeriodDays: entity.SubPeriodDays, PaymentMethod: method,
+		IdempotencyKey: in.IdempotencyKey, OrderType: entity.OrderTypeTopup,
+	})
+}
+
+// openOrder creates (or reuses) a pending order of any type and signs its form.
+func (uc *UseCase) openOrder(ctx context.Context, o entity.Order) (entity.Order, entity.Checkout, bool, error) {
+	now := uc.now()
+	o.ExpiresAt = now.Add(uc.s.OrderTTL)
+
+	o, created, err := uc.r.Orders.CreateOrReuse(ctx, o, repo.CreateRules{
 		Now: now, MaxPending: entity.MaxPendingOrders, MaxPrepaid: entity.Days(entity.MaxPrepaidDays),
 		NewInvoice: func() (string, error) { return entity.NewInvoiceNumber(uc.rand) },
 		Expired:    func(o entity.Order) []repo.Outbox { return []repo.Outbox{paymentFailed(o)} },
 	})
 	if err != nil {
 		if !errors.Is(err, entity.ErrInvalidState) && !errors.Is(err, entity.ErrPendingLimit) {
-			err = fmt.Errorf("billing - CreateOrder: %w", err)
+			err = fmt.Errorf("billing - openOrder: %w", err)
 		}
 
 		return entity.Order{}, entity.Checkout{}, false, err
@@ -129,8 +155,8 @@ func (uc *UseCase) CreateOrder(ctx context.Context, userID string, in usecase.Cr
 
 	if created {
 		uc.obs.OrderStatus(entity.OrderPending, methodLabel(o.PaymentMethod), "")
-		uc.l.Info("billing - event=subscribe_start orderId=%s invoiceNumber=%s userId=%s channelId=%s", o.ID,
-			o.InvoiceNumber, o.UserID, o.ChannelID)
+		uc.l.Info("billing - event=checkout_start type=%s orderId=%s invoiceNumber=%s userId=%s channelId=%s", o.Type(),
+			o.ID, o.InvoiceNumber, o.UserID, o.ChannelID)
 	}
 
 	return o, c, created, nil
@@ -176,7 +202,7 @@ func (uc *UseCase) resultURL(orderID, r string) string {
 func (uc *UseCase) checkout(ctx context.Context, o entity.Order) (entity.Checkout, error) {
 	c, err := uc.p.BuildCheckout(ctx, provider.CheckoutOrder{
 		ID: o.ID, Invoice: o.InvoiceNumber, UserID: o.UserID, Amount: o.Amount, Method: o.PaymentMethod,
-		Description: entity.OrderDescription(o.Tier.Level, o.Channel.Handle, o.PeriodDays),
+		Description: o.Description(),
 		SuccessURL:  uc.resultURL(o.ID, "success"), ErrorURL: uc.resultURL(o.ID, "error"),
 		CancelURL: uc.resultURL(o.ID, "cancel"),
 	})

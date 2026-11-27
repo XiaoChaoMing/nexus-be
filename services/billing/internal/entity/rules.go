@@ -112,6 +112,7 @@ var (
 	_accountNumberRe = regexp.MustCompile(`^\d{6,20}$`)
 	_accountNameRe   = regexp.MustCompile(`^[A-Z ]+$`)
 	_invoiceRe       = regexp.MustCompile(`^NXL[0-9A-HJKMNP-TV-Z]{10}$`)
+	_referenceRe     = regexp.MustCompile(`^[A-Za-z0-9._/-]{4,64}$`)
 )
 
 // PayoutRequest is a validated payout input.
@@ -177,6 +178,20 @@ func AdminReason(s string) (string, error) {
 		return "", Invalid("reason", DetailRequired)
 	case n < AdminReasonMin || n > AdminReasonMax:
 		return "", Invalid("reason", DetailLength)
+	}
+
+	return s, nil
+}
+
+// PayoutReference trims and checks the bank transfer reference of a paid payout (4–64 of A–Z a–z 0–9 . _ / -).
+func PayoutReference(s string) (string, error) {
+	s = strings.TrimSpace(s)
+
+	switch {
+	case s == "":
+		return "", Invalid("reference", DetailRequired)
+	case !_referenceRe.MatchString(s):
+		return "", Invalid("reference", DetailFormat)
 	}
 
 	return s, nil

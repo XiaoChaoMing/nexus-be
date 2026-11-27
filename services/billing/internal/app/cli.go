@@ -25,7 +25,7 @@ const (
 )
 
 var (
-	errUsage       = errors.New("usage: billing [backfill-channels | republish-entitlements [--channel ID] | dev-ipn replay|synth ... | dev-void --invoice NXL...]")
+	errUsage       = errors.New("usage: billing [backfill-channels | republish-entitlements [--channel ID] | gift seed-demo | dev-ipn replay|synth ... | dev-void --invoice NXL...]")
 	errNotDev      = errors.New("dev commands need NXL_ENV=dev")
 	errIPNSecret   = errors.New("set BILLING_SEPAY_IPN_SECRET (the running billing-svc must use the same value)")
 	errNotPaid     = errors.New("the provider does not report this invoice as paid")
@@ -68,6 +68,15 @@ func runCLI(ctx context.Context, cfg *config.Config, l logger.Interface, args []
 		return err
 	case "republish-entitlements":
 		return republish(ctx, d, args[1:])
+	case "gift":
+		if len(args) != 2 || args[1] != "seed-demo" {
+			return errUsage
+		}
+
+		n, err := d.uc.SeedGiftItems(ctx)
+		fmt.Printf("gift seed-demo: %d items created (only into an empty catalog)\n", n) //nolint:forbidigo // CLI output
+
+		return err
 	case "dev-ipn":
 		return devIPN(ctx, cfg, d, args[1:])
 	case "dev-void":

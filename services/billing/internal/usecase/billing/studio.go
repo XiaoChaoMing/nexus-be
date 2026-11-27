@@ -168,7 +168,7 @@ func (uc *UseCase) fillSummary(ctx context.Context, channelID string, s *entity.
 		return err
 	}
 
-	bal, pending, err := uc.r.Ledger.Balance(ctx, channelID)
+	available, held, err := uc.r.Ledger.Balance(ctx, channelID)
 	if err != nil {
 		return err
 	}
@@ -179,8 +179,9 @@ func (uc *UseCase) fillSummary(ctx context.Context, channelID string, s *entity.
 	}
 
 	s.Gross, s.PlatformFee, s.Net = period.Gross, period.PlatformFee, period.Gross-period.PlatformFee
+	s.Gifts = period.Gifts
 	s.TodayNet = day.Gross - day.PlatformFee
-	s.Balance, s.PendingPayout, s.Available = bal, pending, bal-pending
+	s.Balance, s.PendingPayout, s.Available = available+held, held, available
 	s.Subscribers = subs
 
 	return nil
@@ -267,7 +268,10 @@ func (uc *UseCase) payoutView(p entity.Payout) usecase.PayoutView {
 func payoutAudit(actorID, role, action string, p entity.Payout, reason *string) repo.Outbox {
 	return audit(auditEntry{
 		actorID: &actorID, role: role, action: action, aggregate: aggPayout, resType: resPayout, resID: &p.ID, reason: reason,
-		meta: map[string]any{"channelId": p.ChannelID, "amount": p.Amount, "bankCode": p.BankCode, "last4": p.AccountLast4},
+		meta: map[string]any{
+			"channelId": p.ChannelID, "amount": p.Amount, "bankCode": p.BankCode, "last4": p.AccountLast4,
+			"provider": p.Provider, "reference": p.ProviderRef,
+		},
 	})
 }
 

@@ -24,11 +24,19 @@ const (
 	KindSubExpiring          = "SUB_EXPIRING"
 	KindSubExpired           = "SUB_EXPIRED"
 	KindNewSubscriber        = "NEW_SUBSCRIBER"
+	KindPayoutPaid           = "PAYOUT_PAID"
+	KindPayoutFailed         = "PAYOUT_FAILED"
+	KindPayoutRejected       = "PAYOUT_REJECTED"
+	KindGiftReceived         = "GIFT_RECEIVED"
+	KindTopupSucceeded       = usecase.KindTopupSucceeded
+	KindTopupFailed          = usecase.KindTopupFailed
+	KindTopupVoided          = usecase.KindTopupVoided
 )
 
 const (
 	_linkPayments     = "/settings/payments"
 	_linkMonetization = "/studio/monetization"
+	_linkWallet       = "/wallet"
 	_renewQuery       = "?subscribe=renew"
 	_subStatusExpired = "EXPIRED"
 	_flagOn           = "1"
@@ -81,7 +89,7 @@ func (uc *UseCase) PaymentSucceeded(ctx context.Context, eventID string, e event
 		mandatory: true,
 		data: func(r entity.Recipient) map[string]string {
 			return map[string]string{
-				"Invoice": e.InvoiceNumber, "When": uc.formatTime(e.PaidAt, r), keyChannel: ch.DisplayName,
+				"Invoice": e.InvoiceNumber, keyWhen: uc.formatTime(e.PaidAt, r), keyChannel: ch.DisplayName,
 				"Tier": strconv.Itoa(e.Tier), "SubAction": e.Kind, "Until": uc.formatOptional(e.CurrentPeriodEnd, r),
 				"Method": methodName(e.PaymentMethod, r.Locale), "Amount": formatVND(e.Amount, r.Locale), "Review": flag(review),
 				keyLink: uc.absolute(channelLink(ch.Handle)),
@@ -180,7 +188,7 @@ func (uc *UseCase) SubExpiring(ctx context.Context, eventID string, e events.Sub
 		template: "subscription_expiring",
 		data: func(r entity.Recipient) map[string]string {
 			return map[string]string{
-				keyChannel: ch.DisplayName, "Tier": strconv.Itoa(e.Tier), "When": uc.formatTime(e.CurrentPeriodEnd, r),
+				keyChannel: ch.DisplayName, "Tier": strconv.Itoa(e.Tier), keyWhen: uc.formatTime(e.CurrentPeriodEnd, r),
 				"Price": formatVND(e.Price, r.Locale), "Renewable": flag(e.Renewable), keyLink: uc.absolute(link),
 			}
 		},
@@ -256,6 +264,134 @@ func (uc *UseCase) NewSubscriber(ctx context.Context, eventID string, e events.S
 	}}
 
 	return uc.deliverSmall(ctx, eventID, s, _followerWindow, []entity.Recipient{owner})
+}
+
+// PayoutClosed tells the channel owner (in-app + the mandatory payout_update e-mail: it is about their money).
+func (uc *UseCase) PayoutClosed(ctx context.Context, eventID, eventType string, e events.PayoutClosed) error {
+	kind, status := KindPayoutRejected, "REJECTED"
+
+	switch eventType {
+	case events.TypePayoutPaid:
+		kind, status = KindPayoutPaid, "PAID"
+	case events.TypePayoutFailed:
+		kind, status = KindPayoutFailed, "FAILED"
+	}
+
+	ch, err := uc.channel(ctx, e.ChannelID)
+	if err != nil {
+		return err
+	}
+
+	payload, err := marshal(struct {
+		Kind      string     `json:"kind"`
+		PayoutID  string     `json:"payoutId"`
+		Code      string     `json:"code"`
+		Channel   channelRef `json:"channel"`
+		Amount    int64      `json:"amount"`
+		Reference *string    `json:"reference"`
+		Reason    *string    `json:"reason"`
+	}{kind, e.PayoutID, e.Code, refOf(ch), e.Amount, e.Reference, e.Reason})
+	if err != nil {
+		return err
+	}
+
+	link := ptr(_linkMonetization)
+
+	return uc.one(ctx, eventID, ch.OwnerID, spec{
+		n:         entity.Notification{Type: entity.TypeSubscription, Payload: payload, Link: link},
+		template:  "payout_update",
+		mandatory: true,
+		data: func(r entity.Recipient) map[string]string {
+			return map[string]string{
+				"Code": e.Code, "Status": status, "Amount": formatVND(e.Amount, r.Locale), "Reference": text(e.Reference),
+				"Reason": text(e.Reason), keyLink: uc.absolute(link),
+			}
+		},
+	})
+}
+
+// Topup tells the buyer; a credited top-up also sends the mandatory topup_receipt e-mail.
+func (uc *UseCase) Topup(ctx context.Context, eventID string, t usecase.TopupEvent) error {
+	payload, err := marshal(struct {
+		Kind          string  `json:"kind"`
+		OrderID       string  `json:"orderId"`
+		InvoiceNumber string  `json:"invoiceNumber"`
+		Amount        int64   `json:"amount"`
+		FailureReason *string `json:"failureReason"`
+	}{t.Kind, t.OrderID, t.InvoiceNumber, t.Amount, t.FailureReason})
+	if err != nil {
+		return err
+	}
+
+	link := ptr(_linkWallet)
+	s := spec{n: entity.Notification{Type: entity.TypeSubscription, Payload: payload, Link: link}}
+
+	if t.Kind == KindTopupSucceeded {
+		s.template, s.mandatory = "topup_receipt", true
+		s.data = func(r entity.Recipient) map[string]string {
+			return map[string]string{
+				"Invoice": t.InvoiceNumber, "Amount": formatVND(t.Amount, r.Locale), "Method": methodName(t.Method, r.Locale),
+				keyWhen: uc.formatOptional(t.PaidAt, r), keyLink: uc.absolute(link),
+			}
+		}
+	}
+
+	return uc.one(ctx, eventID, t.UserID, s)
+}
+
+// GiftReceived tells the channel owner who gave what (the latest gift of the 60-minute group).
+func (uc *UseCase) GiftReceived(ctx context.Context, eventID string, e events.GiftSent) error {
+	ch, err := uc.channel(ctx, e.ChannelID)
+	if err != nil {
+		return err
+	}
+
+	found, err := uc.r.Recipients.Recipients(ctx, []string{ch.OwnerID, e.UserID})
+	if err != nil {
+		return fmt.Errorf("notify - gift received: %w", err)
+	}
+
+	owner, ok := found[ch.OwnerID]
+	if !ok {
+		uc.l.Warn("notify - GIFT_RECEIVED %s: no copy of the owner", eventID)
+		uc.obs.Suppressed(entity.TypeSubscription, usecase.SuppressNoCopy)
+
+		return nil
+	}
+
+	sender := found[e.UserID] // a sender without a copy is shown by id only
+
+	payload, err := marshal(struct {
+		Kind       string    `json:"kind"`
+		GiftSendID string    `json:"giftSendId"`
+		ChannelID  string    `json:"channelId"`
+		LastSender personRef `json:"lastSender"`
+		ItemName   string    `json:"itemName"`
+		Icon       string    `json:"icon"`
+		Quantity   int       `json:"quantity"`
+		Total      int64     `json:"total"`
+	}{
+		KindGiftReceived, e.GiftSendID, ch.ID,
+		personRef{ID: e.UserID, Username: sender.Username, DisplayName: sender.DisplayName},
+		e.ItemName, e.Icon, e.Quantity, e.Total,
+	})
+	if err != nil {
+		return err
+	}
+
+	s := spec{n: entity.Notification{
+		Type: entity.TypeSubscription, Payload: payload, Link: ptr(_linkMonetization), GroupKey: ptr("gift:" + ch.ID),
+	}}
+
+	return uc.deliverSmall(ctx, eventID, s, _followerWindow, []entity.Recipient{owner})
+}
+
+func text(s *string) string {
+	if s == nil {
+		return ""
+	}
+
+	return *s
 }
 
 // formatOptional renders t in the recipient's zone, "" when nil.

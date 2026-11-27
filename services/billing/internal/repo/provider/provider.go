@@ -165,3 +165,29 @@ type FakePayment struct {
 	CustomerID  string
 	Description string
 }
+
+// NamePayoutManual is the manual payout provider (payout_requests.provider).
+const NamePayoutManual = "MANUAL"
+
+// PayoutProvider moves the money of an approved payout (ADR-015). Disburse must be idempotent on PayoutID: an
+// admin may retry an approval after entity.ErrProviderUnavailable.
+type PayoutProvider interface {
+	Name() string
+	Disburse(ctx context.Context, in PayoutInstruction) (PayoutResult, error)
+}
+
+// PayoutInstruction is the transfer to make.
+type PayoutInstruction struct {
+	PayoutID string
+	// Code is the transfer description ("PO-0012").
+	Code    string
+	Amount  int64
+	Account entity.BankAccount
+}
+
+// PayoutResult is PROCESSING (settled later), PAID (Ref required) or FAILED (Reason required).
+type PayoutResult struct {
+	Status entity.PayoutStatus
+	Ref    *string
+	Reason *string
+}

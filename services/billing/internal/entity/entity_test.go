@@ -2,6 +2,7 @@ package entity_test
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -181,4 +182,121 @@ func TestOrderAndSubscriptionRules(t *testing.T) {
 	s.Status = entity.SubExpired
 	require.False(t, s.Live(now))
 	require.Equal(t, "Tier 2", entity.Tier{Level: 2}.Name())
+}
+
+func TestPayoutCanMoveTo(t *testing.T) {
+	t.Parallel()
+
+	all := []entity.PayoutStatus{
+		entity.PayoutRequested, entity.PayoutApproved, entity.PayoutProcessing,
+		entity.PayoutPaid, entity.PayoutRejected, entity.PayoutFailed,
+	}
+	allowed := map[entity.PayoutStatus][]entity.PayoutStatus{
+		entity.PayoutRequested:  {entity.PayoutApproved, entity.PayoutRejected},
+		entity.PayoutApproved:   {entity.PayoutProcessing, entity.PayoutPaid, entity.PayoutFailed},
+		entity.PayoutProcessing: {entity.PayoutPaid, entity.PayoutFailed},
+	}
+
+	for _, from := range all {
+		for _, to := range all {
+			want := slices.Contains(allowed[from], to)
+			require.Equal(t, want, entity.Payout{Status: from}.CanMoveTo(to), "%s → %s", from, to)
+		}
+
+		require.Equal(t, len(allowed[from]) > 0, from.Open(), "%s open", from)
+	}
+
+	require.True(t, entity.PayoutFailed.Reversed())
+	require.True(t, entity.PayoutRejected.Reversed())
+	require.False(t, entity.PayoutPaid.Reversed())
+}
+
+func TestPayoutReference(t *testing.T) {
+	t.Parallel()
+
+	r, err := entity.PayoutReference("  FT123  ")
+	require.NoError(t, err)
+	require.Equal(t, "FT123", r)
+
+	for in, code := range map[string]string{
+		"   ": "REQUIRED", "FT1": "FORMAT", "FT 123": "FORMAT", strings.Repeat("A", 65): "FORMAT", "FT123ạ": "FORMAT",
+	} {
+		_, err := entity.PayoutReference(in)
+		require.ErrorIs(t, err, entity.ErrValidation, in)
+		require.Equal(t, code, entity.DetailsOf(err)["reference"], in)
+	}
+
+	_, err = entity.PayoutReference("a1._/-" + strings.Repeat("Z", 58))
+	require.NoError(t, err)
+}
+
+func TestGiftRules(t *testing.T) {
+	t.Parallel()
+
+	detail := func(err error, field string) string { return entity.DetailsOf(err)[field] }
+	i64 := func(v int64) *int64 { return &v }
+
+	_, err := entity.NewTopup(nil, 10000, 5000000)
+	require.Equal(t, "REQUIRED", detail(err, "amount"))
+	_, err = entity.NewTopup(i64(9999), 10000, 5000000)
+	require.Equal(t, "MIN", detail(err, "amount"))
+	_, err = entity.NewTopup(i64(5000001), 10000, 5000000)
+	require.Equal(t, "MAX", detail(err, "amount"))
+
+	a, err := entity.NewTopup(i64(100000), 10000, 5000000)
+	require.NoError(t, err)
+	require.Equal(t, int64(100000), a)
+
+	n, err := entity.GiftItemName("  Hoa   hồng ")
+	require.NoError(t, err)
+	require.Equal(t, "Hoa hồng", n)
+
+	_, err = entity.GiftItemName("   ")
+	require.Equal(t, "REQUIRED", detail(err, "name"))
+	_, err = entity.GiftItemName(strings.Repeat("ạ", 41))
+	require.Equal(t, "LENGTH", detail(err, "name"))
+
+	_, err = entity.GiftItemPrice(i64(999))
+	require.Equal(t, "MIN", detail(err, "price"))
+	_, err = entity.GiftItemPrice(i64(5000001))
+	require.Equal(t, "MAX", detail(err, "price"))
+	_, err = entity.GiftItemIcon("unicorn")
+	require.Equal(t, "ENUM", detail(err, "icon"))
+	_, err = entity.GiftItemIcon("rose")
+	require.NoError(t, err)
+}
+
+func TestGiftMessageAndQuantity(t *testing.T) {
+	t.Parallel()
+
+	detail := func(err error, field string) string { return entity.DetailsOf(err)[field] }
+	qty := func(v int64) *int64 { return &v }
+
+	m, err := entity.GiftMessage("   ")
+	require.NoError(t, err)
+	require.Nil(t, m)
+	m, err = entity.GiftMessage("  Chúc stream vui! ")
+	require.NoError(t, err)
+	require.Equal(t, "Chúc stream vui!", *m)
+
+	_, err = entity.GiftMessage(strings.Repeat("ạ", 201))
+	require.Equal(t, "LENGTH", detail(err, "message"))
+	_, err = entity.GiftMessage("hi\u0007there")
+	require.Equal(t, "FORMAT", detail(err, "message"))
+
+	_, err = entity.GiftQuantity(nil, 1000, 5000000)
+	require.Equal(t, "REQUIRED", detail(err, "quantity"))
+	_, err = entity.GiftQuantity(qty(0), 1000, 5000000)
+	require.Equal(t, "MIN", detail(err, "quantity"))
+	_, err = entity.GiftQuantity(qty(100), 1000, 5000000)
+	require.Equal(t, "MAX", detail(err, "quantity"))
+	_, err = entity.GiftQuantity(qty(11), 500000, 5000000)
+	require.Equal(t, "MAX", detail(err, "quantity"), "total above the cap")
+
+	q, err := entity.GiftQuantity(qty(10), 500000, 5000000)
+	require.NoError(t, err)
+	require.Equal(t, 10, q)
+
+	require.Equal(t, entity.OrderTypeSubscription, entity.Order{}.Type())
+	require.Equal(t, entity.OrderTypeTopup, entity.Order{OrderType: entity.OrderTypeTopup}.Type())
 }

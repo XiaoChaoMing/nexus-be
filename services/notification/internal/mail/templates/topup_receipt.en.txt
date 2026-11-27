@@ -1,0 +1,11 @@
+{{define "subject"}}Wallet top-up {{.Invoice}} received{{end}}{{define "body"}}Hi {{.Name}},
+
+You added {{.Amount}} to your NexusLive wallet (payment {{.Invoice}}, {{.Method}}, at {{.When}}).
+
+Your balance is for gifts to streamers; it cannot be withdrawn or refunded.
+
+View your wallet: {{.Link}}
+
+This is a mandatory transactional e-mail.
+— NexusLive
+{{end}}

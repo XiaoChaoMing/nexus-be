@@ -9,6 +9,7 @@ import (
 	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/notification/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/notification/internal/repo"
+	"github.com/minhnn/nexuslive-be/services/notification/internal/usecase"
 	"github.com/stretchr/testify/require"
 )
 
@@ -152,6 +153,85 @@ func TestPaymentFailedAndVoided(t *testing.T) {
 	require.Equal(t, "payment_voided", voided.Email.Template)
 	require.True(t, voided.Email.Mandatory)
 	require.Equal(t, "1", voided.Email.Data["Ended"])
+}
+
+func TestPayoutClosed(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv()
+	e.store.addUsers(recipient(ownerID, true))
+
+	ctx := context.Background()
+	ev := events.PayoutClosed{PayoutID: orderID, Code: "PO-0012", ChannelID: channelID, Amount: 1500000, Reference: ptr("FT123")}
+
+	require.NoError(t, e.uc.PayoutClosed(ctx, eventID, events.TypePayoutPaid, ev))
+
+	it := e.store.upserts[0][0]
+	require.Equal(t, ownerID, it.Notification.UserID)
+	require.Equal(t, entity.TypeSubscription, it.Notification.Type)
+	require.Equal(t, "/studio/monetization", *it.Notification.Link)
+	require.Equal(t, "PAYOUT_PAID", payload(t, it)["kind"])
+	require.Equal(t, "FT123", payload(t, it)["reference"])
+	require.Equal(t, "PO-0012", payload(t, it)["code"])
+	require.NotNil(t, it.Email)
+	require.True(t, it.Email.Mandatory)
+	require.Equal(t, "payout_update", it.Email.Template)
+	require.Equal(t, "PAID", it.Email.Data["Status"])
+	require.Equal(t, "1.500.000 ₫", it.Email.Data["Amount"])
+	require.Equal(t, "FT123", it.Email.Data["Reference"])
+
+	ev.Reference, ev.Reason = nil, ptr("account closed")
+	require.NoError(t, e.uc.PayoutClosed(ctx, otherEvent, events.TypePayoutFailed, ev))
+
+	failed := e.store.upserts[1][0]
+	require.Equal(t, "PAYOUT_FAILED", payload(t, failed)["kind"])
+	require.Equal(t, "account closed", payload(t, failed)["reason"])
+	require.Equal(t, "FAILED", failed.Email.Data["Status"])
+	require.Empty(t, failed.Email.Data["Reference"])
+}
+
+func TestTopupAndGift(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv()
+	e.store.addUsers(recipient(ownerID, true), recipient(viewerID, true))
+
+	ctx := context.Background()
+	method := "BANK_TRANSFER"
+
+	require.NoError(t, e.uc.Topup(ctx, eventID, usecase.TopupEvent{
+		Kind: usecase.KindTopupSucceeded, OrderID: orderID, InvoiceNumber: "NXL1", UserID: viewerID, Amount: 100000,
+		Method: &method, PaidAt: &now,
+	}))
+
+	it := e.store.upserts[0][0]
+	require.Equal(t, viewerID, it.Notification.UserID)
+	require.Equal(t, "/wallet", *it.Notification.Link)
+	require.Equal(t, "TOPUP_SUCCEEDED", payload(t, it)["kind"])
+	require.NotNil(t, it.Email)
+	require.True(t, it.Email.Mandatory)
+	require.Equal(t, "topup_receipt", it.Email.Template)
+	require.Equal(t, "100.000 ₫", it.Email.Data["Amount"])
+
+	reason := "EXPIRED"
+	require.NoError(t, e.uc.Topup(ctx, otherEvent, usecase.TopupEvent{
+		Kind: usecase.KindTopupFailed, OrderID: orderID, InvoiceNumber: "NXL2", UserID: viewerID, FailureReason: &reason,
+	}))
+
+	failed := e.store.upserts[1][0]
+	require.Nil(t, failed.Email, "in-app only")
+	require.Equal(t, "EXPIRED", payload(t, failed)["failureReason"])
+
+	require.NoError(t, e.uc.GiftReceived(ctx, "0199d4a2-0000-7000-8000-0000000000e9", events.GiftSent{
+		GiftSendID: orderID, UserID: viewerID, ChannelID: channelID, ItemName: "Hoa hồng", Icon: "rose", Quantity: 5, Total: 50000,
+	}))
+
+	gift := e.store.upserts[2][0]
+	require.Equal(t, ownerID, gift.Notification.UserID)
+	require.Equal(t, "GIFT_RECEIVED", payload(t, gift)["kind"])
+	require.Equal(t, "gift:"+channelID, *gift.Notification.GroupKey)
+	require.InDelta(t, 5, payload(t, gift)["quantity"], 0)
+	require.Nil(t, gift.Email)
 }
 
 func TestSubExpiringFollowsSettings(t *testing.T) {

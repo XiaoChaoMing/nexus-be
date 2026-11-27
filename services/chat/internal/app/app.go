@@ -240,6 +240,7 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 		rooms: rooms.New(rooms.Repos{
 			Rooms: store, Messages: store, Users: store, Roles: store, Audience: rt, Presence: rt, Live: rt,
 			Locks: rt, Broker: br, Snapshot: snapshot.New(cfg.HTTP.ChannelInternalURL, cfg.HTTP.InternalSecret), Events: store,
+			Settings: store, Terms: modUC,
 		}, pub, cfg.Chat.Retention, l),
 		moderation: modUC,
 	}

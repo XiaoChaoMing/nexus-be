@@ -48,6 +48,7 @@ func SourceTypes() []string {
 		events.TypeChannelRestored, events.TypeStreamTakedown,
 		events.TypePaymentSucceeded, events.TypePaymentFailed, events.TypePaymentVoided, events.TypeSubscriptionExpiring,
 		events.TypeSubscriptionExpired, events.TypeSubscriptionActivated,
+		events.TypePayoutPaid, events.TypePayoutFailed, events.TypePayoutRejected, events.TypeGiftSent,
 	}
 }
 
@@ -363,12 +364,35 @@ func billed[T any](ids func(p *T) []*string, tier func(p *T) int,
 
 func billingRoutes() map[string]route {
 	return map[string]route{
-		events.TypePaymentSucceeded: billed(func(p *events.PaymentSucceeded) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
-			func(p *events.PaymentSucceeded) int { return p.Tier }, usecase.Sources.PaymentSucceeded),
-		events.TypePaymentFailed: billed(func(p *events.PaymentFailed) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
-			func(p *events.PaymentFailed) int { return p.Tier }, usecase.Sources.PaymentFailed),
-		events.TypePaymentVoided: billed(func(p *events.PaymentVoided) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
-			func(p *events.PaymentVoided) int { return p.Tier }, usecase.Sources.PaymentVoided),
+		events.TypePaymentSucceeded: byOrderType(
+			billed(func(p *events.PaymentSucceeded) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
+				func(p *events.PaymentSucceeded) int { return p.Tier }, usecase.Sources.PaymentSucceeded),
+			topup(func(p events.PaymentSucceeded) usecase.TopupEvent {
+				return usecase.TopupEvent{
+					Kind: usecase.KindTopupSucceeded, OrderID: p.OrderID, InvoiceNumber: p.InvoiceNumber, UserID: p.UserID,
+					Amount: p.Amount, Method: p.PaymentMethod, PaidAt: &p.PaidAt,
+				}
+			})),
+		events.TypePaymentFailed: byOrderType(
+			billed(func(p *events.PaymentFailed) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
+				func(p *events.PaymentFailed) int { return p.Tier }, usecase.Sources.PaymentFailed),
+			topup(func(p events.PaymentFailed) usecase.TopupEvent {
+				return usecase.TopupEvent{
+					Kind: usecase.KindTopupFailed, OrderID: p.OrderID, InvoiceNumber: p.InvoiceNumber, UserID: p.UserID,
+					FailureReason: &p.FailureReason,
+				}
+			})),
+		events.TypePaymentVoided: byOrderType(
+			billed(func(p *events.PaymentVoided) []*string { return []*string{&p.OrderID, &p.UserID, &p.ChannelID} },
+				func(p *events.PaymentVoided) int { return p.Tier }, usecase.Sources.PaymentVoided),
+			topup(func(p events.PaymentVoided) usecase.TopupEvent {
+				return usecase.TopupEvent{
+					Kind: usecase.KindTopupVoided, OrderID: p.OrderID, InvoiceNumber: p.InvoiceNumber, UserID: p.UserID,
+					Amount: p.Amount,
+				}
+			})),
+		events.TypeGiftSent: on(func(p *events.GiftSent) []*string { return []*string{&p.GiftSendID, &p.UserID, &p.ChannelID} },
+			usecase.Sources.GiftReceived),
 		events.TypeSubscriptionExpiring: billed(func(p *events.SubscriptionExpiring) []*string {
 			return []*string{&p.SubscriptionID, &p.UserID, &p.ChannelID}
 		}, func(p *events.SubscriptionExpiring) int { return p.Tier }, usecase.Sources.SubExpiring),
@@ -378,5 +402,51 @@ func billingRoutes() map[string]route {
 		events.TypeSubscriptionActivated: billed(func(p *events.SubscriptionActivated) []*string {
 			return []*string{&p.SubscriptionID, &p.UserID, &p.ChannelID}
 		}, func(p *events.SubscriptionActivated) int { return p.Tier }, usecase.Sources.NewSubscriber),
+		events.TypePayoutPaid:     payout(events.TypePayoutPaid),
+		events.TypePayoutFailed:   payout(events.TypePayoutFailed),
+		events.TypePayoutRejected: payout(events.TypePayoutRejected),
 	}
+}
+
+// byOrderType sends the payment.*.v1 of a top-up (no channel, no tier) to top, the others to sub.
+func byOrderType(sub, top route) route {
+	return func(ctx context.Context, uc usecase.Sources, e eventbus.Event) error {
+		var probe struct {
+			OrderType string `json:"orderType"`
+		}
+
+		if err := json.Unmarshal(e.Payload, &probe); err != nil {
+			return skip(e, err)
+		}
+
+		if probe.OrderType == events.OrderTypeTopup {
+			return top(ctx, uc, e)
+		}
+
+		return sub(ctx, uc, e)
+	}
+}
+
+// topup decodes a payment payload and passes it to Sources.Topup.
+func topup[T any](conv func(p T) usecase.TopupEvent) route {
+	return func(ctx context.Context, uc usecase.Sources, e eventbus.Event) error {
+		var p T
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return skip(e, err)
+		}
+
+		t := conv(p)
+		if uuid.Validate(t.OrderID) != nil || uuid.Validate(t.UserID) != nil {
+			return skip(e, fmt.Errorf("%w: top-up ids", errBadPayload))
+		}
+
+		return uc.Topup(ctx, e.ID, t)
+	}
+}
+
+func payout(eventType string) route {
+	return on(func(p *events.PayoutClosed) []*string { return []*string{&p.PayoutID, &p.ChannelID} },
+		func(uc usecase.Sources, ctx context.Context, eventID string, p events.PayoutClosed) error {
+			return uc.PayoutClosed(ctx, eventID, eventType, p)
+		})
 }

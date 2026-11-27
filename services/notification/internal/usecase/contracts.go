@@ -70,6 +70,18 @@ type (
 	}
 
 	// BillingSources turns billing-svc's payment and subscription events into SUBSCRIPTION notifications.
+	// TopupEvent is a payment.*.v1 of a top-up order; Kind is one of the KindTopup* values.
+	TopupEvent struct {
+		Kind          string
+		OrderID       string
+		InvoiceNumber string
+		UserID        string
+		Amount        int64
+		Method        *string
+		PaidAt        *time.Time
+		FailureReason *string
+	}
+
 	BillingSources interface {
 		PaymentSucceeded(ctx context.Context, eventID string, e events.PaymentSucceeded) error
 		PaymentFailed(ctx context.Context, eventID string, e events.PaymentFailed) error
@@ -78,6 +90,13 @@ type (
 		SubExpired(ctx context.Context, eventID string, e events.SubscriptionExpired) error
 		// NewSubscriber tells the channel owner (grouped per channel); a replayed activation is ignored.
 		NewSubscriber(ctx context.Context, eventID string, e events.SubscriptionActivated) error
+		// PayoutClosed tells the channel owner that a payout was paid, failed or rejected; eventType is one of
+		// events.TypePayoutPaid / TypePayoutFailed / TypePayoutRejected.
+		PayoutClosed(ctx context.Context, eventID, eventType string, e events.PayoutClosed) error
+		// Topup tells the buyer about a wallet top-up order (payment.*.v1 with orderType TOPUP).
+		Topup(ctx context.Context, eventID string, t TopupEvent) error
+		// GiftReceived tells the channel owner, grouped per channel for 60 min (in-app only).
+		GiftReceived(ctx context.Context, eventID string, e events.GiftSent) error
 	}
 
 	// Replica keeps the copies of users, channels, follows and blocks (durable notification-replica).
@@ -129,4 +148,11 @@ const (
 	EmailRetry  = "retry"
 	EmailFailed = "failed"
 	EmailOff    = "disabled"
+)
+
+// Kinds of the top-up notifications (payload.kind).
+const (
+	KindTopupSucceeded = "TOPUP_SUCCEEDED"
+	KindTopupFailed    = "TOPUP_FAILED"
+	KindTopupVoided    = "TOPUP_VOIDED"
 )

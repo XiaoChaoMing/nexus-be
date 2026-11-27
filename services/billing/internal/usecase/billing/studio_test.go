@@ -295,7 +295,7 @@ func TestAdminPayouts(t *testing.T) { //nolint:funlen // one story
 	require.Equal(t, int64(300000), page.Items[0].Balance)
 	require.Equal(t, int64(200000), page.Items[0].Available)
 
-	_, err = e.uc.AdminPayouts(ctx, "PAID", "", 20)
+	_, err = e.uc.AdminPayouts(ctx, "PAYOUT", "", 20)
 	require.ErrorIs(t, err, entity.ErrValidation)
 
 	acct, err := e.uc.BankAccount(ctx, adminID, p.Payout.ID)
@@ -317,16 +317,77 @@ func TestAdminPayouts(t *testing.T) { //nolint:funlen // one story
 		require.ErrorIs(t, err, entity.ErrValidation, reason)
 	}
 
+	// Approve hands the payout to the manual provider: PROCESSING, the money is still held, nothing paid yet.
 	got, err := e.uc.Approve(ctx, adminID, p.Payout.ID)
 	require.NoError(t, err)
-	require.Equal(t, entity.PayoutApproved, got.Payout.Status)
-	require.Equal(t, int64(200000), got.Balance)
+	require.Equal(t, entity.PayoutProcessing, got.Payout.Status)
+	require.Equal(t, "MANUAL", *got.Payout.Provider)
+	require.Equal(t, adminID, *got.Payout.ReviewedBy)
+	require.Equal(t, int64(300000), got.Balance)
+	require.Equal(t, int64(200000), got.Available)
 
 	_, err = e.uc.Approve(ctx, adminID, p.Payout.ID)
-	require.ErrorIs(t, err, entity.ErrInvalidState)
+	require.Equal(t, entity.ReasonPayoutState, entity.DetailsOf(err)["reason"])
 
 	_, err = e.uc.Reject(ctx, adminID, p.Payout.ID, "Already paid out by hand")
 	require.ErrorIs(t, err, entity.ErrInvalidState)
+
+	_, err = e.uc.MarkPaid(ctx, adminID, p.Payout.ID, "FT 1")
+	require.ErrorIs(t, err, entity.ErrValidation)
+
+	got, err = e.uc.MarkPaid(ctx, adminID, p.Payout.ID, " FT123 ")
+	require.NoError(t, err)
+	require.Equal(t, entity.PayoutPaid, got.Payout.Status)
+	require.Equal(t, "FT123", *got.Payout.ProviderRef)
+	require.Equal(t, int64(200000), got.Balance)
+	require.Equal(t, int64(200000), got.Available)
+	require.Equal(t, 1, e.m.countEvents(events.TypePayoutPaid))
+
+	_, err = e.uc.MarkFailed(ctx, adminID, p.Payout.ID, "Bank returned the transfer")
+	require.ErrorIs(t, err, entity.ErrInvalidState)
+
+	// A failed provider call leaves the payout APPROVED; approving again hands it over again. Failing gives
+	// the hold back.
+	second, err := e.uc.RequestPayout(ctx, ownerID, usecase.PayoutInput{
+		Amount: ptr(int64(150000)), BankCode: "TCB", AccountNumber: "000111222", AccountName: "An",
+	})
+	require.NoError(t, err)
+
+	e.m.disburseErr = entity.ErrProviderUnavailable
+	_, err = e.uc.Approve(ctx, adminID, second.Payout.ID)
+	require.ErrorIs(t, err, entity.ErrProviderUnavailable)
+	require.Equal(t, entity.PayoutApproved, e.m.payouts[second.Payout.ID].Status)
+
+	got, err = e.uc.Approve(ctx, adminID, second.Payout.ID)
+	require.NoError(t, err)
+	require.Equal(t, entity.PayoutProcessing, got.Payout.Status)
+
+	_, err = e.uc.MarkFailed(ctx, adminID, second.Payout.ID, "short")
+	require.ErrorIs(t, err, entity.ErrValidation)
+
+	got, err = e.uc.MarkFailed(ctx, adminID, second.Payout.ID, "  Bank returned the transfer ")
+	require.NoError(t, err)
+	require.Equal(t, entity.PayoutFailed, got.Payout.Status)
+	require.Equal(t, "Bank returned the transfer", *got.Payout.FailureReason)
+	require.Equal(t, int64(200000), got.Available)
+	require.Equal(t, 1, e.m.countEvents(events.TypePayoutFailed))
+
+	// Reject gives the hold back too.
+	third, err := e.uc.RequestPayout(ctx, ownerID, usecase.PayoutInput{
+		Amount: ptr(int64(200000)), BankCode: "TCB", AccountNumber: "000111222", AccountName: "An",
+	})
+	require.NoError(t, err)
+
+	got, err = e.uc.Reject(ctx, adminID, third.Payout.ID, "Account name does not match")
+	require.NoError(t, err)
+	require.Equal(t, entity.PayoutRejected, got.Payout.Status)
+	require.Equal(t, int64(200000), got.Available)
+	require.Equal(t, 1, e.m.countEvents(events.TypePayoutRejected))
+
+	for _, id := range []string{p.Payout.ID, second.Payout.ID, third.Payout.ID} {
+		_, err = e.uc.MarkPaid(ctx, adminID, id, "FT999")
+		require.ErrorIs(t, err, entity.ErrInvalidState, id)
+	}
 
 	_, err = e.uc.Approve(ctx, adminID, missingID)
 	require.ErrorIs(t, err, entity.ErrNotFound)

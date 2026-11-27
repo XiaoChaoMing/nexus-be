@@ -13,11 +13,17 @@ import (
 )
 
 const (
-	_orderCols = `o.id, o.invoice_number, o.user_id, o.channel_id, o.tier_id, o.subscription_id, o.amount_vnd, o.psp,
-		o.psp_ref, o.sub_action, o.period_days, o.payment_method, o.status, o.failure_reason, o.needs_review,
-		o.idempotency_key, o.expires_at, o.created_at, o.paid_at, o.updated_at, ` + _channelCols + `, ` + _tierCols
-	_orderFrom = ` FROM checkout_orders o JOIN channels c ON c.id = o.channel_id
-		JOIN subscription_tiers t ON t.id = o.tier_id`
+	// A top-up has no channel, tier or sub action: they read as zero values.
+	_orderCols = `o.id, o.invoice_number, o.user_id, COALESCE(o.channel_id::text, ''), COALESCE(o.tier_id::text, ''),
+		o.subscription_id, o.amount_vnd, o.psp, o.psp_ref, COALESCE(o.sub_action, ''), o.period_days, o.payment_method,
+		o.status, o.failure_reason, o.needs_review, o.idempotency_key, o.expires_at, o.created_at, o.paid_at, o.updated_at,
+		o.order_type,
+		COALESCE(c.id::text, ''), COALESCE(c.owner_id::text, ''), COALESCE(c.handle, ''), COALESCE(c.display_name, ''),
+		c.avatar_url, COALESCE(c.status, ''),
+		COALESCE(t.id::text, ''), COALESCE(t.channel_id::text, ''), COALESCE(t.level, 0), COALESCE(t.price_vnd, 0),
+		COALESCE(t.benefits->>'description', ''), COALESCE(t.active, false), COALESCE(t.updated_at, o.created_at)`
+	_orderFrom = ` FROM checkout_orders o LEFT JOIN channels c ON c.id = o.channel_id
+		LEFT JOIN subscription_tiers t ON t.id = o.tier_id`
 	_invoiceAttempts = 3
 	_invoiceKey      = "checkout_orders_invoice_key"
 )
@@ -33,7 +39,7 @@ func scanOrder(s scanner) (entity.Order, error) {
 
 	err := s.Scan(&o.ID, &o.InvoiceNumber, &o.UserID, &o.ChannelID, &o.TierID, &o.SubscriptionID, &o.Amount, &o.PSP,
 		&o.PSPRef, &o.SubAction, &o.PeriodDays, &method, &o.Status, &failure, &o.NeedsReview, &o.IdempotencyKey,
-		&o.ExpiresAt, &o.CreatedAt, &o.PaidAt, &o.UpdatedAt,
+		&o.ExpiresAt, &o.CreatedAt, &o.PaidAt, &o.UpdatedAt, &o.OrderType,
 		&c.ID, &c.OwnerID, &c.Handle, &c.DisplayName, &c.AvatarURL, &c.Status,
 		&t.ID, &t.ChannelID, &t.Level, &t.Price, &t.Description, &t.Active, &t.UpdatedAt)
 	if err != nil {
@@ -120,8 +126,12 @@ func (r *Repo) CreateOrReuse(ctx context.Context, o entity.Order, rules repo.Cre
 }
 
 // checkLiveSub applies the live-subscription rules: other tier → TIER_CHANGE, same tier → RENEW within
-// the prepaid cap.
+// the prepaid cap. A top-up has no sub action.
 func checkLiveSub(ctx context.Context, tx pgx.Tx, o entity.Order, rules repo.CreateRules) (entity.SubAction, error) {
+	if o.Type() == entity.OrderTypeTopup {
+		return "", nil
+	}
+
 	var (
 		tierID string
 		level  int
@@ -154,11 +164,34 @@ func checkLiveSub(ctx context.Context, tx pgx.Tx, o entity.Order, rules repo.Cre
 	return entity.SubActionRenew, nil
 }
 
-// reusePending handles the caller's pending order of the channel: a stale one expires, one of the same tier
-// is returned (AF-H02), another tier is ORDER_PENDING (AF-H03).
-func reusePending(ctx context.Context, tx pgx.Tx, o entity.Order, rules repo.CreateRules) (*entity.Order, error) {
-	p, err := scanOrder(tx.QueryRow(ctx, `SELECT `+_orderCols+_orderFrom+`
+// pendingOf locks the caller's pending order of the same kind: of the channel for a subscription, any top-up.
+func pendingOf(ctx context.Context, tx pgx.Tx, o entity.Order) (entity.Order, error) {
+	if o.Type() == entity.OrderTypeTopup {
+		return scanOrder(tx.QueryRow(ctx, `SELECT `+_orderCols+_orderFrom+`
+			WHERE o.user_id = $1 AND o.order_type = 'TOPUP' AND o.status = 'PENDING' FOR UPDATE OF o`, o.UserID))
+	}
+
+	return scanOrder(tx.QueryRow(ctx, `SELECT `+_orderCols+_orderFrom+`
 		WHERE o.user_id = $1 AND o.channel_id = $2 AND o.status = 'PENDING' FOR UPDATE OF o`, o.UserID, o.ChannelID))
+}
+
+// samePending reports whether a pending order is what the caller asks for again (AF-H02); otherwise it is the
+// ORDER_PENDING error (AF-H03).
+func samePending(p, o entity.Order) error {
+	switch {
+	case o.Type() == entity.OrderTypeTopup && p.Amount != o.Amount:
+		return entity.StateError(entity.ReasonOrderPending, "orderId", p.ID, "amount", strconv.FormatInt(p.Amount, 10))
+	case o.Type() == entity.OrderTypeSubscription && p.TierID != o.TierID:
+		return entity.StateError(entity.ReasonOrderPending, "orderId", p.ID, "tierLevel", strconv.Itoa(p.Tier.Level))
+	}
+
+	return nil
+}
+
+// reusePending handles the caller's pending order of the same kind: a stale one expires, the same request is
+// returned (AF-H02), another one is ORDER_PENDING (AF-H03).
+func reusePending(ctx context.Context, tx pgx.Tx, o entity.Order, rules repo.CreateRules) (*entity.Order, error) {
+	p, err := pendingOf(ctx, tx, o)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -179,8 +212,8 @@ func reusePending(ctx context.Context, tx pgx.Tx, o entity.Order, rules repo.Cre
 		return nil, insertOutbox(ctx, tx, rules.Expired(p))
 	}
 
-	if p.TierID != o.TierID {
-		return nil, entity.StateError(entity.ReasonOrderPending, "orderId", p.ID, "tierLevel", strconv.Itoa(p.Tier.Level))
+	if err := samePending(p, o); err != nil {
+		return nil, err
 	}
 
 	if o.PaymentMethod != nil {
@@ -218,10 +251,10 @@ func insertOrder(ctx context.Context, tx pgx.Tx, o entity.Order, rules repo.Crea
 		}
 
 		err = sp.QueryRow(ctx, `INSERT INTO checkout_orders (user_id, tier_id, channel_id, amount_vnd, idempotency_key, psp,
-				status, expires_at, sub_action, period_days, invoice_number, payment_method)
-			VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7, $8, $9, $10, $11) RETURNING id`,
-			o.UserID, o.TierID, o.ChannelID, o.Amount, o.IdempotencyKey, o.PSP, o.ExpiresAt, string(o.SubAction),
-			o.PeriodDays, invoice, method).Scan(&id)
+				status, expires_at, sub_action, period_days, invoice_number, payment_method, order_type)
+			VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7, $8, $9, $10, $11, $12) RETURNING id`,
+			o.UserID, nullable(o.TierID), nullable(o.ChannelID), o.Amount, o.IdempotencyKey, o.PSP, o.ExpiresAt,
+			nullable(string(o.SubAction)), o.PeriodDays, invoice, method, string(o.Type())).Scan(&id)
 		if err == nil {
 			if err := sp.Commit(ctx); err != nil {
 				return o, fmt.Errorf("Repo - CreateOrReuse - release: %w", err)
@@ -393,4 +426,13 @@ func (r *Repo) WithLockedOrder(ctx context.Context, invoice string, fn func(tx r
 
 		return fn(paymentTx{tx: tx}, o)
 	})
+}
+
+// nullable maps "" (a top-up's channel, tier and sub action) to NULL.
+func nullable(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return &s
 }

@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.3 (Draft) |
-| **Cập nhật** | 2026-11-04 (tải video lên) |
+| **Phiên bản** | 1.5 (Draft) |
+| **Cập nhật** | 2026-11-27 (chi trả rút tiền; ví và quà tặng) |
 | **Nguồn** | PRD v2.1 §8.2, NXL-A §7, NXL-B §7, NXL-D §7 |
 
 Mức khái niệm: entity, trường chính, trạng thái và quan hệ. ERD mức logic (bảng, cột, kiểu, ràng buộc)
@@ -96,10 +96,14 @@ Bản sao trong Redis (không phải nguồn sự thật): `follow_since:{channe
 | --- | --- | --- |
 | **SubscriptionTier** | id, channel_id ⇢, level (1/2/3), price_vnd, benefits, active | — |
 | **Subscription** | id, user_id ⇢, channel_id ⇢, tier_id, period (`MONTH`), current_period_end, auto_renew, gifted_by ⇢ | `PENDING` → `ACTIVE` → `CANCELLED_PENDING_END` → `EXPIRED` |
-| **CheckoutOrder** | id, user_id ⇢, tier_id, subscription_id, amount_vnd, idempotency_key, psp, psp_ref, payment_url, expires_at | `PENDING` → `PAID` / `FAILED` / `EXPIRED` |
+| **CheckoutOrder** | id, user_id ⇢, order_type (`SUBSCRIPTION`/`TOPUP`), tier_id, channel_id ⇢, subscription_id, amount_vnd, idempotency_key, psp, psp_ref, payment_url, expires_at — tier / kênh chỉ có ở `SUBSCRIPTION` | `PENDING` → `PAID` / `FAILED` / `EXPIRED`; một đơn `TOPUP` chờ mỗi người |
 | **Transaction** | id, order_id, type (`CHARGE`/`REFUND`), amount_vnd, psp_ref, raw_webhook (jsonb), created_at | Chỉ thêm |
-| **LedgerEntry** | id, channel_id ⇢, transaction_id, payout_request_id, direction (`CREDIT`/`DEBIT`), amount_vnd, kind (`SUB_REVENUE`/`PLATFORM_FEE`/`PAYOUT`), created_at | Chỉ thêm; số dư = tổng |
-| **PayoutRequest** | id, channel_id ⇢, amount_vnd, bank_info (mã hóa), reviewed_by ⇢ | `REQUESTED` → `APPROVED` / `REJECTED` (không chi trả thật) |
+| **LedgerEntry** | id, channel_id ⇢, transaction_id, payout_request_id, gift_send_id (đúng một nguồn), direction (`CREDIT`/`DEBIT`), amount_vnd, kind (`SUB_REVENUE`/`PLATFORM_FEE`/`PAYOUT_HOLD`/`PAYOUT_REVERSAL`/`GIFT_REVENUE`), created_at | Chỉ thêm; khả dụng = Σ(CREDIT − DEBIT); mỗi payout ≤ 1 hold, ≤ 1 reversal |
+| **PayoutRequest** | id, channel_id ⇢, amount_vnd, bank_info (mã hóa), reviewed_by ⇢, provider, provider_ref, paid_at, settled_by ⇢, settled_at, failure_reason | `REQUESTED` → `APPROVED` → `PROCESSING` → `PAID`; `REJECTED` (từ `REQUESTED`), `FAILED` (từ `APPROVED`/`PROCESSING`); provider `MANUAL` — không chuyển tiền thật (ADR-015) |
+
+| **WalletEntry** (v1.5) | id, user_id ⇢, direction, kind (`TOPUP`/`TOPUP_VOID`/`GIFT_SPEND`), amount_vnd, transaction_id \| gift_send_id (đúng một nguồn), created_at | Chỉ thêm; số dư ví = Σ(CREDIT − DEBIT) theo người dùng, có thể âm sau void, không rút / hoàn (ADR-016) |
+| **GiftItem** (v1.5) | id, name, price_vnd, icon (khóa icon dựng sẵn), active, sort_order | Bật / tắt; không xóa |
+| **GiftSend** (v1.5) | id, user_id ⇢, channel_id ⇢, gift_item_id, item_name, icon, unit_price_vnd, quantity, total_vnd, fee_vnd, message, created_at | Chỉ thêm; chụp lại vật phẩm lúc tặng |
 
 Tiền lưu dạng số nguyên VND, không dùng số thực.
 
@@ -136,6 +140,14 @@ erDiagram
     SUBSCRIPTION ||--o{ CHECKOUT_ORDER : "thanh toán qua"
     CHECKOUT_ORDER ||--o{ TRANSACTION : "ghi"
     TRANSACTION ||--o{ LEDGER_ENTRY : "hạch toán"
+    USER ||..o{ CHECKOUT_ORDER : "nạp ví (TOPUP)"
+    TRANSACTION ||--o{ WALLET_ENTRY : "cộng / trừ ví"
+    USER ||..o{ WALLET_ENTRY : "có ví"
+    GIFT_ITEM ||--o{ GIFT_SEND : "được tặng"
+    USER ||..o{ GIFT_SEND : "tặng"
+    CHANNEL ||..o{ GIFT_SEND : "nhận"
+    GIFT_SEND ||--|| WALLET_ENTRY : "trừ ví"
+    GIFT_SEND ||--o{ LEDGER_ENTRY : "doanh thu + phí"
 ```
 
 ## 9. Dữ liệu sao chép giữa service
@@ -161,3 +173,5 @@ Mỗi bản sao phải có cách dựng lại từ đầu (API đọc của serv
 | 1.1 | 2026-10-10 | StreamSettings |
 | 1.2 | 2026-10-13 | GĐ1: khóa tạm và preferences của User, EmailToken.created_at, đơn `CANCELLED`, bản sao kênh `user_channels` (identity) và `creator_channels` (stream); một user có thể có nhiều đơn (nộp lại sau khi bị từ chối) |
 | 1.3 | 2026-11-04 | Tải video lên (ADR-014, TSD `2026-11-02-video-upload-abr` §4.4, §4.8): `Vod` thêm `source`, `description`, `published_at`, `failure_*`, `processing_*`, `stream_id` / `expires_at` rỗng với `UPLOAD`, trạng thái `FAILED`; entity mới `VideoUpload`; safety: report target `VOD`, `TAKEDOWN_VOD`, bản sao `VodCopy`; quan hệ §8, bản sao §9 |
+| 1.4 | 2026-11-27 | Chi trả rút tiền (ADR-015, TSD `2026-11-27-payout-settlement` §4.1): `PayoutRequest` thêm `PROCESSING`, `PAID`, `FAILED` và `provider`, `provider_ref`, `paid_at`, `settled_*`, `failure_reason`; `LedgerEntry.kind` `PAYOUT` → `PAYOUT_HOLD` + `PAYOUT_REVERSAL` |
+| 1.5 | 2026-11-27 | Ví và quà tặng (ADR-016, DL-24, TSD `2026-11-27-donate` §4.1): `CheckoutOrder.order_type` (`TOPUP`: không tier / kênh); entity mới `WalletEntry`, `GiftItem`, `GiftSend`; `LedgerEntry` thêm nguồn `gift_send_id`, kind `GIFT_REVENUE`; §8 thêm quan hệ ví / quà |

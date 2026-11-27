@@ -41,6 +41,10 @@ type Repos struct {
 	Sync     repo.SyncLimiter
 	Cipher   repo.Cipher
 	Snapshot repo.ChannelSnapshot
+	// Disburser sends approved payouts (ADR-015).
+	Disburser provider.PayoutProvider
+	Wallet    repo.WalletRepo
+	Gifts     repo.GiftRepo
 }
 
 // Settings are the BILLING_* values.
@@ -48,6 +52,9 @@ type Settings struct {
 	TierPrices        [entity.TierLevels]int64
 	FeeBps            int
 	PayoutMin         int64
+	TopupMin          int64
+	TopupMax          int64
+	GiftMaxTotal      int64
 	OrderTTL          time.Duration
 	ReconcileAfter    time.Duration
 	ReconcileInterval time.Duration
@@ -82,6 +89,8 @@ var (
 	_ usecase.Subscriptions = (*UseCase)(nil)
 	_ usecase.Studio        = (*UseCase)(nil)
 	_ usecase.Admin         = (*UseCase)(nil)
+	_ usecase.Wallet        = (*UseCase)(nil)
+	_ usecase.Gifts         = (*UseCase)(nil)
 	_ usecase.Replica       = (*UseCase)(nil)
 	_ usecase.Jobs          = (*UseCase)(nil)
 	_ usecase.Idempotency   = (*UseCase)(nil)

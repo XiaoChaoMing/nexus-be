@@ -18,6 +18,7 @@ func fullData() map[string]string {
 		"Excerpt": "@an <script>", "Result": "APPROVED", "Until": "", "UnsubscribeURL": "http://web.test/notifications/unsubscribe?token=t",
 		"Invoice": "NXL7Q2K9M4X1C", "Tier": "1", "SubAction": "NEW", "Method": "Chuyển khoản ngân hàng", "Amount": "59.000 ₫",
 		"Price": "59.000 ₫", "Review": "", "Ended": "1", "Renewable": "1",
+		"Code": "PO-0012", "Status": "FAILED", "Reference": "",
 	}
 }
 
@@ -26,7 +27,7 @@ func TestRenderEveryTemplate(t *testing.T) {
 
 	m, err := mail.New(nil)
 	require.NoError(t, err)
-	require.Len(t, mail.Templates(), 16)
+	require.Len(t, mail.Templates(), 18)
 
 	for _, tpl := range mail.Templates() {
 		for _, lc := range mail.Locales() {

@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/minhnn/nexuslive-be/pkg/events"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/repo"
+	"github.com/minhnn/nexuslive-be/services/billing/internal/repo/provider"
 	"github.com/minhnn/nexuslive-be/services/billing/internal/usecase"
 )
 
@@ -23,7 +25,10 @@ func payoutStatus(s string) (*entity.PayoutStatus, error) {
 		return ptr(entity.PayoutRequested), nil
 	case s == _statusAll:
 		return nil, nil
-	case st == entity.PayoutRequested || st == entity.PayoutApproved || st == entity.PayoutRejected:
+	case slices.Contains([]entity.PayoutStatus{
+		entity.PayoutRequested, entity.PayoutApproved, entity.PayoutProcessing,
+		entity.PayoutPaid, entity.PayoutRejected, entity.PayoutFailed,
+	}, st):
 		return &st, nil
 	}
 
@@ -66,12 +71,14 @@ func (uc *UseCase) adminPayout(ctx context.Context, p entity.Payout) (usecase.Ad
 		return usecase.AdminPayout{}, fmt.Errorf("billing - admin payout channel: %w", err)
 	}
 
-	bal, pending, err := uc.r.Ledger.Balance(ctx, p.ChannelID)
+	available, held, err := uc.r.Ledger.Balance(ctx, p.ChannelID)
 	if err != nil {
 		return usecase.AdminPayout{}, fmt.Errorf("billing - admin payout balance: %w", err)
 	}
 
-	return usecase.AdminPayout{PayoutView: uc.payoutView(p), Channel: ch, Balance: bal, Available: bal - pending}, nil
+	return usecase.AdminPayout{
+		PayoutView: uc.payoutView(p), Channel: ch, Balance: available + held, Available: available,
+	}, nil
 }
 
 // PendingCount -.
@@ -131,41 +138,115 @@ func (uc *UseCase) BankAccount(ctx context.Context, adminID, id string) (entity.
 	return a, nil
 }
 
-// Approve records the payout as paid out (DEBIT PAYOUT); no money moves (out of scope).
+// Approve moves a REQUESTED payout to APPROVED and hands it to the payout provider (PROCESSING for the manual
+// one). An APPROVED payout is one whose provider call failed: it is handed over again.
 func (uc *UseCase) Approve(ctx context.Context, adminID, id string) (usecase.AdminPayout, error) {
-	return uc.review(ctx, adminID, id, entity.PayoutApproved, nil, "PAYOUT_APPROVED")
+	p, err := uc.payout(ctx, id)
+	if err != nil {
+		return usecase.AdminPayout{}, err
+	}
+
+	if p.Status == entity.PayoutRequested {
+		if p, err = uc.move(ctx, adminID, id, repo.PayoutMove{To: entity.PayoutApproved}); err != nil {
+			return usecase.AdminPayout{}, err
+		}
+	}
+
+	if p.Status != entity.PayoutApproved {
+		return usecase.AdminPayout{}, entity.StateError(entity.ReasonPayoutState, "status", string(p.Status))
+	}
+
+	a, err := uc.openAccount(p)
+	if err != nil {
+		uc.l.Error("billing - payout %s: cannot decrypt bank account", p.ID)
+
+		return usecase.AdminPayout{}, err
+	}
+
+	// Outside any transaction: a real provider is a network call and must not hold the row lock.
+	res, err := uc.r.Disburser.Disburse(ctx, provider.PayoutInstruction{
+		PayoutID: p.ID, Code: p.Code(), Amount: p.Amount, Account: a,
+	})
+	if err != nil {
+		return usecase.AdminPayout{}, fmt.Errorf("billing - Approve - disburse: %w", err)
+	}
+
+	p, err = uc.move(ctx, adminID, id, repo.PayoutMove{
+		To: res.Status, Provider: ptr(uc.r.Disburser.Name()), Ref: res.Ref, Reason: res.Reason,
+	})
+	if err != nil {
+		return usecase.AdminPayout{}, err
+	}
+
+	return uc.adminPayout(ctx, p)
 }
 
-// Reject -; the amount is available again.
+// Reject -; the hold is given back.
 func (uc *UseCase) Reject(ctx context.Context, adminID, id, reason string) (usecase.AdminPayout, error) {
 	r, err := entity.AdminReason(reason)
 	if err != nil {
 		return usecase.AdminPayout{}, err
 	}
 
-	return uc.review(ctx, adminID, id, entity.PayoutRejected, &r, "PAYOUT_REJECTED")
+	return uc.closePayout(ctx, adminID, id, repo.PayoutMove{To: entity.PayoutRejected, Reason: &r})
 }
 
-func (uc *UseCase) review(ctx context.Context, adminID, id string, to entity.PayoutStatus, reason *string, action string,
-) (usecase.AdminPayout, error) {
+// MarkPaid records the bank transfer reference of a PROCESSING payout; the held money has left for good.
+func (uc *UseCase) MarkPaid(ctx context.Context, adminID, id, reference string) (usecase.AdminPayout, error) {
+	ref, err := entity.PayoutReference(reference)
+	if err != nil {
+		return usecase.AdminPayout{}, err
+	}
+
+	return uc.closePayout(ctx, adminID, id, repo.PayoutMove{To: entity.PayoutPaid, Ref: &ref})
+}
+
+// MarkFailed closes an APPROVED or PROCESSING payout whose transfer did not go through; the hold is given back.
+func (uc *UseCase) MarkFailed(ctx context.Context, adminID, id, reason string) (usecase.AdminPayout, error) {
+	r, err := entity.AdminReason(reason)
+	if err != nil {
+		return usecase.AdminPayout{}, err
+	}
+
+	return uc.closePayout(ctx, adminID, id, repo.PayoutMove{To: entity.PayoutFailed, Reason: &r})
+}
+
+func (uc *UseCase) closePayout(ctx context.Context, adminID, id string, m repo.PayoutMove) (usecase.AdminPayout, error) {
 	if !validID(id) {
 		return usecase.AdminPayout{}, entity.ErrNotFound
 	}
 
-	p, err := uc.r.Payouts.Review(ctx, id, adminID, to, reason, uc.now(), func(p entity.Payout) []repo.Outbox {
-		return []repo.Outbox{payoutAudit(adminID, events.ActorAdmin, action, p, reason)}
+	p, err := uc.move(ctx, adminID, id, m)
+	if err != nil {
+		return usecase.AdminPayout{}, err
+	}
+
+	return uc.adminPayout(ctx, p)
+}
+
+// move applies one state change with its audit row and, when the payout closes, its payout.*.v1 event.
+func (uc *UseCase) move(ctx context.Context, adminID, id string, m repo.PayoutMove) (entity.Payout, error) {
+	m.ActorID, m.At = adminID, uc.now()
+
+	p, err := uc.r.Payouts.Move(ctx, id, m, func(p entity.Payout) []repo.Outbox {
+		out := []repo.Outbox{payoutAudit(adminID, events.ActorAdmin, "PAYOUT_"+string(m.To), p, m.Reason)}
+		if e, ok := payoutClosed(p); ok {
+			out = append(out, e)
+		}
+
+		return out
 	})
 	if err != nil {
 		if errors.Is(err, entity.ErrNotFound) || errors.Is(err, entity.ErrInvalidState) {
-			return usecase.AdminPayout{}, err
+			return p, err
 		}
 
-		return usecase.AdminPayout{}, fmt.Errorf("billing - review payout: %w", err)
+		return p, fmt.Errorf("billing - move payout: %w", err)
 	}
 
-	uc.obs.PayoutStatus(to)
+	uc.obs.PayoutStatus(m.To)
 
-	return uc.adminPayout(ctx, p)
+	return p, nil
 }
 
 // AdminOrders -: newest first. q is a whole invoice number (exact match) or a prefix of one.

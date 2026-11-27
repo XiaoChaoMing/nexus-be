@@ -32,6 +32,8 @@ var (
 	_ repo.SubRepo         = (*Repo)(nil)
 	_ repo.LedgerRepo      = (*Repo)(nil)
 	_ repo.PayoutRepo      = (*Repo)(nil)
+	_ repo.WalletRepo      = (*Repo)(nil)
+	_ repo.GiftRepo        = (*Repo)(nil)
 	_ repo.AuditRepo       = (*Repo)(nil)
 	_ repo.TransactionRepo = (*Repo)(nil)
 	_ repo.IdempotencyRepo = (*Repo)(nil)

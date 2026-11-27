@@ -19,6 +19,9 @@ const (
 	ProviderSePay = "sepay"
 	ProviderFake  = "fake"
 
+	// PayoutProviderManual is the only payout provider so far.
+	PayoutProviderManual = "manual"
+
 	_envDev          = "dev"
 	_sandbox         = "sandbox"
 	_sandboxCheckout = "pay-sandbox.sepay.vn"
@@ -98,6 +101,10 @@ type (
 	// Billing are the NXL-H values.
 	Billing struct {
 		Provider          string        `env:"BILLING_PAYMENT_PROVIDER"    envDefault:"fake"`
+		PayoutProvider    string        `env:"BILLING_PAYOUT_PROVIDER"     envDefault:"manual"`
+		TopupMin          int64         `env:"BILLING_TOPUP_MIN"           envDefault:"10000"`
+		TopupMax          int64         `env:"BILLING_TOPUP_MAX"           envDefault:"5000000"`
+		GiftMaxTotal      int64         `env:"BILLING_GIFT_MAX_TOTAL"      envDefault:"5000000"`
 		WebBaseURL        string        `env:"BILLING_WEB_BASE_URL"        envDefault:"http://localhost:5173"`
 		PayoutEncKey      string        `env:"BILLING_PAYOUT_ENC_KEY,required"`
 		TierPrices        string        `env:"BILLING_TIER_PRICES"         envDefault:"59000,119000,299000"`
@@ -145,11 +152,12 @@ var (
 		"BILLING_SEPAY_MERCHANT_ID, BILLING_SEPAY_SECRET_KEY and BILLING_SEPAY_IPN_SECRET are required with sepay")
 	ErrSePayEnv = errors.New("BILLING_SEPAY_ENV must be sandbox, with BILLING_SEPAY_CHECKOUT_URL on " + _sandboxCheckout +
 		" and BILLING_SEPAY_API_URL on " + _sandboxAPI)
-	ErrWebBaseURL   = errors.New("BILLING_WEB_BASE_URL must be an absolute http(s) URL")
-	ErrPayoutEncKey = errors.New("BILLING_PAYOUT_ENC_KEY must be 32 bytes, base64 (openssl rand -base64 32)")
-	ErrTierPrices   = errors.New("BILLING_TIER_PRICES must be 3 positive integers")
-	ErrFeeBps       = errors.New("BILLING_PLATFORM_FEE_BPS must be 0–10000")
-	ErrMethods      = errors.New("BILLING_SEPAY_METHODS must be a subset of CARD,BANK_TRANSFER,NAPAS_BANK_TRANSFER")
+	ErrWebBaseURL     = errors.New("BILLING_WEB_BASE_URL must be an absolute http(s) URL")
+	ErrPayoutProvider = errors.New("BILLING_PAYOUT_PROVIDER must be manual")
+	ErrPayoutEncKey   = errors.New("BILLING_PAYOUT_ENC_KEY must be 32 bytes, base64 (openssl rand -base64 32)")
+	ErrTierPrices     = errors.New("BILLING_TIER_PRICES must be 3 positive integers")
+	ErrFeeBps         = errors.New("BILLING_PLATFORM_FEE_BPS must be 0–10000")
+	ErrMethods        = errors.New("BILLING_SEPAY_METHODS must be a subset of CARD,BANK_TRANSFER,NAPAS_BANK_TRANSFER")
 )
 
 // _devInternalSecret keeps the dev stack working without an .env; refused outside dev.
@@ -208,6 +216,10 @@ func (c *Config) validate() error {
 }
 
 func (b Billing) validate() error {
+	if b.PayoutProvider != PayoutProviderManual {
+		return ErrPayoutProvider
+	}
+
 	if key, err := base64.StdEncoding.DecodeString(b.PayoutEncKey); err != nil || len(key) != _encKeyLen {
 		return ErrPayoutEncKey
 	}
