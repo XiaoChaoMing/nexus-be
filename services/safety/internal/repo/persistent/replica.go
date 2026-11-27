@@ -21,9 +21,11 @@ const (
 	(SELECT s.id::text FROM streams s WHERE s.channel_id = c.id AND s.status IN ('LIVE', 'INTERRUPTED')
 		ORDER BY s.started_at DESC NULLS LAST LIMIT 1),
 	(SELECT count(*) FROM reports r WHERE r.status IN ` + _open + ` AND ((r.target_type = 'CHANNEL' AND r.target_id = c.id)
-		OR (r.target_type = 'STREAM' AND r.target_id IN (SELECT s.id FROM streams s WHERE s.channel_id = c.id))))`
+		OR (r.target_type = 'STREAM' AND r.target_id IN (SELECT s.id FROM streams s WHERE s.channel_id = c.id))
+		OR (r.target_type = 'VOD' AND r.target_id IN (SELECT v.id FROM vods v WHERE v.channel_id = c.id))))`
 	_channelFrom = ` FROM channels c LEFT JOIN users o ON o.id = c.owner_id`
 	_streamCols  = `id::text, channel_id::text, title, status, end_reason, vod_id::text, vod_deleted, started_at, ended_at`
+	_vodCols     = `id::text, channel_id::text, stream_id::text, source, title, deleted`
 	// Status filters on the effective state: an expired lock reads as ACTIVE.
 	_userActive = `(u.status = 'ACTIVE' OR (u.status = 'LOCKED' AND u.locked_until <= now()))`
 	_userLocked = `(u.status = 'LOCKED' AND (u.locked_until IS NULL OR u.locked_until > now()))`
@@ -57,6 +59,14 @@ func scanStream(row scanner) (entity.StreamCopy, error) {
 	return s, err //nolint:wrapcheck // callers wrap
 }
 
+func scanVOD(row scanner) (entity.VODCopy, error) {
+	var v entity.VODCopy
+
+	err := row.Scan(&v.ID, &v.ChannelID, &v.StreamID, &v.Source, &v.Title, &v.Deleted)
+
+	return v, err //nolint:wrapcheck // callers wrap
+}
+
 // User -.
 func (r *Repo) User(ctx context.Context, id string) (entity.UserCopy, error) {
 	u, err := scanUser(r.Pool.QueryRow(ctx, `SELECT `+_userCols+` FROM users u WHERE u.id = $1`, id))
@@ -87,12 +97,23 @@ func (r *Repo) Stream(ctx context.Context, id string) (entity.StreamCopy, error)
 	return s, nil
 }
 
-// Lookup loads the copies of a page in three queries.
+// VOD -.
+func (r *Repo) VOD(ctx context.Context, id string) (entity.VODCopy, error) {
+	v, err := scanVOD(r.Pool.QueryRow(ctx, `SELECT `+_vodCols+` FROM vods WHERE id = $1`, id))
+	if err != nil {
+		return v, fmt.Errorf("ReplicaRepo - VOD: %w", notFound(err))
+	}
+
+	return v, nil
+}
+
+// Lookup loads the copies of a page in one query per kind.
 func (r *Repo) Lookup(ctx context.Context, ids repo.LookupIDs) (repo.Lookup, error) {
 	out := repo.Lookup{
 		Users:    map[string]entity.UserCopy{},
 		Channels: map[string]entity.ChannelCopy{},
 		Streams:  map[string]entity.StreamCopy{},
+		VODs:     map[string]entity.VODCopy{},
 	}
 
 	err := errors.Join(
@@ -102,6 +123,8 @@ func (r *Repo) Lookup(ctx context.Context, ids repo.LookupIDs) (repo.Lookup, err
 			func(c entity.ChannelCopy) { out.Channels[c.ID] = c }),
 		lookup(ctx, r, `SELECT `+_streamCols+` FROM streams WHERE id = ANY($1)`, ids.Streams, scanStream,
 			func(s entity.StreamCopy) { out.Streams[s.ID] = s }),
+		lookup(ctx, r, `SELECT `+_vodCols+` FROM vods WHERE id = ANY($1)`, ids.VODs, scanVOD,
+			func(v entity.VODCopy) { out.VODs[v.ID] = v }),
 	)
 	if err != nil {
 		return repo.Lookup{}, fmt.Errorf("ReplicaRepo - Lookup: %w", err)
@@ -289,20 +312,55 @@ func (r *Repo) PatchChannel(ctx context.Context, eventID string, at time.Time, p
 // PatchStream applies p unless the copy was synced after at; VOD fields are never undone.
 func (r *Repo) PatchStream(ctx context.Context, eventID string, at time.Time, p repo.StreamPatch) error {
 	err := r.inEventTx(ctx, "ReplicaRepo - PatchStream", eventID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO streams
-			(id, channel_id, title, status, end_reason, vod_id, vod_deleted, started_at, ended_at, synced_at)
-			VALUES ($1, $2, coalesce($3, ''), coalesce($4, 'ENDED'), $5, $6, $7, $8, $9, $10)
-			ON CONFLICT (id) DO UPDATE SET title = coalesce($3, streams.title),
-				status = CASE WHEN streams.synced_at <= $10 THEN coalesce($4, streams.status) ELSE streams.status END,
-				end_reason = coalesce($5, streams.end_reason), vod_id = coalesce($6, streams.vod_id),
-				vod_deleted = streams.vod_deleted OR $7, started_at = coalesce(streams.started_at, $8),
-				ended_at = coalesce($9, streams.ended_at), synced_at = greatest(streams.synced_at, $10)`,
-			p.ID, p.ChannelID, p.Title, p.Status, p.EndReason, p.VODID, p.VODDeleted, p.StartedAt, p.EndedAt, at)
-
-		return err //nolint:wrapcheck // wrapped below
+		return upsertStream(ctx, tx, at, p)
 	})
 	if err != nil {
 		return fmt.Errorf("ReplicaRepo - PatchStream: %w", err)
+	}
+
+	return nil
+}
+
+func upsertStream(ctx context.Context, tx pgx.Tx, at time.Time, p repo.StreamPatch) error {
+	_, err := tx.Exec(ctx, `INSERT INTO streams
+		(id, channel_id, title, status, end_reason, vod_id, vod_deleted, started_at, ended_at, synced_at)
+		VALUES ($1, $2, coalesce($3, ''), coalesce($4, 'ENDED'), $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (id) DO UPDATE SET title = coalesce($3, streams.title),
+			status = CASE WHEN streams.synced_at <= $10 THEN coalesce($4, streams.status) ELSE streams.status END,
+			end_reason = coalesce($5, streams.end_reason), vod_id = coalesce($6, streams.vod_id),
+			vod_deleted = streams.vod_deleted OR $7, started_at = coalesce(streams.started_at, $8),
+			ended_at = coalesce($9, streams.ended_at), synced_at = greatest(streams.synced_at, $10)`,
+		p.ID, p.ChannelID, p.Title, p.Status, p.EndReason, p.VODID, p.VODDeleted, p.StartedAt, p.EndedAt, at)
+
+	return err //nolint:wrapcheck // wrapped by the callers
+}
+
+// PatchVOD applies p (the title only when the copy was not synced after at; deleted is never undone) and its
+// stream patch in one transaction.
+func (r *Repo) PatchVOD(ctx context.Context, eventID string, at time.Time, p repo.VODPatch) error {
+	err := r.inEventTx(ctx, "ReplicaRepo - PatchVOD", eventID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO vods (id, channel_id, stream_id, source, title, deleted, synced_at)
+			VALUES ($1, $2, $3, coalesce($4, 'LIVE'), coalesce($5, ''), $6, $7)
+			ON CONFLICT (id) DO UPDATE SET stream_id = coalesce(vods.stream_id, $3),
+				source = coalesce($4, vods.source),
+				title = CASE WHEN vods.synced_at <= $7 THEN coalesce($5, vods.title) ELSE vods.title END,
+				deleted = vods.deleted OR $6, synced_at = greatest(vods.synced_at, $7)`,
+			p.ID, p.ChannelID, p.StreamID, p.Source, p.Title, p.Deleted, at); err != nil {
+			return fmt.Errorf("vod: %w", err)
+		}
+
+		if p.Stream == nil {
+			return nil
+		}
+
+		if err := upsertStream(ctx, tx, at, *p.Stream); err != nil {
+			return fmt.Errorf("stream: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("ReplicaRepo - PatchVOD: %w", err)
 	}
 
 	return nil

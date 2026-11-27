@@ -22,6 +22,11 @@ const (
 	vodEndedID = "0199d4a2-0000-7000-8000-000000000022"
 	messageID  = "0199d4a2-0000-7000-8000-000000000030"
 	reportID   = "0199d4a2-0000-7000-8000-000000000040"
+	uploadID   = "0199d4a2-0000-7000-8000-000000000060"
+	liveVODID  = "0199d4a2-0000-7000-8000-000000000061"
+	deletedID  = "0199d4a2-0000-7000-8000-000000000062"
+	remoteID   = "0199d4a2-0000-7000-8000-000000000063"
+	downID     = "0199d4a2-0000-7000-8000-000000000064"
 	missingID  = "0199d4a2-0000-7000-8000-0000000000ff"
 )
 
@@ -74,6 +79,42 @@ func (f *fakeActions) ReportExists(_ context.Context, id string) (bool, error) {
 
 type fakeReplica struct {
 	repo.ReplicaRepo
+
+	// kept are the VOD copies stored after a lookup in stream-svc.
+	kept *[]repo.VODPatch
+}
+
+func (f fakeReplica) VOD(_ context.Context, id string) (entity.VODCopy, error) {
+	switch id {
+	case uploadID:
+		return entity.VODCopy{ID: id, ChannelID: channelID, Source: entity.VODSourceUpload, Title: "Upload"}, nil
+	case liveVODID:
+		return entity.VODCopy{ID: id, ChannelID: channelID, StreamID: ptr(streamID), Source: entity.VODSourceLive, Title: "Rec"}, nil
+	case deletedID:
+		return entity.VODCopy{ID: id, ChannelID: channelID, Source: entity.VODSourceUpload, Deleted: true}, nil
+	}
+
+	return entity.VODCopy{}, entity.ErrNotFound
+}
+
+func (f fakeReplica) PatchVOD(_ context.Context, _ string, _ time.Time, p repo.VODPatch) error {
+	*f.kept = append(*f.kept, p)
+
+	return nil
+}
+
+// fakeVODs is stream-svc's internal API.
+type fakeVODs struct{}
+
+func (fakeVODs) VOD(_ context.Context, id string) (entity.VODCopy, error) {
+	switch id {
+	case remoteID:
+		return entity.VODCopy{ID: id, ChannelID: channelID, Source: entity.VODSourceUpload, Title: "Remote"}, nil
+	case downID:
+		return entity.VODCopy{}, errDial
+	}
+
+	return entity.VODCopy{}, entity.ErrNotFound
 }
 
 func (fakeReplica) User(_ context.Context, id string) (entity.UserCopy, error) {
@@ -147,6 +188,7 @@ type env struct {
 	reports *fakeReports
 	actions *fakeActions
 	rate    *fakeRate
+	kept    *[]repo.VODPatch
 }
 
 func newEnv(ev fakeEvidence, rate *fakeRate, dup *entity.Report) env {
@@ -154,9 +196,10 @@ func newEnv(ev fakeEvidence, rate *fakeRate, dup *entity.Report) env {
 		rate = &fakeRate{}
 	}
 
-	e := env{reports: &fakeReports{dup: dup}, actions: &fakeActions{}, rate: rate}
+	e := env{reports: &fakeReports{dup: dup}, actions: &fakeActions{}, rate: rate, kept: &[]repo.VODPatch{}}
 	e.uc = safety.New(safety.Repos{
-		Reports: e.reports, Actions: e.actions, Replica: fakeReplica{}, Rate: rate, Evidence: ev,
+		Reports: e.reports, Actions: e.actions, Replica: fakeReplica{kept: e.kept}, Rate: rate, Evidence: ev,
+		VODs: fakeVODs{},
 	}, logger.New("error"), safety.Clock(func() time.Time { return now }), safety.EvidenceTimeout(50*time.Millisecond))
 
 	return e

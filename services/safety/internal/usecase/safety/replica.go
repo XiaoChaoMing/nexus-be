@@ -2,9 +2,11 @@ package safety
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/minhnn/nexuslive-be/services/safety/internal/entity"
 	"github.com/minhnn/nexuslive-be/services/safety/internal/repo"
 )
 
@@ -33,6 +35,41 @@ func (uc *UseCase) PatchStream(ctx context.Context, eventID string, at time.Time
 	}
 
 	return nil
+}
+
+// PatchVOD -.
+func (uc *UseCase) PatchVOD(ctx context.Context, eventID string, at time.Time, p repo.VODPatch) error {
+	if err := uc.r.Replica.PatchVOD(ctx, eventID, at, p); err != nil {
+		return fmt.Errorf("replica - PatchVOD: %w", err)
+	}
+
+	return nil
+}
+
+// vod reads the VOD copy, or stream-svc when the copy does not have it yet (the event may still be on its way);
+// the answer is kept in the copy, stamped older than any event so the events still apply.
+func (uc *UseCase) vod(ctx context.Context, id string) (entity.VODCopy, error) {
+	v, err := uc.r.Replica.VOD(ctx, id)
+	if err == nil {
+		return v, nil
+	}
+
+	if !errors.Is(err, entity.ErrNotFound) || uc.r.VODs == nil {
+		return v, fmt.Errorf("replica - vod: %w", err)
+	}
+
+	v, err = uc.r.VODs.VOD(ctx, id)
+	if err != nil {
+		return v, fmt.Errorf("replica - vod - stream-svc: %w", err)
+	}
+
+	if err := uc.r.Replica.PatchVOD(ctx, "", time.Time{}, repo.VODPatch{
+		ID: v.ID, ChannelID: v.ChannelID, StreamID: v.StreamID, Source: &v.Source, Title: &v.Title, Deleted: v.Deleted,
+	}); err != nil {
+		uc.l.Warn("safety - keep VOD copy %s: %v", id, err)
+	}
+
+	return v, nil
 }
 
 // Backfill copies the identity / channel / stream snapshots once (§6.10); rows are stamped with the

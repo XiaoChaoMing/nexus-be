@@ -161,6 +161,29 @@ func (r *routes) takedown(ctx *fiber.Ctx) error {
 	})
 }
 
+// takedownVOD -.
+//
+//	@Summary     Take a VOD down
+//	@Description Deletes a broadcast recording or an uploaded video (stream-svc applies it, then the files are removed). A VOD unknown to safety-svc is looked up in stream-svc. Already deleted → 409 INVALID_STATE.
+//	@Tags        admin-actions
+//	@Accept      json
+//	@Produce     json
+//	@Security    BearerAuth
+//	@Param       vodId path     string        true "vod id"
+//	@Param       body  body     ActionRequest true "reason"
+//	@Success     202   {object} Data[ActionAccepted]
+//	@Failure     400   {object} ErrorResponse "VALIDATION_FAILED"
+//	@Failure     401   {object} ErrorResponse "UNAUTHORIZED"
+//	@Failure     403   {object} ErrorResponse "FORBIDDEN"
+//	@Failure     404   {object} ErrorResponse "NOT_FOUND"
+//	@Failure     409   {object} ErrorResponse "INVALID_STATE"
+//	@Router      /admin/vods/{vodId}/takedown [post]
+func (r *routes) takedownVOD(ctx *fiber.Ctx) error {
+	return r.action(ctx, "takedownVOD", "vodId", func(c *fiber.Ctx, a, t string, in usecase.ActionInput) (string, error) {
+		return r.uc.Actions.TakedownVOD(c.UserContext(), a, t, in)
+	})
+}
+
 func (r *routes) directoryQuery(ctx *fiber.Ctx) (usecase.DirectoryQuery, bool) {
 	cur, limit, ok := pageQuery(ctx)
 
@@ -258,7 +281,7 @@ func (r *routes) channel(ctx *fiber.Ctx) error {
 //	@Param       actorId      query    string false "user id"
 //	@Param       actor        query    string false "username (leading @ optional), used when actorId is absent; unknown → empty page"
 //	@Param       action       query    string false "e.g. USER_LOCKED, CHAT_BAN"
-//	@Param       resourceType query    string false "USER, CHANNEL, STREAM, MESSAGE, REPORT, CREATOR_APPLICATION"
+//	@Param       resourceType query    string false "USER, CHANNEL, STREAM, VOD, MESSAGE, REPORT, CREATOR_APPLICATION"
 //	@Param       resourceId   query    string false "uuid"
 //	@Param       from         query    string false "RFC 3339, inclusive"
 //	@Param       to           query    string false "RFC 3339, exclusive"

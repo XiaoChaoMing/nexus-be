@@ -75,6 +75,26 @@ func TestFile(t *testing.T) { //nolint:funlen // table
 			created: true, evStatus: entity.EvidenceNone, target: ptr(authorID),
 		},
 		{
+			name: "uploaded video", in: usecase.ReportInput{TargetType: entity.TargetVOD, TargetID: uploadID, Reason: entity.ReasonCopyright},
+			created: true, evStatus: entity.EvidenceNone, target: ptr(authorID),
+		},
+		{
+			name: "recording", in: usecase.ReportInput{TargetType: entity.TargetVOD, TargetID: liveVODID, Reason: entity.ReasonSpam},
+			created: true, evStatus: entity.EvidenceNone, target: ptr(authorID),
+		},
+		{
+			name: "vod from stream-svc", in: usecase.ReportInput{TargetType: entity.TargetVOD, TargetID: remoteID, Reason: entity.ReasonSpam},
+			created: true, evStatus: entity.EvidenceNone, target: ptr(authorID),
+		},
+		{
+			name: "deleted vod", in: usecase.ReportInput{TargetType: entity.TargetVOD, TargetID: deletedID, Reason: entity.ReasonSpam},
+			err: entity.ErrNotFound,
+		},
+		{
+			name: "unknown vod", in: usecase.ReportInput{TargetType: entity.TargetVOD, TargetID: missingID, Reason: entity.ReasonSpam},
+			err: entity.ErrNotFound,
+		},
+		{
 			name: "validation", in: usecase.ReportInput{TargetType: "X", TargetID: "nope", Note: ptr(string(make([]byte, 501)))},
 			err: entity.ErrValidation, details: map[string]string{
 				"targetType": "ENUM", "targetId": "INVALID", "reason": "REQUIRED", "note": "LENGTH",
@@ -128,4 +148,33 @@ func TestFileRetryAfter(t *testing.T) {
 	var rl *entity.RateLimitError
 	require.ErrorAs(t, err, &rl)
 	require.Equal(t, 1500*time.Millisecond, rl.RetryAfter)
+}
+
+func TestFileVOD(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	in := func(id string) usecase.ReportInput {
+		return usecase.ReportInput{TargetType: entity.TargetVOD, TargetID: id, Reason: entity.ReasonSpam, StreamID: ptr(endedID)}
+	}
+
+	e := newEnv(fakeEvidence{}, nil, nil)
+
+	r, _, err := e.uc.File(ctx, reporterID, in(uploadID))
+	require.NoError(t, err)
+	require.Nil(t, r.StreamID, "an uploaded video has no stream")
+
+	r, _, err = e.uc.File(ctx, reporterID, in(liveVODID))
+	require.NoError(t, err)
+	require.Equal(t, streamID, *r.StreamID, "a recording keeps its stream")
+
+	_, _, err = e.uc.File(ctx, reporterID, in(remoteID))
+	require.NoError(t, err)
+	require.Len(t, *e.kept, 1, "the VOD read from stream-svc is kept in the copy")
+	require.Equal(t, remoteID, (*e.kept)[0].ID)
+	require.Equal(t, "Remote", *(*e.kept)[0].Title)
+
+	_, _, err = e.uc.File(ctx, reporterID, in(downID))
+	require.ErrorIs(t, err, errDial)
+	require.NotErrorIs(t, err, entity.ErrNotFound)
 }

@@ -88,6 +88,7 @@ type (
 		SuspendChannel(ctx context.Context, adminID, channelID string, in ActionInput) (string, error)
 		RestoreChannel(ctx context.Context, adminID, channelID string, in ActionInput) (string, error)
 		TakedownStream(ctx context.Context, adminID, streamID string, in ActionInput) (string, error)
+		TakedownVOD(ctx context.Context, adminID, vodID string, in ActionInput) (string, error)
 	}
 
 	// Directory is the admin lookup on the copies.
@@ -105,11 +106,12 @@ type (
 		Record(ctx context.Context, e entity.AuditEntry, promote *string) error
 	}
 
-	// Replica keeps the user / channel / stream copies from events and the one-off backfill.
+	// Replica keeps the user / channel / stream / VOD copies from events and the one-off backfill.
 	Replica interface {
 		PatchUser(ctx context.Context, eventID string, at time.Time, p repo.UserPatch) error
 		PatchChannel(ctx context.Context, eventID string, at time.Time, p repo.ChannelPatch) error
 		PatchStream(ctx context.Context, eventID string, at time.Time, p repo.StreamPatch) error
+		PatchVOD(ctx context.Context, eventID string, at time.Time, p repo.VODPatch) error
 		Backfill(ctx context.Context) error
 	}
 

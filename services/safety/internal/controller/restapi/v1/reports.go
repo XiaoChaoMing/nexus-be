@@ -9,8 +9,8 @@ import (
 
 // fileReport -.
 //
-//	@Summary     Report a user, channel, stream or chat message
-//	@Description A second report of the same target while the first one is still open returns it with 200 (not counted). More than 10 reports an hour → 429 with details.retryAfterSec. For a MESSAGE the room's streamId is required; the message and up to 9 earlier messages of its author are kept as evidence (evidenceStatus UNAVAILABLE when chat-svc does not answer within 300 ms). Reporting oneself → 400 targetId=INVALID.
+//	@Summary     Report a user, channel, stream, VOD or chat message
+//	@Description A second report of the same target while the first one is still open returns it with 200 (not counted). More than 10 reports an hour → 429 with details.retryAfterSec. For a MESSAGE the room's streamId is required; the message and up to 9 earlier messages of its author are kept as evidence (evidenceStatus UNAVAILABLE when chat-svc does not answer within 300 ms). A VOD (targetId = vod id) must exist and not be deleted (else 404); its channel's owner is the reported user. Reporting oneself → 400 targetId=INVALID.
 //	@Tags        reports
 //	@Accept      json
 //	@Produce     json
@@ -57,7 +57,7 @@ func (r *routes) fileReport(ctx *fiber.Ctx) error {
 //	@Produce     json
 //	@Security    BearerAuth
 //	@Param       status     query    string false "CSV of OPEN, IN_REVIEW, RESOLVED, DISMISSED"
-//	@Param       targetType query    string false "CSV of USER, CHANNEL, STREAM, MESSAGE"
+//	@Param       targetType query    string false "CSV of USER, CHANNEL, STREAM, MESSAGE, VOD"
 //	@Param       reason     query    string false "CSV of SPAM, HARASSMENT, VIOLENCE, SENSITIVE, COPYRIGHT, OTHER"
 //	@Param       cursor     query    string false "nextCursor of the previous page"
 //	@Param       limit      query    int    false "1–100, default 20"

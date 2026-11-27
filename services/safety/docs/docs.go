@@ -17,11 +17,6 @@ const docTemplate = `{
     "paths": {
         "/admin/audit-log": {
             "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Newest first. Rows written by safety-svc and mapped from chat, identity and channel-role events; append-only.",
                 "produces": [
                     "application/json"
@@ -51,7 +46,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "USER, CHANNEL, STREAM, MESSAGE, REPORT, CREATOR_APPLICATION",
+                        "description": "USER, CHANNEL, STREAM, VOD, MESSAGE, REPORT, CREATOR_APPLICATION",
                         "name": "resourceType",
                         "in": "query"
                     },
@@ -111,16 +106,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/channels": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/channels": {
+            "get": {
                 "description": "q: a UUID matches the id, anything else a handle prefix or a display-name substring. Sorted by handle.",
                 "produces": [
                     "application/json"
@@ -180,16 +175,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/channels/{channelId}": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/channels/{channelId}": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -231,16 +226,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/channels/{channelId}/restore": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/channels/{channelId}/restore": {
+            "post": {
                 "consumes": [
                     "application/json"
                 ],
@@ -300,16 +295,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/channels/{channelId}/suspend": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/channels/{channelId}/suspend": {
+            "post": {
                 "description": "202; channel-svc suspends it, stream-svc ends its broadcast and cancels its schedules, chat closes its rooms.",
                 "consumes": [
                     "application/json"
@@ -370,16 +365,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/reports": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/reports": {
+            "get": {
                 "description": "Oldest first. status is a CSV list (default OPEN,IN_REVIEW); targetType and reason accept CSV too.",
                 "produces": [
                     "application/json"
@@ -397,7 +392,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "CSV of USER, CHANNEL, STREAM, MESSAGE",
+                        "description": "CSV of USER, CHANNEL, STREAM, MESSAGE, VOD",
                         "name": "targetType",
                         "in": "query"
                     },
@@ -445,16 +440,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/reports/open-count": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/reports/open-count": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -481,16 +476,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/reports/{id}": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/reports/{id}": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -532,16 +527,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/reports/{id}/claim": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/reports/{id}/claim": {
+            "post": {
                 "produces": [
                     "application/json"
                 ],
@@ -589,16 +584,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/reports/{id}/resolve": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/reports/{id}/resolve": {
+            "post": {
                 "description": "applyToSameTarget closes every open report on the same target; each closed report emits safety.report_resolved.v1 (the reporter is notified). note is 10–500 characters.",
                 "consumes": [
                     "application/json"
@@ -665,16 +660,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/streams/{streamId}/takedown": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/streams/{streamId}/takedown": {
+            "post": {
                 "description": "A stream on air ends with endReason admin_takedown; an ended stream loses its VOD. SCHEDULED, CANCELLED, or ENDED without a VOD → 409 INVALID_STATE.",
                 "consumes": [
                     "application/json"
@@ -741,16 +736,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/users": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/users": {
+            "get": {
                 "description": "q: a UUID matches the id, anything else a username prefix (case-insensitive). Sorted by username. status is the effective one (an expired lock reads ACTIVE).",
                 "produces": [
                     "application/json"
@@ -810,16 +805,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/users/{userId}/lock": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/users/{userId}/lock": {
+            "post": {
                 "description": "Records the action and returns 202; identity applies it (status LOCKED, sessions revoked, sockets closed 4003) within seconds. durationHours 24, 168, 720 or null (until unlocked). Locking an admin → 403; oneself → 400 userId=INVALID. Locking a locked user sets the new end.",
                 "consumes": [
                     "application/json"
@@ -880,16 +875,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/admin/users/{userId}/unlock": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/admin/users/{userId}/unlock": {
+            "post": {
                 "description": "Always 202; identity ignores a user who is not locked.",
                 "consumes": [
                     "application/json"
@@ -950,17 +945,93 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
-            }
-        },
-        "/reports": {
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
+                ]
+            }
+        },
+        "/admin/vods/{vodId}/takedown": {
+            "post": {
+                "description": "Deletes a broadcast recording or an uploaded video (stream-svc applies it, then the files are removed). A VOD unknown to safety-svc is looked up in stream-svc. Already deleted → 409 INVALID_STATE.",
+                "consumes": [
+                    "application/json"
                 ],
-                "description": "A second report of the same target while the first one is still open returns it with 200 (not counted). More than 10 reports an hour → 429 with details.retryAfterSec. For a MESSAGE the room's streamId is required; the message and up to 9 earlier messages of its author are kept as evidence (evidenceStatus UNAVAILABLE when chat-svc does not answer within 300 ms). Reporting oneself → 400 targetId=INVALID.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin-actions"
+                ],
+                "summary": "Take a VOD down",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "vod id",
+                        "name": "vodId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ActionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/Data-internal_controller_restapi_v1_ActionAccepted"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "INVALID_STATE",
+                        "schema": {
+                            "$ref": "#/definitions/ErrorResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/reports": {
+            "post": {
+                "description": "A second report of the same target while the first one is still open returns it with 200 (not counted). More than 10 reports an hour → 429 with details.retryAfterSec. For a MESSAGE the room's streamId is required; the message and up to 9 earlier messages of its author are kept as evidence (evidenceStatus UNAVAILABLE when chat-svc does not answer within 300 ms). A VOD (targetId = vod id) must exist and not be deleted (else 404); its channel's owner is the reported user. Reporting oneself → 400 targetId=INVALID.",
                 "consumes": [
                     "application/json"
                 ],
@@ -970,7 +1041,7 @@ const docTemplate = `{
                 "tags": [
                     "reports"
                 ],
-                "summary": "Report a user, channel, stream or chat message",
+                "summary": "Report a user, channel, stream, VOD or chat message",
                 "parameters": [
                     {
                         "description": "report",
@@ -1019,7 +1090,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/ErrorResponse"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         }
     },
@@ -1083,7 +1159,8 @@ const docTemplate = `{
                     "enum": [
                         "USER",
                         "CHANNEL",
-                        "STREAM"
+                        "STREAM",
+                        "VOD"
                     ]
                 },
                 "type": {
@@ -1094,6 +1171,7 @@ const docTemplate = `{
                         "SUSPEND_CHANNEL",
                         "RESTORE_CHANNEL",
                         "TAKEDOWN_STREAM",
+                        "TAKEDOWN_VOD",
                         "CHAT_TIMEOUT",
                         "CHAT_UNTIMEOUT",
                         "CHAT_BAN",
@@ -1177,7 +1255,8 @@ const docTemplate = `{
                         "USER",
                         "CHANNEL",
                         "STREAM",
-                        "MESSAGE"
+                        "MESSAGE",
+                        "VOD"
                     ]
                 }
             }
@@ -1195,7 +1274,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/Ref"
                 },
                 "channelId": {
-                    "description": "ChannelID is the reported channel, or the channel of the reported stream / of the room of the report.",
+                    "description": "ChannelID is the reported channel, or the channel of the reported stream / VOD / of the room of the report.",
                     "type": "string"
                 },
                 "createdAt": {
@@ -1266,7 +1345,8 @@ const docTemplate = `{
                         "USER",
                         "CHANNEL",
                         "STREAM",
-                        "MESSAGE"
+                        "MESSAGE",
+                        "VOD"
                     ]
                 }
             }
@@ -1608,7 +1688,7 @@ const docTemplate = `{
                     ]
                 },
                 "streamId": {
-                    "description": "StreamID is required for MESSAGE (the room of the message); optional for USER (evidence from that room).",
+                    "description": "StreamID is required for MESSAGE (the room of the message); optional for USER (evidence from that room);\nreplaced by the target's stream for STREAM and VOD (none for an uploaded video).",
                     "type": "string"
                 },
                 "targetId": {
@@ -1620,7 +1700,8 @@ const docTemplate = `{
                         "USER",
                         "CHANNEL",
                         "STREAM",
-                        "MESSAGE"
+                        "MESSAGE",
+                        "VOD"
                     ]
                 }
             }

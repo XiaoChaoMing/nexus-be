@@ -26,6 +26,7 @@ type fakeUC struct {
 	fileErr error
 	created bool
 	gotLock usecase.LockInput
+	gotVOD  usecase.ActionInput
 }
 
 func (f *fakeUC) File(context.Context, string, usecase.ReportInput) (entity.Report, bool, error) {
@@ -56,6 +57,16 @@ func (f *fakeUC) RestoreChannel(context.Context, string, string, usecase.ActionI
 
 func (f *fakeUC) TakedownStream(context.Context, string, string, usecase.ActionInput) (string, error) {
 	return "", entity.ErrInvalidState
+}
+
+func (f *fakeUC) TakedownVOD(_ context.Context, _, vodID string, in usecase.ActionInput) (string, error) {
+	f.gotVOD = in
+
+	if vodID == "gone" {
+		return "", entity.ErrInvalidState
+	}
+
+	return "a3", nil
 }
 
 type fakeAudit struct{ usecase.Audit }
@@ -150,6 +161,8 @@ func TestAdminActions(t *testing.T) {
 		{"/v1/admin/channels/x/suspend", http.StatusNotFound, "NOT_FOUND"},
 		{"/v1/admin/channels/x/restore", http.StatusAccepted, ""},
 		{"/v1/admin/streams/x/takedown", http.StatusConflict, "INVALID_STATE"},
+		{"/v1/admin/vods/x/takedown", http.StatusAccepted, ""},
+		{"/v1/admin/vods/gone/takedown", http.StatusConflict, "INVALID_STATE"},
 	}
 
 	for _, tc := range tests {
@@ -164,6 +177,7 @@ func TestAdminActions(t *testing.T) {
 	}
 
 	require.Equal(t, 168, *uc.gotLock.DurationHours)
+	require.Equal(t, "long enough reason", uc.gotVOD.Reason)
 
 	require.Equal(t, http.StatusBadRequest, call(t, a, http.MethodGet, "/v1/admin/reports?limit=0", "").status)
 	require.Equal(t, http.StatusBadRequest, call(t, a, http.MethodGet, "/v1/admin/audit-log?from=yesterday", "").status)

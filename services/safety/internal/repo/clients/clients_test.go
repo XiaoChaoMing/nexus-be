@@ -99,3 +99,55 @@ func TestSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "LIVE", *streams[0].Row.Status)
 }
+
+func TestVOD(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Internal-Secret") != "s3cret" {
+			w.WriteHeader(http.StatusUnauthorized)
+
+			return
+		}
+
+		switch r.URL.Path {
+		case "/internal/v1/vods/up":
+			write(t, w, `{"data":{"id":"up","channelId":"c1","streamId":null,"source":"UPLOAD","title":"Video",
+				"status":"READY","visibility":"HIDDEN"}}`)
+		case "/internal/v1/vods/gone":
+			write(t, w, `{"data":{"id":"gone","channelId":"c1","streamId":"s1","source":"LIVE","title":"Rec",
+				"status":"DELETED","visibility":"PUBLIC"}}`)
+		case "/internal/v1/vods/empty":
+			write(t, w, `{"data":{}}`)
+		case "/internal/v1/vods/slow":
+			time.Sleep(500 * time.Millisecond)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	c := clients.NewVODs(srv.URL, "s3cret")
+	ctx := context.Background()
+
+	v, err := c.VOD(ctx, "up")
+	require.NoError(t, err)
+	require.Equal(t, entity.VODCopy{ID: "up", ChannelID: "c1", Source: entity.VODSourceUpload, Title: "Video"}, v)
+
+	v, err = c.VOD(ctx, "gone")
+	require.NoError(t, err)
+	require.True(t, v.Deleted)
+	require.Equal(t, "s1", *v.StreamID)
+
+	_, err = c.VOD(ctx, "missing")
+	require.ErrorIs(t, err, entity.ErrNotFound)
+
+	_, err = c.VOD(ctx, "empty")
+	require.ErrorIs(t, err, clients.ErrIncomplete)
+
+	_, err = c.VOD(ctx, "slow")
+	require.Error(t, err, "the lookup gives up after 300 ms")
+
+	_, err = clients.NewVODs(srv.URL, "wrong").VOD(ctx, "up")
+	require.ErrorIs(t, err, clients.ErrStatus)
+}

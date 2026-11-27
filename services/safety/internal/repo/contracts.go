@@ -51,6 +51,7 @@ type (
 		Users    []string
 		Channels []string
 		Streams  []string
+		VODs     []string
 	}
 
 	// Lookup holds the copies found; a missing id has no entry.
@@ -58,6 +59,7 @@ type (
 		Users    map[string]entity.UserCopy
 		Channels map[string]entity.ChannelCopy
 		Streams  map[string]entity.StreamCopy
+		VODs     map[string]entity.VODCopy
 	}
 
 	// UserPatch updates a user copy; nil fields keep the stored value. A patch without Username only
@@ -99,6 +101,18 @@ type (
 		EndedAt    *time.Time
 	}
 
+	// VODPatch updates a VOD copy; nil fields keep the stored value and Deleted is never undone. Stream, when
+	// set, patches the stream copy in the same transaction (the VOD events of a broadcast recording).
+	VODPatch struct {
+		ID        string
+		ChannelID string
+		StreamID  *string
+		Source    *string
+		Title     *string
+		Deleted   bool
+		Stream    *StreamPatch
+	}
+
 	// ReportRepo -.
 	ReportRepo interface {
 		OpenDuplicate(ctx context.Context, reporterID, targetType, targetID string) (*entity.Report, error)
@@ -134,6 +148,7 @@ type (
 		User(ctx context.Context, id string) (entity.UserCopy, error)
 		Channel(ctx context.Context, id string) (entity.ChannelCopy, error)
 		Stream(ctx context.Context, id string) (entity.StreamCopy, error)
+		VOD(ctx context.Context, id string) (entity.VODCopy, error)
 		Lookup(ctx context.Context, ids LookupIDs) (Lookup, error)
 		SearchUsers(ctx context.Context, q string, status *string, after *NameCursor, limit int) ([]entity.UserCopy, error)
 		SearchChannels(ctx context.Context, q string, status *string, after *NameCursor, limit int) ([]entity.ChannelCopy, error)
@@ -141,6 +156,7 @@ type (
 		PatchUser(ctx context.Context, eventID string, at time.Time, p UserPatch) error
 		PatchChannel(ctx context.Context, eventID string, at time.Time, p ChannelPatch) error
 		PatchStream(ctx context.Context, eventID string, at time.Time, p StreamPatch) error
+		PatchVOD(ctx context.Context, eventID string, at time.Time, p VODPatch) error
 		BackfillDone(ctx context.Context, name string) (bool, error)
 		MarkBackfilled(ctx context.Context, name string) error
 	}
@@ -155,6 +171,12 @@ type (
 	// the room or the message does not exist.
 	EvidenceClient interface {
 		Evidence(ctx context.Context, streamID, messageID, userID string, limit int) ([]entity.EvidenceItem, error)
+	}
+
+	// VODClient reads a VOD from stream-svc's internal API (deleted ones included); ErrNotFound when it does
+	// not exist.
+	VODClient interface {
+		VOD(ctx context.Context, id string) (entity.VODCopy, error)
 	}
 
 	// SnapshotClient pages identity / channel / stream internal snapshots (backfill only).

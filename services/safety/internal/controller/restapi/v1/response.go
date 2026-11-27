@@ -26,11 +26,12 @@ type ErrorBody struct {
 
 // ReportRequest is POST /v1/reports.
 type ReportRequest struct {
-	TargetType string  `json:"targetType" enums:"USER,CHANNEL,STREAM,MESSAGE"`
+	TargetType string  `json:"targetType" enums:"USER,CHANNEL,STREAM,MESSAGE,VOD"`
 	TargetID   string  `json:"targetId"`
 	Reason     string  `json:"reason"     enums:"SPAM,HARASSMENT,VIOLENCE,SENSITIVE,COPYRIGHT,OTHER"`
 	Note       *string `json:"note"`
-	// StreamID is required for MESSAGE (the room of the message); optional for USER (evidence from that room).
+	// StreamID is required for MESSAGE (the room of the message); optional for USER (evidence from that room);
+	// replaced by the target's stream for STREAM and VOD (none for an uploaded video).
 	StreamID *string `json:"streamId"`
 }
 
@@ -58,7 +59,7 @@ type Target struct {
 // AdminReport is a row of the admin queue.
 type AdminReport struct {
 	ID              string    `json:"id"`
-	TargetType      string    `json:"targetType" enums:"USER,CHANNEL,STREAM,MESSAGE"`
+	TargetType      string    `json:"targetType" enums:"USER,CHANNEL,STREAM,MESSAGE,VOD"`
 	Target          Target    `json:"target"`
 	Reason          string    `json:"reason"`
 	Reporter        Ref       `json:"reporter"`
@@ -85,8 +86,8 @@ type EvidenceItem struct {
 // audit log): admin is then the moderator, actorRole OWNER, MODERATOR or ADMIN and channelId the channel.
 type AdminAction struct {
 	ID         string     `json:"id"`
-	Type       string     `json:"type" enums:"LOCK_USER,UNLOCK_USER,SUSPEND_CHANNEL,RESTORE_CHANNEL,TAKEDOWN_STREAM,CHAT_TIMEOUT,CHAT_UNTIMEOUT,CHAT_BAN,CHAT_UNBAN"`
-	TargetType string     `json:"targetType" enums:"USER,CHANNEL,STREAM"`
+	Type       string     `json:"type" enums:"LOCK_USER,UNLOCK_USER,SUSPEND_CHANNEL,RESTORE_CHANNEL,TAKEDOWN_STREAM,TAKEDOWN_VOD,CHAT_TIMEOUT,CHAT_UNTIMEOUT,CHAT_BAN,CHAT_UNBAN"`
+	TargetType string     `json:"targetType" enums:"USER,CHANNEL,STREAM,VOD"`
 	TargetID   string     `json:"targetId"`
 	Reason     string     `json:"reason"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
@@ -103,7 +104,7 @@ type AdminReportDetail struct {
 
 	Note     *string `json:"note"`
 	StreamID *string `json:"streamId"`
-	// ChannelID is the reported channel, or the channel of the reported stream / of the room of the report.
+	// ChannelID is the reported channel, or the channel of the reported stream / VOD / of the room of the report.
 	ChannelID      *string        `json:"channelId"`
 	Evidence       []EvidenceItem `json:"evidence"`
 	EvidenceStatus string         `json:"evidenceStatus" enums:"CAPTURED,NONE,UNAVAILABLE"`
@@ -146,7 +147,7 @@ type LockRequest struct {
 	ReportID      *string `json:"reportId"`
 }
 
-// ActionRequest is the body of unlock, suspend, restore and takedown (reportId ignored by unlock / restore).
+// ActionRequest is the body of unlock, suspend, restore and the takedowns (reportId ignored by unlock / restore).
 type ActionRequest struct {
 	Reason   string  `json:"reason"`
 	ReportID *string `json:"reportId"`

@@ -189,7 +189,7 @@ func chatAction(e entity.AuditEntry) entity.AdminAction {
 	return a
 }
 
-// detailIDs are the actors of the history, the evidence authors and the stream of the report.
+// detailIDs are the actors of the history, the evidence authors and the stream (or VOD) of the report.
 func detailIDs(r entity.Report, actions []entity.AdminAction) repo.LookupIDs {
 	ids := repo.LookupIDs{}
 
@@ -203,16 +203,19 @@ func detailIDs(r entity.Report, actions []entity.AdminAction) repo.LookupIDs {
 		ids.Users = append(ids.Users, e.UserID)
 	}
 
-	if r.TargetType == entity.TargetStream {
+	switch {
+	case r.TargetType == entity.TargetStream:
 		ids.Streams = append(ids.Streams, r.TargetID)
-	} else if r.StreamID != nil {
+	case r.TargetType == entity.TargetVOD:
+		ids.VODs = append(ids.VODs, r.TargetID)
+	case r.StreamID != nil:
 		ids.Streams = append(ids.Streams, *r.StreamID)
 	}
 
 	return ids
 }
 
-// reportChannel is the reported channel, or the channel of the reported stream / of the room of the report.
+// reportChannel is the reported channel, or the channel of the reported stream / VOD / of the room of the report.
 func reportChannel(l repo.Lookup, r entity.Report) *string {
 	streamID := r.StreamID
 
@@ -221,6 +224,13 @@ func reportChannel(l repo.Lookup, r entity.Report) *string {
 		return &r.TargetID
 	case entity.TargetStream:
 		streamID = &r.TargetID
+	case entity.TargetVOD:
+		v, ok := l.VODs[r.TargetID]
+		if !ok || v.ChannelID == "" {
+			return nil
+		}
+
+		return &v.ChannelID
 	}
 
 	if streamID == nil {
@@ -308,6 +318,8 @@ func (uc *UseCase) views(ctx context.Context, rows []entity.Report) ([]entity.Re
 			ids.Channels = append(ids.Channels, r.TargetID)
 		case entity.TargetStream:
 			ids.Streams = append(ids.Streams, r.TargetID)
+		case entity.TargetVOD:
+			ids.VODs = append(ids.VODs, r.TargetID)
 		}
 	}
 
@@ -369,6 +381,8 @@ func target(l repo.Lookup, r entity.Report) entity.Target {
 		}
 
 		t.Link = link("/live/" + r.TargetID)
+	case entity.TargetVOD:
+		t.Label, t.Link = vodLabel(l, r.TargetID), link("/vod/"+r.TargetID)
 	case entity.TargetMessage:
 		t.Label = messageLabel(l, r)
 		if r.StreamID != nil {
@@ -377,6 +391,15 @@ func target(l repo.Lookup, r entity.Report) entity.Target {
 	}
 
 	return t
+}
+
+// vodLabel is the VOD's title, or its id when the copy does not have it (or it has no title).
+func vodLabel(l repo.Lookup, id string) string {
+	if v, ok := l.VODs[id]; ok && v.Title != "" {
+		return v.Title
+	}
+
+	return id
 }
 
 func messageLabel(l repo.Lookup, r entity.Report) string {

@@ -64,6 +64,7 @@ func NewRoutes(group fiber.Router, uc UseCases, auth, admin fiber.Handler, l log
 		a.Post("/channels/:channelId/suspend", r.suspend)
 		a.Post("/channels/:channelId/restore", r.restore)
 		a.Post("/streams/:streamId/takedown", r.takedown)
+		a.Post("/vods/:vodId/takedown", r.takedownVOD)
 		a.Get("/audit-log", r.auditLog)
 	}
 }

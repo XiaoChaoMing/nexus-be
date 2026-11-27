@@ -155,6 +155,8 @@ func (uc *UseCase) checkTarget(ctx context.Context, r *entity.Report) error {
 		return own(r, c.OwnerID)
 	case entity.TargetStream:
 		return uc.checkStream(ctx, r)
+	case entity.TargetVOD:
+		return uc.checkVOD(ctx, r)
 	}
 
 	return uc.checkMessage(ctx, r)
@@ -207,6 +209,32 @@ func (uc *UseCase) checkStream(ctx context.Context, r *entity.Report) error {
 
 	if err != nil {
 		return fmt.Errorf("reports - stream channel: %w", err)
+	}
+
+	return own(r, c.OwnerID)
+}
+
+// checkVOD: the VOD must exist and not be deleted; the user behind it is its channel's owner. The report keeps
+// the stream of a broadcast recording (none for an uploaded video).
+func (uc *UseCase) checkVOD(ctx context.Context, r *entity.Report) error {
+	v, err := uc.vod(ctx, r.TargetID)
+	if err != nil {
+		return fmt.Errorf("reports - vod: %w", err)
+	}
+
+	if v.Deleted {
+		return entity.ErrNotFound
+	}
+
+	r.StreamID = v.StreamID
+
+	c, err := uc.r.Replica.Channel(ctx, v.ChannelID)
+	if errors.Is(err, entity.ErrNotFound) {
+		return nil
+	}
+
+	if err != nil {
+		return fmt.Errorf("reports - vod channel: %w", err)
 	}
 
 	return own(r, c.OwnerID)

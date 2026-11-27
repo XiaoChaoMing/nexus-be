@@ -13,6 +13,8 @@ const (
 	TargetChannel = "CHANNEL"
 	TargetStream  = "STREAM"
 	TargetMessage = "MESSAGE"
+	// TargetVOD is a VOD (a broadcast recording or an uploaded video); targetId is the vod id.
+	TargetVOD = "VOD"
 )
 
 // Report reasons.
@@ -47,6 +49,7 @@ const (
 	ActionSuspendChannel = "SUSPEND_CHANNEL"
 	ActionRestoreChannel = "RESTORE_CHANNEL"
 	ActionTakedownStream = "TAKEDOWN_STREAM"
+	ActionTakedownVOD    = "TAKEDOWN_VOD"
 )
 
 // Statuses of the copies.
@@ -63,6 +66,8 @@ const (
 	StreamInterrupt  = "INTERRUPTED"
 	StreamEnded      = "ENDED"
 	StreamCancelled  = "CANCELLED"
+	VODSourceLive    = "LIVE"
+	VODSourceUpload  = "UPLOAD"
 )
 
 // Limits of NXL-F (NXL-00 §12).
@@ -89,7 +94,7 @@ func validOf(v string, set ...string) bool {
 
 // ValidTarget -.
 func ValidTarget(t string) bool {
-	return validOf(t, TargetUser, TargetChannel, TargetStream, TargetMessage)
+	return validOf(t, TargetUser, TargetChannel, TargetStream, TargetMessage, TargetVOD)
 }
 
 // ValidReason -.
@@ -164,7 +169,7 @@ type ReportDetail struct {
 	Related []ReportView
 	// Actions are the admin actions on the target and the chat restrictions of the user behind it.
 	Actions []AdminAction
-	// ChannelID is the channel the report is about: the channel itself, or the channel of the stream or room.
+	// ChannelID is the channel the report is about: the channel itself, or the channel of the stream, VOD or room.
 	ChannelID *string
 	// Authors are the evidence authors found in the user copy, by id.
 	Authors map[string]UserCopy
@@ -274,6 +279,16 @@ func (s StreamCopy) TakedownAllowed() bool {
 	}
 
 	return false
+}
+
+// VODCopy is safety-svc's copy of a VOD; StreamID is nil for an uploaded video.
+type VODCopy struct {
+	ID        string
+	ChannelID string
+	StreamID  *string
+	Source    string
+	Title     string
+	Deleted   bool
 }
 
 // Excerpt cuts s to n runes.

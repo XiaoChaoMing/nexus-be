@@ -33,7 +33,7 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	t.Cleanup(pg.Close)
 
 	_, err = pg.Pool.Exec(context.Background(), `TRUNCATE reports, admin_actions, audit_logs, outbox, processed_events,
-		users, channels, streams, replica_backfills CASCADE`)
+		users, channels, streams, vods, replica_backfills CASCADE`)
 	require.NoError(t, err)
 
 	return persistent.New(pg), pg
@@ -285,4 +285,83 @@ func TestReplica(t *testing.T) { //nolint:paralleltest,funlen // shared database
 	n, err := r.PurgeProcessed(ctx, time.Hour)
 	require.NoError(t, err)
 	require.Zero(t, n)
+}
+
+func TestVODCopy(t *testing.T) { //nolint:paralleltest,funlen // shared database, one story
+	r, _ := setup(t)
+	ctx := context.Background()
+	owner, channel, stream, rec, upload, reporter, admin := newID(), newID(), newID(), newID(), newID(), newID(), newID()
+	t0 := time.Now().Add(-time.Hour)
+
+	require.NoError(t, r.PatchChannel(ctx, newID(), t0, repo.ChannelPatch{ID: channel, OwnerID: &owner, Handle: str("vodtv"), DisplayName: str("VOD TV")}))
+
+	// stream.vod_ready: the VOD copy and the stream copy in one transaction.
+	require.NoError(t, r.PatchVOD(ctx, newID(), t0, repo.VODPatch{
+		ID: rec, ChannelID: channel, StreamID: &stream, Source: str(entity.VODSourceLive), Title: str("Rec"),
+		Stream: &repo.StreamPatch{ID: stream, ChannelID: channel, Title: str("Rec"), VODID: &rec},
+	}))
+
+	s, err := r.Stream(ctx, stream)
+	require.NoError(t, err)
+	require.Equal(t, &rec, s.VODID)
+
+	// vod.published, then an older replay of a rename that must not win.
+	require.NoError(t, r.PatchVOD(ctx, newID(), t0.Add(time.Minute), repo.VODPatch{
+		ID: upload, ChannelID: channel, Source: str(entity.VODSourceUpload), Title: str("Upload v2"),
+	}))
+	require.NoError(t, r.PatchVOD(ctx, newID(), t0, repo.VODPatch{ID: upload, ChannelID: channel, Title: str("Upload v1")}))
+
+	v, err := r.VOD(ctx, upload)
+	require.NoError(t, err)
+	require.Equal(t, entity.VODCopy{ID: upload, ChannelID: channel, Source: entity.VODSourceUpload, Title: "Upload v2"}, v)
+
+	// A copy kept from stream-svc (zero time) never overrides the events.
+	require.NoError(t, r.PatchVOD(ctx, "", time.Time{}, repo.VODPatch{ID: upload, ChannelID: channel, Title: str("stale")}))
+	v, err = r.VOD(ctx, upload)
+	require.NoError(t, err)
+	require.Equal(t, "Upload v2", v.Title)
+
+	// Reports on the VOD count as the channel's.
+	_, created, err := r.Insert(ctx, entity.Report{
+		ReporterID: reporter, TargetType: entity.TargetVOD, TargetID: upload, TargetUserID: &owner, Reason: entity.ReasonCopyright,
+		EvidenceStatus: entity.EvidenceNone, Evidence: []entity.EvidenceItem{},
+	})
+	require.NoError(t, err)
+	require.True(t, created)
+
+	c, err := r.Channel(ctx, channel)
+	require.NoError(t, err)
+	require.Equal(t, 1, c.OpenReports)
+
+	_, err = r.Record(ctx, entity.AdminAction{
+		AdminID: admin, Type: entity.ActionTakedownVOD, TargetType: entity.TargetVOD, TargetID: upload, Reason: "copyright strike",
+	}, entity.AuditEntry{
+		ActorID: &admin, ActorRole: events.ActorAdmin, Action: "VOD_TAKEDOWN", ResourceType: entity.TargetVOD, ResourceID: &upload,
+	}, events.TypeVODTakedown, events.VODTakedown{VODID: upload, ChannelID: channel, AdminID: admin})
+	require.NoError(t, err)
+
+	// vod.deleted of an upload (no stream) and of a recording; deleted is never undone.
+	eventID := newID()
+	require.NoError(t, r.PatchVOD(ctx, eventID, t0.Add(2*time.Minute), repo.VODPatch{ID: upload, ChannelID: channel, Deleted: true}))
+	require.NoError(t, r.PatchVOD(ctx, eventID, t0.Add(2*time.Minute), repo.VODPatch{ID: upload, ChannelID: channel, Deleted: true}),
+		"a redelivery is a no-op")
+	require.NoError(t, r.PatchVOD(ctx, newID(), t0.Add(3*time.Minute), repo.VODPatch{ID: upload, ChannelID: channel, Title: str("x")}))
+	require.NoError(t, r.PatchVOD(ctx, newID(), t0.Add(2*time.Minute), repo.VODPatch{
+		ID: rec, ChannelID: channel, StreamID: &stream, Deleted: true,
+		Stream: &repo.StreamPatch{ID: stream, ChannelID: channel, VODID: &rec, VODDeleted: true},
+	}))
+
+	l, err := r.Lookup(ctx, repo.LookupIDs{VODs: []string{upload, rec, newID()}})
+	require.NoError(t, err)
+	require.Len(t, l.VODs, 2)
+	require.True(t, l.VODs[upload].Deleted)
+	require.True(t, l.VODs[rec].Deleted)
+	require.Equal(t, &stream, l.VODs[rec].StreamID)
+
+	s, err = r.Stream(ctx, stream)
+	require.NoError(t, err)
+	require.True(t, s.VODDeleted)
+
+	_, err = r.VOD(ctx, newID())
+	require.ErrorIs(t, err, entity.ErrNotFound)
 }

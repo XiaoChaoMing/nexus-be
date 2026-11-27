@@ -1,5 +1,5 @@
-// Package events consumes the user / channel / stream events safety-svc keeps copies of and the moderation
-// and audit events it writes to the audit log.
+// Package events consumes the user / channel / stream / VOD events safety-svc keeps copies of and the
+// moderation and audit events it writes to the audit log.
 package events
 
 import (
@@ -25,7 +25,7 @@ var Types = []string{ //nolint:gochecknoglobals // static list
 	events.TypeUserRegistered, events.TypeUserProfileUpdated, events.TypeUserLocked, events.TypeUserUnlocked,
 	events.TypeChannelCreated, events.TypeChannelUpdated, events.TypeChannelSuspended, events.TypeChannelRestored,
 	events.TypeStreamScheduled, events.TypeStreamStarted, events.TypeStreamStatusChanged, events.TypeStreamEnded,
-	events.TypeStreamVODReady, events.TypeVODDeleted,
+	events.TypeStreamVODReady, events.TypeVODPublished, events.TypeVODUpdated, events.TypeVODDeleted,
 	events.TypeChatModAction, events.TypeChatSettingsChanged, events.TypeChannelRoleChanged, events.TypeAuditRecorded,
 }
 
@@ -46,7 +46,9 @@ func Handler(replica usecase.Replica, audit usecase.Audit) eventbus.Handler {
 			return onUser(ctx, replica, e, at)
 		case strings.HasPrefix(e.Type, "channel.") && e.Type != events.TypeChannelRoleChanged:
 			return onChannel(ctx, replica, e, at)
-		case strings.HasPrefix(e.Type, "stream.") || e.Type == events.TypeVODDeleted:
+		case e.Type == events.TypeStreamVODReady || strings.HasPrefix(e.Type, "vod."):
+			return onVOD(ctx, replica, e, at)
+		case strings.HasPrefix(e.Type, "stream."):
 			return onStream(ctx, replica, e, at)
 		}
 
@@ -189,26 +191,132 @@ func streamPatch(e eventbus.Event, at time.Time) (repo.StreamPatch, error) {
 		err := decode(e, &p, &p.StreamID, &p.ChannelID)
 
 		return repo.StreamPatch{ID: p.StreamID, ChannelID: p.ChannelID, Status: &p.Status}, err
-	case events.TypeStreamEnded:
-		var p events.StreamEnded
-
-		err := decode(e, &p, &p.StreamID, &p.ChannelID)
-
-		return repo.StreamPatch{
-			ID: p.StreamID, ChannelID: p.ChannelID, Status: str(entity.StreamEnded),
-			EndReason: &p.EndReason, EndedAt: &at,
-		}, err
-	case events.TypeStreamVODReady:
-		var p events.StreamVODReady
-
-		err := decode(e, &p, &p.StreamID, &p.ChannelID, &p.VODID)
-
-		return repo.StreamPatch{ID: p.StreamID, ChannelID: p.ChannelID, Title: &p.Title, VODID: &p.VODID}, err
 	}
 
+	var p events.StreamEnded
+
+	err := decode(e, &p, &p.StreamID, &p.ChannelID)
+
+	return repo.StreamPatch{
+		ID: p.StreamID, ChannelID: p.ChannelID, Status: str(entity.StreamEnded),
+		EndReason: &p.EndReason, EndedAt: &at,
+	}, err
+}
+
+func onVOD(ctx context.Context, replica usecase.Replica, e eventbus.Event, at time.Time) error {
+	var (
+		p   repo.VODPatch
+		err error
+	)
+
+	switch e.Type {
+	case events.TypeStreamVODReady:
+		p, err = vodReady(e)
+	case events.TypeVODPublished:
+		p, err = vodPublished(e)
+	case events.TypeVODUpdated:
+		p, err = vodUpdated(e)
+	case events.TypeVODDeleted:
+		p, err = vodDeleted(e)
+	default:
+		return fmt.Errorf("%w: %s: not a VOD event", eventbus.ErrSkip, e.Type)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return replica.PatchVOD(ctx, e.ID, at, p)
+}
+
+// vodReady: a broadcast recording; the stream copy learns its VOD in the same transaction.
+func vodReady(e eventbus.Event) (repo.VODPatch, error) {
+	var p events.StreamVODReady
+	if err := decode(e, &p, &p.StreamID, &p.ChannelID, &p.VODID); err != nil {
+		return repo.VODPatch{}, err
+	}
+
+	return repo.VODPatch{
+		ID: p.VODID, ChannelID: p.ChannelID, StreamID: &p.StreamID, Source: str(entity.VODSourceLive), Title: &p.Title,
+		Stream: &repo.StreamPatch{ID: p.StreamID, ChannelID: p.ChannelID, Title: &p.Title, VODID: &p.VODID},
+	}, nil
+}
+
+func vodPublished(e eventbus.Event) (repo.VODPatch, error) {
+	var p events.VODPublished
+	if err := decode(e, &p, &p.VODID, &p.ChannelID); err != nil {
+		return repo.VODPatch{}, err
+	}
+
+	source, err := vodSource(e, p.Source, entity.VODSourceUpload)
+	if err != nil {
+		return repo.VODPatch{}, err
+	}
+
+	return repo.VODPatch{ID: p.VODID, ChannelID: p.ChannelID, Source: source, Title: &p.Title}, nil
+}
+
+func vodUpdated(e eventbus.Event) (repo.VODPatch, error) {
+	var p events.VODUpdated
+	if err := decode(e, &p, &p.VODID, &p.ChannelID); err != nil {
+		return repo.VODPatch{}, err
+	}
+
+	streamID, source, err := vodOrigin(e, p.StreamID, p.Source)
+	if err != nil {
+		return repo.VODPatch{}, err
+	}
+
+	return repo.VODPatch{ID: p.VODID, ChannelID: p.ChannelID, StreamID: streamID, Source: source, Title: &p.Title}, nil
+}
+
+// vodDeleted marks the VOD copy deleted and, for a broadcast recording, the stream copy's VOD too.
+func vodDeleted(e eventbus.Event) (repo.VODPatch, error) {
 	var p events.VODDeleted
+	if err := decode(e, &p, &p.VODID, &p.ChannelID); err != nil {
+		return repo.VODPatch{}, err
+	}
 
-	err := decode(e, &p, &p.StreamID, &p.ChannelID, &p.VODID)
+	streamID, source, err := vodOrigin(e, p.StreamID, p.Source)
+	if err != nil {
+		return repo.VODPatch{}, err
+	}
 
-	return repo.StreamPatch{ID: p.StreamID, ChannelID: p.ChannelID, VODID: &p.VODID, VODDeleted: true}, err
+	out := repo.VODPatch{ID: p.VODID, ChannelID: p.ChannelID, StreamID: streamID, Source: source, Deleted: true}
+	if streamID != nil {
+		out.Stream = &repo.StreamPatch{ID: *streamID, ChannelID: p.ChannelID, VODID: &p.VODID, VODDeleted: true}
+	}
+
+	return out, nil
+}
+
+// vodOrigin checks the optional stream id (empty for an uploaded video) and resolves the source; events sent
+// before source existed are recordings, which always have a stream id.
+func vodOrigin(e eventbus.Event, streamID, source string) (stream, src *string, err error) {
+	if streamID == "" {
+		src, err = vodSource(e, source, entity.VODSourceUpload)
+
+		return nil, src, err
+	}
+
+	if _, err := uuid.Parse(streamID); err != nil {
+		return nil, nil, fmt.Errorf("%w: %s: bad id %q", eventbus.ErrSkip, e.Type, streamID)
+	}
+
+	src, err = vodSource(e, source, entity.VODSourceLive)
+
+	return &streamID, src, err
+}
+
+// vodSource returns source, or fallback when it is empty; an unknown source is skipped.
+func vodSource(e eventbus.Event, source, fallback string) (*string, error) {
+	if source == "" {
+		source = fallback
+	}
+
+	if source == entity.VODSourceLive || source == entity.VODSourceUpload {
+		return &source, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s: source %q", eventbus.ErrSkip, e.Type, source)
 }

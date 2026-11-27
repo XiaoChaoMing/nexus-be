@@ -78,6 +78,7 @@ func Run(cfg *config.Config) { //nolint:funlen // linear wiring
 		Evidence: clients.NewChat(cfg.Internal.ChatURL, cfg.Internal.Secret, cfg.Internal.EvidenceTimeout),
 		Snapshot: clients.NewSnapshots(cfg.Internal.IdentityURL, cfg.Internal.ChannelURL, cfg.Internal.StreamURL,
 			cfg.Internal.Secret),
+		VODs: clients.NewVODs(cfg.Internal.StreamURL, cfg.Internal.Secret),
 	}, l, safety.RateLimit(cfg.Safety.ReportRateLimit), safety.EvidenceTimeout(cfg.Internal.EvidenceTimeout),
 		safety.WithObserver(m))
 

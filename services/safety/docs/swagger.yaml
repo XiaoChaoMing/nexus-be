@@ -41,6 +41,7 @@ definitions:
         - USER
         - CHANNEL
         - STREAM
+        - VOD
         type: string
       type:
         enum:
@@ -49,6 +50,7 @@ definitions:
         - SUSPEND_CHANNEL
         - RESTORE_CHANNEL
         - TAKEDOWN_STREAM
+        - TAKEDOWN_VOD
         - CHAT_TIMEOUT
         - CHAT_UNTIMEOUT
         - CHAT_BAN
@@ -108,6 +110,7 @@ definitions:
         - CHANNEL
         - STREAM
         - MESSAGE
+        - VOD
         type: string
     type: object
   AdminReportDetail:
@@ -120,7 +123,7 @@ definitions:
         $ref: '#/definitions/Ref'
       channelId:
         description: ChannelID is the reported channel, or the channel of the reported
-          stream / of the room of the report.
+          stream / VOD / of the room of the report.
         type: string
       createdAt:
         type: string
@@ -171,6 +174,7 @@ definitions:
         - CHANNEL
         - STREAM
         - MESSAGE
+        - VOD
         type: string
     type: object
   AdminUserRow:
@@ -395,8 +399,9 @@ definitions:
         - OTHER
         type: string
       streamId:
-        description: StreamID is required for MESSAGE (the room of the message); optional
-          for USER (evidence from that room).
+        description: |-
+          StreamID is required for MESSAGE (the room of the message); optional for USER (evidence from that room);
+          replaced by the target's stream for STREAM and VOD (none for an uploaded video).
         type: string
       targetId:
         type: string
@@ -406,6 +411,7 @@ definitions:
         - CHANNEL
         - STREAM
         - MESSAGE
+        - VOD
         type: string
     type: object
   ResolveRequest:
@@ -474,7 +480,7 @@ paths:
         in: query
         name: action
         type: string
-      - description: USER, CHANNEL, STREAM, MESSAGE, REPORT, CREATOR_APPLICATION
+      - description: USER, CHANNEL, STREAM, VOD, MESSAGE, REPORT, CREATOR_APPLICATION
         in: query
         name: resourceType
         type: string
@@ -698,7 +704,7 @@ paths:
         in: query
         name: status
         type: string
-      - description: CSV of USER, CHANNEL, STREAM, MESSAGE
+      - description: CSV of USER, CHANNEL, STREAM, MESSAGE, VOD
         in: query
         name: targetType
         type: string
@@ -1068,6 +1074,57 @@ paths:
       summary: Unlock a user account
       tags:
       - admin-actions
+  /admin/vods/{vodId}/takedown:
+    post:
+      consumes:
+      - application/json
+      description: Deletes a broadcast recording or an uploaded video (stream-svc
+        applies it, then the files are removed). A VOD unknown to safety-svc is looked
+        up in stream-svc. Already deleted → 409 INVALID_STATE.
+      parameters:
+      - description: vod id
+        in: path
+        name: vodId
+        required: true
+        type: string
+      - description: reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/ActionRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/Data-internal_controller_restapi_v1_ActionAccepted'
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+        "409":
+          description: INVALID_STATE
+          schema:
+            $ref: '#/definitions/ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Take a VOD down
+      tags:
+      - admin-actions
   /reports:
     post:
       consumes:
@@ -1077,7 +1134,8 @@ paths:
         with details.retryAfterSec. For a MESSAGE the room's streamId is required;
         the message and up to 9 earlier messages of its author are kept as evidence
         (evidenceStatus UNAVAILABLE when chat-svc does not answer within 300 ms).
-        Reporting oneself → 400 targetId=INVALID.
+        A VOD (targetId = vod id) must exist and not be deleted (else 404); its channel's
+        owner is the reported user. Reporting oneself → 400 targetId=INVALID.
       parameters:
       - description: report
         in: body
@@ -1114,7 +1172,7 @@ paths:
             $ref: '#/definitions/ErrorResponse'
       security:
       - BearerAuth: []
-      summary: Report a user, channel, stream or chat message
+      summary: Report a user, channel, stream, VOD or chat message
       tags:
       - reports
 securityDefinitions:

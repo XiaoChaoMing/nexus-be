@@ -67,6 +67,7 @@ type detailReplica struct {
 func (detailReplica) Lookup(_ context.Context, ids repo.LookupIDs) (repo.Lookup, error) {
 	l := repo.Lookup{
 		Users: map[string]entity.UserCopy{}, Channels: map[string]entity.ChannelCopy{}, Streams: map[string]entity.StreamCopy{},
+		VODs: map[string]entity.VODCopy{},
 	}
 
 	for _, id := range ids.Users {
@@ -78,6 +79,12 @@ func (detailReplica) Lookup(_ context.Context, ids repo.LookupIDs) (repo.Lookup,
 	for _, id := range ids.Streams {
 		if id == streamID {
 			l.Streams[id] = entity.StreamCopy{ID: id, ChannelID: channelID, Title: "Live"}
+		}
+	}
+
+	for _, id := range ids.VODs {
+		if id == uploadID {
+			l.VODs[id] = entity.VODCopy{ID: id, ChannelID: channelID, Source: entity.VODSourceUpload, Title: "Upload"}
 		}
 	}
 
@@ -145,6 +152,8 @@ func TestGetDetailChannelOfTarget(t *testing.T) {
 		{name: "channel", report: entity.Report{TargetType: entity.TargetChannel, TargetID: channelID}, want: ptr(channelID)},
 		{name: "stream", report: entity.Report{TargetType: entity.TargetStream, TargetID: streamID}, want: ptr(channelID)},
 		{name: "unknown stream", report: entity.Report{TargetType: entity.TargetStream, TargetID: missingID}},
+		{name: "vod", report: entity.Report{TargetType: entity.TargetVOD, TargetID: uploadID}, want: ptr(channelID)},
+		{name: "unknown vod", report: entity.Report{TargetType: entity.TargetVOD, TargetID: missingID}},
 		{name: "user without room", report: entity.Report{TargetType: entity.TargetUser, TargetID: authorID}},
 	}
 
@@ -181,4 +190,24 @@ func TestAuditActorUsername(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, p.Items, "only a prefix matched")
 	require.Len(t, filters, 1, "no query for an unknown actor")
+}
+
+func TestVODTargetLabel(t *testing.T) {
+	t.Parallel()
+
+	var filters []repo.AuditFilter
+
+	for _, tc := range []struct {
+		id, label string
+	}{
+		{id: uploadID, label: "Upload"},
+		{id: missingID, label: missingID},
+	} {
+		r := entity.Report{ID: reportID, ReporterID: reporterID, TargetType: entity.TargetVOD, TargetID: tc.id}
+
+		d, err := detailEnv(r, &filters).Get(context.Background(), reportID)
+		require.NoError(t, err)
+		require.Equal(t, tc.label, d.Target.Label)
+		require.Equal(t, "/vod/"+tc.id, *d.Target.Link)
+	}
 }

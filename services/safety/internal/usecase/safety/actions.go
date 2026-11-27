@@ -169,6 +169,33 @@ func (uc *UseCase) TakedownStream(ctx context.Context, adminID, streamID string,
 	})
 }
 
+// TakedownVOD records TAKEDOWN_VOD; stream-svc deletes the VOD (safety.vod_takedown). A deleted VOD → ErrInvalidState.
+func (uc *UseCase) TakedownVOD(ctx context.Context, adminID, vodID string, in usecase.ActionInput) (string, error) {
+	reason, err := uc.validateAction(ctx, in.Reason, in.ReportID)
+	if err != nil {
+		return "", err
+	}
+
+	if !isUUID(vodID) {
+		return "", entity.ErrNotFound
+	}
+
+	v, err := uc.vod(ctx, vodID)
+	if err != nil {
+		return "", fmt.Errorf("adminactions - vod: %w", err)
+	}
+
+	if v.Deleted {
+		return "", entity.ErrInvalidState
+	}
+
+	return uc.record(ctx, adminID, action{
+		kind: entity.ActionTakedownVOD, targetType: entity.TargetVOD, targetID: vodID, auditAction: "VOD_TAKEDOWN",
+		eventType: events.TypeVODTakedown, reason: reason, reportID: in.ReportID,
+		payload: events.VODTakedown{VODID: vodID, ChannelID: v.ChannelID, Title: v.Title, Reason: reason, AdminID: adminID},
+	})
+}
+
 // validateAction checks the reason (ADMIN_REASON_MIN/MAX) and the report id, plus extra details.
 func (uc *UseCase) validateAction(ctx context.Context, reason string, reportID *string, extra ...string) (string, error) {
 	reason, ok := trimmed(reason, entity.AdminReasonMin, entity.AdminReasonMax)

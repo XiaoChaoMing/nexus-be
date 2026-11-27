@@ -1,5 +1,6 @@
 // Package clients calls the internal APIs of other services (X-Internal-Secret): chat-svc for report
-// evidence, identity / channel / stream for the one-off backfill of safety-svc's copies.
+// evidence, stream-svc for a VOD missing from the copy, identity / channel / stream for the one-off backfill of
+// safety-svc's copies.
 package clients
 
 import (
@@ -20,10 +21,17 @@ import (
 const (
 	_secretHeader    = "X-Internal-Secret" //nolint:gosec // a header name, not a secret
 	_snapshotTimeout = 30 * time.Second
+	// _vodTimeout bounds the synchronous lookup on a report or an admin action (one hop, ≤ 300 ms).
+	_vodTimeout = 300 * time.Millisecond
+	_vodDeleted = "DELETED"
 )
 
-// ErrStatus is an answer other than 200 / 404.
-var ErrStatus = errors.New("unexpected status")
+var (
+	// ErrStatus is an answer other than 200 / 404.
+	ErrStatus = errors.New("unexpected status")
+	// ErrIncomplete is a 200 answer without the fields safety-svc needs.
+	ErrIncomplete = errors.New("incomplete answer")
+)
 
 type caller struct {
 	base   string
@@ -94,6 +102,51 @@ func (c *Chat) Evidence(ctx context.Context, streamID, messageID, userID string,
 	}
 
 	return page.Items, nil
+}
+
+// VODs implements repo.VODClient on stream-svc's internal API.
+type VODs struct{ caller }
+
+var _ repo.VODClient = (*VODs)(nil)
+
+// NewVODs -.
+func NewVODs(streamURL, secret string) *VODs {
+	return &VODs{newCaller(streamURL, secret, _vodTimeout)}
+}
+
+type vodRow struct {
+	ID        string  `json:"id"`
+	ChannelID string  `json:"channelId"`
+	StreamID  *string `json:"streamId"`
+	Source    string  `json:"source"`
+	Title     string  `json:"title"`
+	Status    string  `json:"status"`
+}
+
+// VOD reads GET /internal/v1/vods/{id}; a DELETED VOD comes back with Deleted set.
+func (c *VODs) VOD(ctx context.Context, id string) (entity.VODCopy, error) {
+	var body struct {
+		Data vodRow `json:"data"`
+	}
+
+	if err := c.get(ctx, "/internal/v1/vods/"+url.PathEscape(id), url.Values{}, &body); err != nil {
+		return entity.VODCopy{}, fmt.Errorf("stream vod: %w", err)
+	}
+
+	v := body.Data
+	if v.ID == "" || v.ChannelID == "" {
+		return entity.VODCopy{}, fmt.Errorf("stream vod: %w", ErrIncomplete)
+	}
+
+	source := v.Source
+	if source == "" {
+		source = entity.VODSourceLive
+	}
+
+	return entity.VODCopy{
+		ID: v.ID, ChannelID: v.ChannelID, StreamID: v.StreamID, Source: source, Title: v.Title,
+		Deleted: v.Status == _vodDeleted,
+	}, nil
 }
 
 // Snapshots implements repo.SnapshotClient.

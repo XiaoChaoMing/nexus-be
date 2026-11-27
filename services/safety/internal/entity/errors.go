@@ -13,7 +13,7 @@ var (
 	ErrForbidden = errors.New("forbidden")
 	// ErrValidation: a field rule failed; RejectError.Details names the fields.
 	ErrValidation = errors.New("validation failed")
-	// ErrInvalidState: the report is closed, the stream cannot be taken down.
+	// ErrInvalidState: the report is closed, the stream cannot be taken down, the VOD is already deleted.
 	ErrInvalidState = errors.New("invalid state")
 	// ErrRateLimited: REPORT_RATE_LIMIT reached (RateLimitError.RetryAfter).
 	ErrRateLimited = errors.New("rate limited")

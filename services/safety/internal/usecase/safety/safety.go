@@ -35,6 +35,8 @@ type Repos struct {
 	Rate     repo.RateLimiter
 	Evidence repo.EvidenceClient
 	Snapshot repo.SnapshotClient
+	// VODs reads a VOD missing from the copy from stream-svc.
+	VODs repo.VODClient
 }
 
 // UseCase implements every safety-svc use case.

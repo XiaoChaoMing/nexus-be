@@ -117,6 +117,60 @@ func TestTakedown(t *testing.T) {
 	}
 }
 
+func TestTakedownVOD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		vod     string
+		in      usecase.ActionInput
+		err     error
+		details map[string]string
+		title   string
+	}{
+		{name: "uploaded video", vod: uploadID, in: usecase.ActionInput{Reason: reason, ReportID: ptr(reportID)}, title: "Upload"},
+		{name: "recording", vod: liveVODID, in: usecase.ActionInput{Reason: reason}, title: "Rec"},
+		{name: "only in stream-svc", vod: remoteID, in: usecase.ActionInput{Reason: reason}, title: "Remote"},
+		{name: "deleted", vod: deletedID, in: usecase.ActionInput{Reason: reason}, err: entity.ErrInvalidState},
+		{name: "missing", vod: missingID, in: usecase.ActionInput{Reason: reason}, err: entity.ErrNotFound},
+		{name: "bad id", vod: "x", in: usecase.ActionInput{Reason: reason}, err: entity.ErrNotFound},
+		{
+			name: "short reason", vod: uploadID, in: usecase.ActionInput{Reason: "bad"}, err: entity.ErrValidation,
+			details: map[string]string{"reason": "LENGTH"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(fakeEvidence{}, nil, nil)
+			_, err := e.uc.TakedownVOD(context.Background(), adminID, tc.vod, tc.in)
+
+			if tc.err != nil {
+				require.ErrorIs(t, err, tc.err)
+				require.Equal(t, tc.details, entity.DetailsOf(err))
+				require.Empty(t, e.actions.recs)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, e.actions.recs, 1)
+
+			rec := e.actions.recs[0]
+			require.Equal(t, entity.ActionTakedownVOD, rec.action.Type)
+			require.Equal(t, entity.TargetVOD, rec.action.TargetType)
+			require.Equal(t, tc.in.ReportID, rec.action.ReportID)
+			require.Equal(t, "VOD_TAKEDOWN", rec.audit.Action)
+			require.Equal(t, entity.TargetVOD, rec.audit.ResourceType)
+			require.Equal(t, events.TypeVODTakedown, rec.eventType)
+			require.Equal(t, events.VODTakedown{VODID: tc.vod, ChannelID: channelID, Title: tc.title, Reason: reason, AdminID: adminID},
+				rec.payload)
+		})
+	}
+}
+
 func TestChannelActions(t *testing.T) {
 	t.Parallel()
 
