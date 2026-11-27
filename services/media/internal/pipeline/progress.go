@@ -103,3 +103,16 @@ func isProgressKey(key string) bool {
 
 	return false
 }
+
+// ProgressReader turns `ffmpeg -progress` output lines into completed blocks (for ffmpeg runs outside a
+// Pipeline).
+type ProgressReader struct {
+	p progressParser
+}
+
+// Feed returns the block that line completes, or nil.
+func (r *ProgressReader) Feed(line string) *Progress {
+	_, done := r.p.feed(line)
+
+	return done
+}

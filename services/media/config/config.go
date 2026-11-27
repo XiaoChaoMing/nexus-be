@@ -15,6 +15,7 @@ type (
 		RTMP      RTMP
 		HTTP      HTTP
 		Media     Media
+		Upload    Upload
 		StreamSvc StreamSvc
 		S3        S3
 	}
@@ -56,6 +57,18 @@ type (
 		StaticStreamKey string        `env:"MEDIA_STATIC_STREAM_KEY"`
 		Preset          string        `env:"MEDIA_X264_PRESET" envDefault:"veryfast"`
 		HealthInterval  time.Duration `env:"MEDIA_HEALTH_INTERVAL" envDefault:"5s"`
+	}
+
+	// Upload transcodes uploaded videos (upload.completed.v1) into HLS under videos/{vodId}/.
+	Upload struct {
+		// Jobs run at once; 0 = upload.completed.v1 is not consumed at all. Live streams never count them.
+		MaxTranscodes int           `env:"MEDIA_MAX_UPLOAD_TRANSCODES" envDefault:"1"`
+		Preset        string        `env:"MEDIA_UPLOAD_X264_PRESET" envDefault:"veryfast"`
+		MaxDuration   time.Duration `env:"MEDIA_UPLOAD_MAX_DURATION" envDefault:"2h"`
+		// The only bucket source objects are read from (created by stream-svc).
+		Bucket      string `env:"MEDIA_UPLOAD_BUCKET" envDefault:"nxl-uploads"`
+		SegmentSec  int    `env:"MEDIA_UPLOAD_SEGMENT_SEC" envDefault:"4"`
+		FFprobePath string `env:"MEDIA_FFPROBE_PATH" envDefault:"ffprobe"`
 	}
 
 	// StreamSvc -.

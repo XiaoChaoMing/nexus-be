@@ -32,7 +32,7 @@ func (c *counter) VODObjectsDeleted(n int) { c.n += n }
 func TestDeletedHandler(t *testing.T) {
 	t.Parallel()
 
-	stream := uuid.NewString()
+	stream, vod := uuid.NewString(), uuid.NewString()
 
 	tests := []struct {
 		name    string
@@ -40,10 +40,26 @@ func TestDeletedHandler(t *testing.T) {
 		err     error
 		skip    bool
 		wantErr bool
+		prefix  string
 	}{
-		{name: "removed", payload: `{"vodId":"v","streamId":"` + stream + `"}`},
+		{name: "old event: streams prefix from streamId", payload: `{"vodId":"v","streamId":"` + stream + `"}`, prefix: "streams/" + stream + "/"},
+		{
+			name:    "live VOD with playlistPrefix",
+			payload: `{"vodId":"` + vod + `","streamId":"` + stream + `","source":"LIVE","playlistPrefix":"streams/` + stream + `/"}`,
+			prefix:  "streams/" + stream + "/",
+		},
+		{
+			name:    "uploaded video: videos prefix",
+			payload: `{"vodId":"` + vod + `","source":"UPLOAD","playlistPrefix":"videos/` + vod + `/"}`,
+			prefix:  "videos/" + vod + "/",
+		},
 		{name: "storage down: redelivered", payload: `{"vodId":"v","streamId":"` + stream + `"}`, err: errS3, wantErr: true},
 		{name: "path traversal", payload: `{"vodId":"v","streamId":"../"}`, skip: true},
+		{name: "prefix outside streams and videos", payload: `{"vodId":"v","playlistPrefix":"uploads/` + vod + `/"}`, skip: true},
+		{name: "prefix without trailing slash", payload: `{"vodId":"v","playlistPrefix":"videos/` + vod + `"}`, skip: true},
+		{name: "prefix with a malformed uuid", payload: `{"vodId":"v","playlistPrefix":"videos/------------------------------------/"}`, skip: true},
+		{name: "prefix with traversal", payload: `{"vodId":"v","playlistPrefix":"videos/../"}`, skip: true},
+		{name: "upload without prefix nor streamId", payload: `{"vodId":"v","source":"UPLOAD"}`, skip: true},
 		{name: "not json", payload: `{`, skip: true},
 	}
 
@@ -63,7 +79,7 @@ func TestDeletedHandler(t *testing.T) {
 				require.NotErrorIs(t, err, eventbus.ErrSkip)
 			default:
 				require.NoError(t, err)
-				require.Equal(t, []string{"streams/" + stream + "/"}, r.prefixes)
+				require.Equal(t, []string{tc.prefix}, r.prefixes)
 				require.Equal(t, 3, c.n)
 			}
 		})

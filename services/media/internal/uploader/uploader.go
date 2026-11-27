@@ -47,7 +47,10 @@ var ErrMissingSegments = errors.New("uploader - Flush: playlists still reference
 type Uploader struct {
 	store  storage.ObjectStore
 	dir    string
-	prefix string // streams/{streamId}/
+	prefix string // streams/{streamId}/ or videos/{vodId}/
+	// Cache-Control of closed playlists and of the thumbnail.
+	ccFinal string
+	ccThumb string
 
 	mu        sync.Mutex
 	uploaded  map[string]bool     // segment rel path → uploaded
@@ -64,6 +67,22 @@ func New(store storage.ObjectStore, dir, streamID string) *Uploader {
 		store:     store,
 		dir:       dir,
 		prefix:    path.Join(strings.TrimSuffix(storage.StreamsPrefix, "/"), streamID) + "/",
+		ccFinal:   ccClosed,
+		ccThumb:   ccThumb,
+		uploaded:  map[string]bool{},
+		published: map[string][32]byte{},
+	}
+}
+
+// NewVOD uploads a finished HLS directory under prefix (videos/{vodId}/) with Flush. Nothing there is
+// rewritten after publication, so playlists and the thumbnail are cached as immutable like segments.
+func NewVOD(store storage.ObjectStore, dir, prefix string) *Uploader {
+	return &Uploader{
+		store:     store,
+		dir:       dir,
+		prefix:    prefix,
+		ccFinal:   ccSegment,
+		ccThumb:   ccSegment,
 		uploaded:  map[string]bool{},
 		published: map[string][32]byte{},
 	}
@@ -247,7 +266,7 @@ func (u *Uploader) uploadPlaylist(ctx context.Context, rel string, final bool) (
 
 	cc := ccLive
 	if final {
-		cc = ccClosed
+		cc = u.ccFinal
 	}
 
 	// Re-upload when either content or caching changes (the final pass flips every playlist to the long cache).
@@ -300,7 +319,7 @@ func (u *Uploader) uploadThumb(ctx context.Context, final bool) error {
 		return nil
 	}
 
-	if err := u.putFile(ctx, thumbName, ctJPEG, ccThumb); err != nil {
+	if err := u.putFile(ctx, thumbName, ctJPEG, u.ccThumb); err != nil {
 		return err
 	}
 

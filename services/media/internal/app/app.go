@@ -24,6 +24,7 @@ import (
 	"github.com/minhnn/nexuslive-be/services/media/internal/rtmpserver"
 	"github.com/minhnn/nexuslive-be/services/media/internal/session"
 	"github.com/minhnn/nexuslive-be/services/media/internal/storage"
+	"github.com/minhnn/nexuslive-be/services/media/internal/transcode"
 	"github.com/minhnn/nexuslive-be/services/media/internal/vods"
 )
 
@@ -105,6 +106,11 @@ func Run(cfg *config.Config) { //nolint:funlen,gocognit,gocyclo,cyclop // linear
 		defer stop()
 	}
 
+	stopTranscode := startTranscoder(ctx, cfg, bus, transcode.Deps{
+		Live: mgr, Source: store, Store: m.InstrumentStore(store), Pub: bus, Rec: m, Log: l,
+	})
+	defer stopTranscode()
+
 	go mgr.RunHealth(ctx, cfg.Media.HealthInterval)
 
 	rtmpSrv, err := rtmpserver.New(cfg.RTMP.Addr, l, auth, mgr)
@@ -170,6 +176,56 @@ func Run(cfg *config.Config) { //nolint:funlen,gocognit,gocyclo,cyclop // linear
 
 	if err = httpSrv.Shutdown(shutdownCtx); err != nil {
 		l.Error("media - Run - http shutdown: %v", err)
+	}
+
+	// Cancels the running upload job before the deferred bus.Close: its event goes back to the queue.
+	stopTranscode()
+}
+
+// startTranscoder consumes upload.completed.v1 when NATS is configured and MEDIA_MAX_UPLOAD_TRANSCODES > 0.
+// The returned stop cancels the running job and waits for it; calling it again is a no-op.
+func startTranscoder(ctx context.Context, cfg *config.Config, bus *eventbus.Bus, d transcode.Deps) func() {
+	if bus == nil || cfg.Upload.MaxTranscodes <= 0 {
+		d.Log.Info("media - Run - upload transcoding off")
+
+		return func() {}
+	}
+
+	puller, err := bus.Pull(ctx, transcode.Durable, []string{ev.TypeUploadCompleted},
+		eventbus.AckWait(transcode.AckWait),
+		eventbus.MaxDeliver(transcode.MaxDeliver),
+		eventbus.MaxAckPending(cfg.Upload.MaxTranscodes))
+	if err != nil {
+		d.Log.Fatal("media - Run - upload consumer: %v", err)
+	}
+
+	d.Queue = transcode.PullerQueue(puller)
+	t := transcode.New(transcode.Config{
+		WorkDir:     cfg.Media.WorkDir,
+		FFmpegPath:  cfg.Media.FFmpegPath,
+		FFprobePath: cfg.Upload.FFprobePath,
+		Preset:      cfg.Upload.Preset,
+		Bucket:      cfg.Upload.Bucket,
+		MaxJobs:     cfg.Upload.MaxTranscodes,
+		MaxLive:     cfg.Media.MaxConcurrentStreams,
+		SegmentSec:  cfg.Upload.SegmentSec,
+		MaxDuration: cfg.Upload.MaxDuration,
+	}, d)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		t.Run(runCtx)
+	}()
+
+	d.Log.Info("media - Run - upload transcoding on: %d job(s), bucket %s", cfg.Upload.MaxTranscodes, cfg.Upload.Bucket)
+
+	return func() {
+		cancel()
+		<-done
 	}
 }
 

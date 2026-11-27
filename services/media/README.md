@@ -45,5 +45,7 @@ make nxl-media-publish KEY=live_...   # ffmpeg test pattern for 60 s (needs ffmp
 | `events` | publisher: NATS JetStream or log |
 | `storage` | MinIO client (bucket policy + 14-day lifecycle) and in-memory fake |
 | `httpapi` | `/healthz`, dev player, `/dev/sessions`, `/hls/*` proxy to the bucket |
+| `transcode` | uploaded videos (`upload.completed.v1`, durable `media-transcode`): download from `nxl-uploads`, ffprobe, ffmpeg (`nice 10`, only while live leaves room), upload, `upload.processed.v1` / `upload.failed.v1` |
 
-Object layout: `nxl-media/streams/{streamId}/{master.m3u8, thumb.jpg, 720p/index.m3u8, 720p/seg_00001.ts …}`.
+Object layout: `nxl-media/streams/{streamId}/{master.m3u8, thumb.jpg, 720p/index.m3u8, 720p/seg_00001.ts …}`;
+uploaded videos: `nxl-media/videos/{vodId}/…` (same files, 4 s segments, no expiry).

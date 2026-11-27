@@ -10,10 +10,12 @@ COPY services ./services
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /bin/media ./services/media/cmd/media
 
-# Alpine's ffmpeg is built with libx264 and the native AAC encoder (both required by the ladder).
+# Alpine's ffmpeg is built with libx264 and the native AAC encoder (both required by the ladder) and ships
+# ffprobe (uploaded videos are probed before transcoding); nice (busybox) lowers the upload jobs' priority.
 FROM alpine:3.23
 
 RUN apk add --no-cache ffmpeg ca-certificates \
+    && ffprobe -version > /dev/null \
     && mkdir -p /var/lib/media
 
 # Alpine already has a /media directory (mount point), so the binary gets its own name.

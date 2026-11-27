@@ -26,6 +26,11 @@ type Metrics struct {
 	uploadErrors prometheus.Counter
 	rejected     *prometheus.CounterVec
 	vodDeleted   prometheus.Counter
+
+	uploadJobs      *prometheus.CounterVec
+	uploadTranscode prometheus.Histogram
+	uploadSpeed     prometheus.Gauge
+	uploadQueueWait prometheus.Histogram
 }
 
 // New -.
@@ -51,11 +56,48 @@ func New() *Metrics {
 		}),
 	}
 
+	m.addUploadJobs()
+
 	m.reg.MustRegister(m.uploadSecs, m.uploadErrors, m.rejected, m.vodDeleted,
+		m.uploadJobs, m.uploadTranscode, m.uploadSpeed, m.uploadQueueWait,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 
 	return m
 }
+
+// addUploadJobs creates the metrics of uploaded-video transcoding (internal/transcode).
+func (m *Metrics) addUploadJobs() {
+	m.uploadJobs = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "media_upload_jobs_total",
+		Help: "Uploaded-video transcoding jobs by result (succeeded, failed, retryable, skipped, requeued).",
+	}, []string{"result"})
+	m.uploadTranscode = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "media_upload_transcode_seconds",
+		Help:    "Wall time of ffmpeg for one uploaded video.",
+		Buckets: prometheus.ExponentialBuckets(15, 2, 10), //nolint:mnd // 15 s … ~2 h
+	})
+	m.uploadSpeed = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "media_upload_transcode_speed",
+		Help: "ffmpeg speed of the running upload job (1.0 = real time, 0 = idle); drops while live streams run.",
+	})
+	m.uploadQueueWait = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "media_upload_queue_wait_seconds",
+		Help:    "Time from upload.completed.v1 to the start of its transcoding job.",
+		Buckets: prometheus.ExponentialBuckets(1, 3, 10), //nolint:mnd // 1 s … ~5.5 h
+	})
+}
+
+// UploadJob counts one finished upload job.
+func (m *Metrics) UploadJob(result string) { m.uploadJobs.WithLabelValues(result).Inc() }
+
+// UploadTranscoded observes ffmpeg's wall time for one upload job.
+func (m *Metrics) UploadTranscoded(d time.Duration) { m.uploadTranscode.Observe(d.Seconds()) }
+
+// UploadSpeed sets the running job's ffmpeg speed.
+func (m *Metrics) UploadSpeed(speed float64) { m.uploadSpeed.Set(speed) }
+
+// UploadQueueWait observes how long a job waited for a slot.
+func (m *Metrics) UploadQueueWait(d time.Duration) { m.uploadQueueWait.Observe(d.Seconds()) }
 
 // WatchSessions adds the per-stream collectors; the manager is built after the store is instrumented.
 func (m *Metrics) WatchSessions(sessions Sessions) {
