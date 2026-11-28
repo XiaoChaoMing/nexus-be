@@ -71,6 +71,8 @@ definitions:
         type: boolean
       followersMin:
         type: integer
+      guestChat:
+        type: boolean
       slowSec:
         type: integer
       subsOnly:
@@ -282,6 +284,10 @@ definitions:
         $ref: '#/definitions/ActorRef'
       createdAt:
         type: string
+      guest:
+        description: 'Guest marks a guest: user.username is empty and user.displayName
+          is the nickname.'
+        type: boolean
       reason:
         type: string
       type:
@@ -343,6 +349,10 @@ definitions:
         description: FollowersMin ∈ {null (off), 0, 10, 30, 60, 1440, 10080, 43200,
           129600} minutes.
         type: integer
+      guestChat:
+        description: GuestChat lets guests send messages (owner and admins only);
+          absent = unchanged.
+        type: boolean
       slowSec:
         description: SlowSec ∈ {0, 2, 5, 10, 30, 60, 120}.
         type: integer
@@ -423,7 +433,7 @@ paths:
         name: channelId
         required: true
         type: string
-      - description: user id
+      - description: user id, or the user.id of a guest's message (guest key)
         in: path
         name: userId
         required: true
@@ -578,8 +588,9 @@ paths:
       consumes:
       - application/json
       description: Channel owner, its moderators and admins. Every open room of the
-        channel gets mode_change and a system message. blockLinks absent keeps the
-        current value.
+        channel gets mode_change and a system message. blockLinks and guestChat absent
+        keep the current value; only the owner and admins may change guestChat (a
+        moderator gets 403).
       parameters:
       - description: channel id (uuid)
         in: path
@@ -608,7 +619,8 @@ paths:
           schema:
             $ref: '#/definitions/Error'
         "403":
-          description: FORBIDDEN
+          description: FORBIDDEN (not a manager of the channel, or a moderator changing
+            guestChat)
           schema:
             $ref: '#/definitions/Error'
       security:
@@ -866,7 +878,7 @@ paths:
         name: channelId
         required: true
         type: string
-      - description: user id
+      - description: user id, or the user.id of a guest's message (guest key)
         in: path
         name: userId
         required: true

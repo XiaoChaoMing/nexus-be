@@ -17,11 +17,6 @@ const docTemplate = `{
     "paths": {
         "/channels/{channelId}/bans/{userId}": {
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Like a timeout without end (CHAT_BANNED), for every stream of the channel until unbanned.",
                 "consumes": [
                     "application/json"
@@ -43,7 +38,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "user id",
+                        "description": "user id, or the user.id of a guest's message (guest key)",
                         "name": "userId",
                         "in": "path",
                         "required": true
@@ -82,14 +77,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            },
-            "delete": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "delete": {
                 "tags": [
                     "moderation"
                 ],
@@ -120,16 +115,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/channels/{channelId}/blocked-terms": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/channels/{channelId}/blocked-terms": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -159,14 +154,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            },
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "post": {
                 "description": "Matches whole words, ignoring case and diacritics (\"spam\" blocks \"SPẢM\", not \"spammer\"). A term already blocked in another spelling answers 200 with it.",
                 "consumes": [
                     "application/json"
@@ -227,16 +222,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/channels/{channelId}/blocked-terms/{termId}": {
-            "delete": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/channels/{channelId}/blocked-terms/{termId}": {
+            "delete": {
                 "tags": [
                     "moderation"
                 ],
@@ -267,7 +262,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         },
         "/channels/{channelId}/chat-settings": {
@@ -304,12 +304,7 @@ const docTemplate = `{
                 }
             },
             "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message. blockLinks absent keeps the current value.",
+                "description": "Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message. blockLinks and guestChat absent keep the current value; only the owner and admins may change guestChat (a moderator gets 403).",
                 "consumes": [
                     "application/json"
                 ],
@@ -358,21 +353,21 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "FORBIDDEN",
+                        "description": "FORBIDDEN (not a manager of the channel, or a moderator changing guestChat)",
                         "schema": {
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/channels/{channelId}/restrictions": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/channels/{channelId}/restrictions": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -427,16 +422,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/channels/{channelId}/roles": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/channels/{channelId}/roles": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -497,14 +492,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            },
-            "post": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "post": {
                 "description": "By username. 201 for a new role, 200 when it changed or was already given. At most 50 users per role.",
                 "consumes": [
                     "application/json"
@@ -571,16 +566,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/channels/{channelId}/roles/{userId}": {
-            "put": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/channels/{channelId}/roles/{userId}": {
+            "put": {
                 "consumes": [
                     "application/json"
                 ],
@@ -653,14 +648,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            },
-            "delete": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "delete": {
                 "tags": [
                     "roles"
                 ],
@@ -691,16 +686,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/channels/{channelId}/timeouts/{userId}": {
-            "put": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/channels/{channelId}/timeouts/{userId}": {
+            "put": {
                 "description": "Hides the user's messages in the open rooms (` + "`" + `user_cleared` + "`" + `), and refuses their messages until ` + "`" + `until` + "`" + ` (CHAT_TIMED_OUT). A new timeout replaces the running one.",
                 "consumes": [
                     "application/json"
@@ -722,7 +717,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "user id",
+                        "description": "user id, or the user.id of a guest's message (guest key)",
                         "name": "userId",
                         "in": "path",
                         "required": true
@@ -768,14 +763,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            },
-            "delete": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "delete": {
                 "description": "Viewers get ` + "`" + `user_restored` + "`" + `. Nothing to lift is a no-op.",
                 "tags": [
                     "moderation"
@@ -807,7 +802,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         },
         "/channels/{channelId}/users/{userId}/card": {
@@ -936,11 +936,6 @@ const docTemplate = `{
         },
         "/chat/rooms/{streamId}/messages/{messageId}": {
             "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
                 "description": "Channel owner, moderators and admins. Every viewer gets ` + "`" + `delete {messageId}` + "`" + ` (and ` + "`" + `unpin` + "`" + ` when it was pinned). Deleting a deleted message is a no-op.",
                 "tags": [
                     "moderation"
@@ -984,16 +979,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/chat/rooms/{streamId}/pin": {
-            "put": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/chat/rooms/{streamId}/pin": {
+            "put": {
                 "description": "Replaces the current pin; every viewer gets ` + "`" + `pin {message}` + "`" + `.",
                 "consumes": [
                     "application/json"
@@ -1054,14 +1049,14 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            },
-            "delete": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            },
+            "delete": {
                 "tags": [
                     "moderation"
                 ],
@@ -1091,16 +1086,16 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
-            }
-        },
-        "/me/channel-roles": {
-            "get": {
+                },
                 "security": [
                     {
                         "BearerAuth": []
                     }
-                ],
+                ]
+            }
+        },
+        "/me/channel-roles": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -1121,7 +1116,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/Error"
                         }
                     }
-                }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
             }
         }
     },
@@ -1232,6 +1232,9 @@ const docTemplate = `{
                 },
                 "followersMin": {
                     "type": "integer"
+                },
+                "guestChat": {
+                    "type": "boolean"
                 },
                 "slowSec": {
                     "type": "integer"
@@ -1560,6 +1563,10 @@ const docTemplate = `{
                 "createdAt": {
                     "type": "string"
                 },
+                "guest": {
+                    "description": "Guest marks a guest: user.username is empty and user.displayName is the nickname.",
+                    "type": "boolean"
+                },
                 "reason": {
                     "type": "string"
                 },
@@ -1645,6 +1652,10 @@ const docTemplate = `{
                 "followersMin": {
                     "description": "FollowersMin ∈ {null (off), 0, 10, 30, 60, 1440, 10080, 43200, 129600} minutes.",
                     "type": "integer"
+                },
+                "guestChat": {
+                    "description": "GuestChat lets guests send messages (owner and admins only); absent = unchanged.",
+                    "type": "boolean"
                 },
                 "slowSec": {
                     "description": "SlowSec ∈ {0, 2, 5, 10, 30, 60, 120}.",
