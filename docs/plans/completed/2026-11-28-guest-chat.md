@@ -145,6 +145,21 @@ Not tested (and why):
 - `-race`: máy không có gcc (cgo); CI chạy `-race`.
 - `make deps-audit`: không đổi dependency.
 
+**E2E trên stack thật (2026-11-28, chạy từ worktree `feat/guest-chat`):** migration `20261128100001` áp lên `nxl_chat` dùng
+chung, `chat-1`/`chat-2` build từ nhánh này, web dev server ở 5173 (Origin phải là 5173/5174 — chạy ở cổng khác thì
+`/v1/ws` bị từ chối 403 do kiểm tra Origin, đúng thiết kế), `NXL_EDGE_AUTH_RATE=600r/m` tạm thời theo setup guide.
+
+| Spec | Kết quả |
+| --- | --- |
+| `e2e/guest-chat.spec.ts` | pass (sau khi sửa spec: tìm dòng bị ẩn theo `data-message-id`, vì dòng đã ẩn không còn nội dung chữ) |
+| `e2e/m3.spec.ts`, `e2e/guest-modal.spec.ts` | pass (5 test) |
+| `e2e/m4-moderator.spec.ts` | pass (lần đầu 429 do giới hạn đăng nhập 10r/m; một lần dư moderator từ lần chạy bị crash → đã gỡ qua API) |
+| `e2e/takedown.spec.ts` | pass |
+| `e2e/gift.spec.ts` | 1 pass, 1 fail ở bước PSP giả (`502`) vì billing đang cấu hình SePay — không liên quan guest chat |
+
+Sau khi chạy: đã `down 1` migration guest chat trên `nxl_chat` (về `20261015100001`), build lại chat từ commit gốc
+`365e517`, trả nginx về `10r/m`, xóa DB `nxl_chat_guest_test`. Khi merge cần áp lại migration này.
+
 ## 5. Follow-ups
 
 - **Khi merge với `feat/stream-overlay`**: kiểm thứ tự migration chat-svc (cả hai nhánh có thể thêm migration ngày 2026-11-28).
