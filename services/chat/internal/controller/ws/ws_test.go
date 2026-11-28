@@ -164,6 +164,8 @@ type fakeChat struct{ usecase.Chat }
 
 func (fakeChat) Send(_ context.Context, p entity.Principal, _ string, in entity.SendInput) (entity.SendResult, error) {
 	switch {
+	case p.Guest() && in.GuestName == "Mèo Con":
+		return entity.SendResult{Message: entity.Message{ID: "g1"}}, nil
 	case p.Guest():
 		return entity.SendResult{}, entity.ErrUnauthenticated
 	case in.Body == "slow":
@@ -345,6 +347,12 @@ func TestGuestReadsButCannotSend(t *testing.T) {
 	require.Equal(t, "error", errFrame["op"])
 	require.Equal(t, "UNAUTHORIZED", errFrame["code"])
 	require.Equal(t, "k1", errFrame["ref"])
+
+	c.send(map[string]any{
+		"op": "send", "topic": chatT, "type": "message", "data": map[string]string{"body": "hi", "guestName": "Mèo Con"}, "clientMsgId": "k2",
+	})
+	ack := c.next()
+	require.Equal(t, "ack", ack["type"], "the nickname reaches the use case")
 
 	c.send(map[string]any{"op": "ping"})
 	require.Equal(t, "pong", c.next()["op"])

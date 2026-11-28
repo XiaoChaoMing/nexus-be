@@ -13,7 +13,7 @@ type (
 	// RoomRepo owns chat_rooms (NXL-B §7A).
 	RoomRepo interface {
 		// SendContext reads the room, its channel's settings and owner, the user's role, restriction and
-		// profile. entity.ErrNotFound when the stream has no room. userID may be empty (guest).
+		// profile. entity.ErrNotFound when the stream has no room. userID may be empty (guest) or a guest key.
 		SendContext(ctx context.Context, streamID, userID string) (entity.SendContext, error)
 		// OpenRoom creates the room OPEN; it reports false when the room already existed.
 		OpenRoom(ctx context.Context, r entity.Room) (bool, error)
@@ -96,6 +96,9 @@ type (
 		Restriction(ctx context.Context, channelID, userID string) (*entity.ActiveRestriction, error)
 		// Pinned returns the room's pinned message, nil when none.
 		Pinned(ctx context.Context, streamID string) (*entity.Message, error)
+		// GuestName returns the nickname of the guest's latest message in the channel's rooms; entity.ErrNotFound when
+		// guestKey never sent one there.
+		GuestName(ctx context.Context, channelID, guestKey string) (string, error)
 		// Evidence returns up to limit messages, oldest first: messageID and the previous ones of its author, or
 		// userID's last ones. entity.ErrNotFound when the room or the message does not exist.
 		Evidence(ctx context.Context, streamID string, messageID, userID *string, limit int) ([]entity.EvidenceItem, error)

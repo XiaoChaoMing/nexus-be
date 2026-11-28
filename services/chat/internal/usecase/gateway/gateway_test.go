@@ -59,6 +59,26 @@ func (p *presence) AddConn(context.Context, string, string, int) (bool, error) {
 
 func (*presence) StreamStatus(context.Context, string) (string, error) { return "LIVE", nil }
 
+func TestAuthorizeGuestKey(t *testing.T) {
+	t.Parallel()
+
+	uc := gateway.New(gateway.Deps{Verifier: verifier{}, GuestSecret: []byte("s")}, 1, logger.New("error"))
+	ctx := context.Background()
+
+	guest, err := uc.Authorize(ctx, nil, "0199D4A2-0000-7000-8000-00000000A0A0")
+	require.NoError(t, err)
+	require.Equal(t, entity.GuestKey([]byte("s"), "0199d4a2-0000-7000-8000-00000000a0a0"), guest.GuestKey, "from the canonical anonId")
+	require.Equal(t, guest.GuestKey, guest.AuthorID())
+
+	guest, err = uc.Authorize(ctx, nil, "not-a-uuid")
+	require.NoError(t, err)
+	require.Empty(t, guest.GuestKey, "no anonId, no guest key: cannot chat")
+
+	account, err := uc.Authorize(ctx, new("good"), "0199d4a2-0000-7000-8000-00000000a0a0")
+	require.NoError(t, err)
+	require.Empty(t, account.GuestKey, "accounts write as themselves")
+}
+
 func TestAuthorizeAndJoin(t *testing.T) {
 	t.Parallel()
 

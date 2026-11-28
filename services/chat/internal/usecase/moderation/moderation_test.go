@@ -25,6 +25,7 @@ const (
 	vip       = "0199d4a2-0000-7000-8000-000000000005"
 	admin     = "0199d4a2-0000-7000-8000-000000000006"
 	ghost     = "0199d4a2-0000-7000-8000-000000000404"
+	guestKey  = "0199d4a2-0000-8000-8000-00000000a0a0"
 	msgID     = "0199d4a2-0000-7000-8000-0000000000ee"
 )
 
@@ -80,7 +81,7 @@ func (fakeUsers) Users(_ context.Context, ids []string) (map[string]entity.User,
 	out := map[string]entity.User{}
 
 	for _, id := range ids {
-		if id != ghost {
+		if id != ghost && id != guestKey {
 			out[id] = entity.User{ID: id, Username: "u" + id[len(id)-3:], CreatedAt: _registeredAt}
 		}
 	}
@@ -198,6 +199,15 @@ func (f fakeMod) Lift(_ context.Context, a entity.ModAction) (lifted bool, rooms
 	delete(f.w.banned, *a.TargetUserID)
 
 	return was, []string{streamID}, nil
+}
+
+// GuestName knows one guest who chatted in the channel.
+func (fakeMod) GuestName(_ context.Context, ch, key string) (string, error) {
+	if ch != channelID || key != guestKey {
+		return "", entity.ErrNotFound
+	}
+
+	return "Mèo Con", nil
 }
 
 func (f fakeMod) Restriction(_ context.Context, _, userID string) (*entity.ActiveRestriction, error) {
@@ -323,6 +333,65 @@ func TestTimeoutPermissions(t *testing.T) {
 			require.Equal(t, []string{"chat:" + streamID + " user_cleared"}, w.published)
 		})
 	}
+}
+
+func TestRestrictGuest(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		actor  string
+		target string
+		ban    bool
+		want   error
+	}{
+		{name: "mod times a guest out", actor: mod, target: guestKey},
+		{name: "owner bans a guest", actor: owner, target: guestKey, ban: true},
+		{name: "unknown id is neither an account nor a guest of the channel", actor: mod, target: ghost, want: entity.ErrNotFound},
+		{name: "a viewer cannot", actor: viewer, target: guestKey, want: entity.ErrForbidden},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := newWorld()
+			uc := newUC(w)
+			ctx := context.Background()
+
+			var err error
+			if tc.ban {
+				_, err = uc.Ban(ctx, as(tc.actor), channelID, tc.target, nil)
+			} else {
+				_, err = uc.Timeout(ctx, as(tc.actor), channelID, tc.target, time.Minute, nil)
+			}
+
+			if tc.want != nil {
+				require.ErrorIs(t, err, tc.want)
+				require.Empty(t, w.actions)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, w.actions, 1)
+			require.Equal(t, guestKey, *w.actions[0].TargetUserID)
+			require.Equal(t, "Mèo Con", *w.actions[0].TargetGuestName)
+			require.Equal(t, []string{"chat:" + streamID + " user_cleared"}, w.published)
+
+			require.NoError(t, uc.Unban(ctx, as(tc.actor), channelID, tc.target), "lifting takes the guest key as is")
+		})
+	}
+}
+
+func TestRestrictAccountHasNoGuestName(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld()
+
+	_, err := newUC(w).Timeout(context.Background(), as(mod), channelID, viewer, time.Minute, nil)
+	require.NoError(t, err)
+	require.Nil(t, w.actions[0].TargetGuestName)
 }
 
 func TestBanThenTimeoutAndUnban(t *testing.T) {

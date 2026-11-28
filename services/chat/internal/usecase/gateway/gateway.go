@@ -31,6 +31,7 @@ type UseCase struct {
 	audience repo.AudienceStore
 	live     repo.LiveStore
 	locks    repo.LockStore
+	secret   []byte
 	maxConns int
 	l        logger.Interface
 }
@@ -49,13 +50,15 @@ type Deps struct {
 	Live     repo.LiveStore
 	// Locks may be nil (no lock check).
 	Locks repo.LockStore
+	// GuestSecret keys the guest key derived from a guest's anonId (NXL_INTERNAL_SECRET).
+	GuestSecret []byte
 }
 
 // New -.
 func New(d Deps, maxConnsPerUser int, l logger.Interface) *UseCase {
 	return &UseCase{
 		verifier: d.Verifier, chat: d.Chat, viewers: d.Viewers, seq: d.Seq, presence: d.Presence, broker: d.Broker,
-		audience: d.Audience, live: d.Live, locks: d.Locks, maxConns: maxConnsPerUser, l: l,
+		audience: d.Audience, live: d.Live, locks: d.Locks, secret: d.GuestSecret, maxConns: maxConnsPerUser, l: l,
 	}
 }
 
@@ -70,6 +73,10 @@ func (uc *UseCase) Authorize(ctx context.Context, token *string, anonID string) 
 	}
 
 	if token == nil {
+		if p.AnonID != "" {
+			p.GuestKey = entity.GuestKey(uc.secret, p.AnonID)
+		}
+
 		return p, nil
 	}
 

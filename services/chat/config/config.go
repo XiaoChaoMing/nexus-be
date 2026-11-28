@@ -106,6 +106,11 @@ type (
 		SidebarBatchInterval time.Duration `env:"CHAT_SIDEBAR_BATCH_INTERVAL" envDefault:"5s"`
 		// TimeoutMax is the longest timeout a moderator may give (14 days).
 		TimeoutMax time.Duration `env:"CHAT_TIMEOUT_MAX" envDefault:"336h"`
+		// Guests (channels with guest chat on): at least GuestSlow between two messages in a room, GuestRateLimitIP
+		// messages per RateWindow for every guest of one IP, GuestMaxChars runes per message.
+		GuestSlow        time.Duration `env:"CHAT_GUEST_SLOW"          envDefault:"10s"`
+		GuestRateLimitIP int           `env:"CHAT_GUEST_RATE_LIMIT_IP" envDefault:"10"`
+		GuestMaxChars    int           `env:"CHAT_GUEST_MAX_CHARS"     envDefault:"200"`
 	}
 )
 

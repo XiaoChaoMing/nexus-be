@@ -50,7 +50,7 @@ func (*fakeChat) Settings(_ context.Context, id string) (entity.ChatSettings, er
 		return entity.ChatSettings{}, entity.ErrNotFound
 	}
 
-	return entity.ChatSettings{ChannelID: id, SlowSec: 5}, nil
+	return entity.ChatSettings{ChannelID: id, SlowSec: 5, GuestChat: true}, nil
 }
 
 func (f *fakeChat) UpdateSettings(_ context.Context, p entity.Principal, s entity.ChatSettings) (entity.ChatSettings, error) {
@@ -171,7 +171,9 @@ func TestSettingsRoutes(t *testing.T) {
 
 	status, body := do(t, app, http.MethodGet, path, "", "")
 	require.Equal(t, http.StatusOK, status)
-	require.Equal(t, map[string]any{"slowSec": float64(5), "followersMin": nil, "subsOnly": false, "blockLinks": false, "updatedAt": nil}, body["data"])
+	require.Equal(t, map[string]any{
+		"slowSec": float64(5), "followersMin": nil, "subsOnly": false, "blockLinks": false, "guestChat": true, "updatedAt": nil,
+	}, body["data"])
 
 	status, _ = do(t, app, http.MethodGet, "/v1/channels/0199d4a2-0000-7000-8000-0000000000ff/chat-settings", "", "")
 	require.Equal(t, http.StatusNotFound, status)
@@ -183,6 +185,7 @@ func TestSettingsRoutes(t *testing.T) {
 		status  int
 		code    string
 		details map[string]any
+		guest   bool
 	}{
 		{name: "guest", body: `{"slowSec":5}`, status: http.StatusUnauthorized, code: "UNAUTHORIZED"},
 		{
@@ -191,7 +194,8 @@ func TestSettingsRoutes(t *testing.T) {
 		},
 		{name: "not json", body: `{`, user: "owner", status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
 		{name: "not allowed", body: `{"slowSec":5}`, user: "viewer", status: http.StatusForbidden, code: "FORBIDDEN"},
-		{name: "owner", body: `{"slowSec":10,"followersMin":0,"subsOnly":true}`, user: "owner", status: http.StatusOK},
+		{name: "owner, guestChat absent keeps it", body: `{"slowSec":10,"followersMin":0,"subsOnly":true}`, user: "owner", status: http.StatusOK, guest: true},
+		{name: "owner turns guests off", body: `{"slowSec":10,"followersMin":0,"subsOnly":true,"guestChat":false}`, user: "owner", status: http.StatusOK},
 	}
 
 	for _, tc := range tests {
@@ -210,7 +214,10 @@ func TestSettingsRoutes(t *testing.T) {
 			continue
 		}
 
-		require.Equal(t, map[string]any{"slowSec": float64(10), "followersMin": float64(0), "subsOnly": true, "blockLinks": false, "updatedAt": "2026-10-14T12:00:00Z"}, body["data"])
+		require.Equal(t, map[string]any{
+			"slowSec": float64(10), "followersMin": float64(0), "subsOnly": true, "blockLinks": false, "guestChat": tc.guest,
+			"updatedAt": "2026-10-14T12:00:00Z",
+		}, body["data"], tc.name)
 	}
 
 	require.Equal(t, "owner", c.updatedBy)

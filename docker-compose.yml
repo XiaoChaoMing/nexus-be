@@ -42,6 +42,9 @@ x-chat: &x-chat
     CHAT_SIDEBAR_BATCH_INTERVAL: "${CHAT_SIDEBAR_BATCH_INTERVAL:-5s}"
     CHAT_DISABLED: "${CHAT_DISABLED:-false}"
     CHAT_REQUIRE_VERIFIED_EMAIL: "${CHAT_REQUIRE_VERIFIED_EMAIL:-false}"
+    CHAT_GUEST_SLOW: "${CHAT_GUEST_SLOW:-10s}"
+    CHAT_GUEST_RATE_LIMIT_IP: "${CHAT_GUEST_RATE_LIMIT_IP:-10}"
+    CHAT_GUEST_MAX_CHARS: "${CHAT_GUEST_MAX_CHARS:-200}"
     # Internal API (report evidence for safety-svc, reached through the shared alias "chat"); not published.
     CHAT_INTERNAL_PORT: "8085"
     NXL_INTERNAL_SECRET: "${NXL_INTERNAL_SECRET:-dev-internal-secret}"

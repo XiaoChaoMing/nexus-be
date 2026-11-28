@@ -132,8 +132,13 @@ func (uc *UseCase) Pin(ctx context.Context, p entity.Principal, streamID, messag
 	return m, nil
 }
 
-// decorate gives a pinned message its author's color and channel badges (subscriptions left out).
+// decorate gives a pinned message its author's color and channel badges (subscriptions left out); a guest's
+// message keeps the GUEST badge the repo gave it.
 func (uc *UseCase) decorate(ctx context.Context, ch entity.Channel, m entity.Message) entity.Message {
+	if m.User.IsGuest() {
+		return m
+	}
+
 	role, err := uc.roleOf(ctx, ch.ID, m.User.ID)
 	if err != nil {
 		uc.l.Warn("moderation - badges of %s: %v", m.User.ID, err)
@@ -211,12 +216,14 @@ func (uc *UseCase) restrict(ctx context.Context, p entity.Principal, channelID, 
 		return entity.ActiveRestriction{}, perr
 	}
 
-	if _, uerr := uc.knownUser(ctx, userID); uerr != nil {
-		return entity.ActiveRestriction{}, uerr
+	guestName, err := uc.target(ctx, channelID, userID)
+	if err != nil {
+		return entity.ActiveRestriction{}, err
 	}
 
 	rooms, unpinned, err := uc.r.Mod.Restrict(ctx, entity.ModAction{
-		ChannelID: channelID, ActorID: p.UserID, ActorRole: role, Type: typ, TargetUserID: &userID, Reason: reason, ExpiresAt: until,
+		ChannelID: channelID, ActorID: p.UserID, ActorRole: role, Type: typ, TargetUserID: &userID, TargetGuestName: guestName,
+		Reason: reason, ExpiresAt: until,
 	})
 	if err != nil {
 		if errors.Is(err, entity.ErrInvalidState) {
@@ -234,6 +241,26 @@ func (uc *UseCase) restrict(ctx context.Context, p entity.Principal, channelID, 
 	}
 
 	return *r, nil
+}
+
+// target accepts an account, or a guest key that sent a message in the channel (its latest nickname is returned);
+// entity.ErrNotFound for anything else.
+func (uc *UseCase) target(ctx context.Context, channelID, userID string) (*string, error) {
+	_, err := uc.knownUser(ctx, userID)
+	if !errors.Is(err, entity.ErrNotFound) {
+		return nil, err
+	}
+
+	name, gerr := uc.r.Mod.GuestName(ctx, channelID, userID)
+	if errors.Is(gerr, entity.ErrNotFound) {
+		return nil, err
+	}
+
+	if gerr != nil {
+		return nil, fmt.Errorf("ModerationUseCase - guest name: %w", gerr)
+	}
+
+	return &name, nil
 }
 
 func (uc *UseCase) relayCleared(ctx context.Context, userID, typ string, until *time.Time, rooms, unpinned []string) {

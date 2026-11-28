@@ -72,9 +72,11 @@ func (r *Repo) Message(ctx context.Context, streamID, messageID string) (entity.
 // it concerns (body; audit only).
 func insertAction(ctx context.Context, tx pgx.Tx, a entity.ModAction, body *string) error {
 	err := tx.QueryRow(ctx,
-		`INSERT INTO mod_actions (channel_id, stream_id, actor_id, actor_role, type, target_user_id, message_id, reason, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id::text, created_at`,
-		a.ChannelID, a.StreamID, a.ActorID, string(a.ActorRole), a.Type, a.TargetUserID, a.MessageID, a.Reason, a.ExpiresAt,
+		`INSERT INTO mod_actions (channel_id, stream_id, actor_id, actor_role, type, target_user_id, target_guest_name, message_id,
+		                          reason, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id::text, created_at`,
+		a.ChannelID, a.StreamID, a.ActorID, string(a.ActorRole), a.Type, a.TargetUserID, a.TargetGuestName, a.MessageID, a.Reason,
+		a.ExpiresAt,
 	).Scan(&a.ID, &a.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert mod action: %w", err)
@@ -423,15 +425,18 @@ func (r *Repo) Lift(ctx context.Context, a entity.ModAction) (lifted bool, rooms
 	return lifted, rooms, err
 }
 
-// _activeRestrictions keeps, per user, the latest restricting action of the channel when it is still in force.
+// _activeRestrictions keeps, per user, the latest restricting action of the channel when it is still in force. A
+// guest key has no users row: its name is the nickname stored on the action.
 const _activeRestrictions = `WITH last AS (
-		SELECT DISTINCT ON (a.target_user_id) a.id, a.target_user_id, a.type, a.expires_at, a.actor_id, a.reason, a.created_at
+		SELECT DISTINCT ON (a.target_user_id) a.id, a.target_user_id, a.target_guest_name, a.type, a.expires_at, a.actor_id,
+		       a.reason, a.created_at
 		FROM mod_actions a
 		WHERE a.channel_id = $1 AND a.type IN ('BAN', 'UNBAN', 'TIMEOUT', 'UNTIMEOUT')
 		ORDER BY a.target_user_id, a.created_at DESC, a.id DESC
 	)
-	SELECT l.id::text, l.target_user_id::text, COALESCE(tu.username, ''), COALESCE(tu.display_name, ''), l.type, l.expires_at,
-	       l.actor_id::text, COALESCE(au.username, ''), COALESCE(au.display_name, ''), l.reason, l.created_at
+	SELECT l.id::text, l.target_user_id::text, COALESCE(tu.username, ''), COALESCE(tu.display_name, l.target_guest_name, ''),
+	       l.type, l.expires_at, l.actor_id::text, COALESCE(au.username, ''), COALESCE(au.display_name, ''), l.reason, l.created_at,
+	       tu.id IS NULL AND l.target_guest_name IS NOT NULL
 	FROM last l LEFT JOIN users tu ON tu.id = l.target_user_id LEFT JOIN users au ON au.id = l.actor_id
 	WHERE (l.type = 'BAN' OR (l.type = 'TIMEOUT' AND l.expires_at > now()))`
 
@@ -442,7 +447,7 @@ func scanRestriction(row pgx.CollectableRow) (entity.ActiveRestriction, error) {
 	)
 
 	err := row.Scan(&x.ID, &x.User.ID, &x.User.Username, &x.User.DisplayName, &typ, &x.Until,
-		&x.Actor.ID, &x.Actor.Username, &x.Actor.DisplayName, &x.Reason, &x.CreatedAt)
+		&x.Actor.ID, &x.Actor.Username, &x.Actor.DisplayName, &x.Reason, &x.CreatedAt, &x.Guest)
 	x.Type = entity.RestrictionType(typ)
 
 	return x, err
@@ -494,6 +499,25 @@ func (r *Repo) Restriction(ctx context.Context, channelID, userID string) (*enti
 	}
 
 	return &list[0], nil
+}
+
+// GuestName -.
+func (r *Repo) GuestName(ctx context.Context, channelID, guestKey string) (string, error) {
+	var name string
+
+	err := r.Pool.QueryRow(ctx,
+		`SELECT m.guest_name FROM chat_messages m JOIN chat_rooms r ON r.stream_id = m.stream_id
+		 WHERE r.channel_id = $1 AND m.user_id = $2 AND m.guest_name IS NOT NULL
+		 ORDER BY m.created_at DESC LIMIT 1`, channelID, guestKey).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", entity.ErrNotFound
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("Repo - GuestName: %w", err)
+	}
+
+	return name, nil
 }
 
 // Pinned -.

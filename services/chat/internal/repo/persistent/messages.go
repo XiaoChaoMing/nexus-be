@@ -29,12 +29,19 @@ func (r *Repo) InsertMessage(ctx context.Context, m entity.Message) (entity.Mess
 		return entity.Message{}, fmt.Errorf("Repo - InsertMessage - fragments: %w", err)
 	}
 
-	const q = `INSERT INTO chat_messages (stream_id, user_id, client_msg_id, body, fragments, type)
-	           VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text, created_at`
+	const q = `INSERT INTO chat_messages (stream_id, user_id, client_msg_id, body, fragments, type, guest_name)
+	           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id::text, created_at`
+
+	var guestName *string
+	if m.User.IsGuest() {
+		guestName = &m.User.DisplayName
+	}
+
+	args := []any{m.StreamID, m.User.ID, m.ClientMsgID, m.Body, frags, m.Type, guestName}
 
 	mentioned := m.Mentioned()
 	if len(mentioned) == 0 {
-		if err = r.Pool.QueryRow(ctx, q, m.StreamID, m.User.ID, m.ClientMsgID, m.Body, frags, m.Type).Scan(&m.ID, &m.CreatedAt); err != nil {
+		if err = r.Pool.QueryRow(ctx, q, args...).Scan(&m.ID, &m.CreatedAt); err != nil {
 			return entity.Message{}, fmt.Errorf("Repo - InsertMessage: %w", err)
 		}
 
@@ -44,7 +51,7 @@ func (r *Repo) InsertMessage(ctx context.Context, m entity.Message) (entity.Mess
 	}
 
 	err = r.inTx(ctx, "Repo - InsertMessage", func(tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, q, m.StreamID, m.User.ID, m.ClientMsgID, m.Body, frags, m.Type).Scan(&m.ID, &m.CreatedAt); err != nil {
+		if err := tx.QueryRow(ctx, q, args...).Scan(&m.ID, &m.CreatedAt); err != nil {
 			return fmt.Errorf("Repo - InsertMessage: %w", err)
 		}
 
@@ -98,17 +105,24 @@ func (r *Repo) History(ctx context.Context, streamID string, before *string, lim
 
 // _messageCols is read by scanMessage (alias m, LEFT JOIN users u).
 const _messageCols = `m.id::text, m.stream_id::text, m.user_id::text, m.body, m.fragments, m.type, m.created_at,
-	COALESCE(u.username, ''), COALESCE(NULLIF(u.display_name, ''), u.username, ''), m.pinned, m.deleted_at IS NOT NULL`
+	COALESCE(u.username, ''), COALESCE(NULLIF(u.display_name, ''), u.username, ''), m.pinned, m.deleted_at IS NOT NULL,
+	m.guest_name`
 
+// scanMessage gives a guest's message the nickname it was sent under and the GUEST badge.
 func scanMessage(row pgx.CollectableRow) (entity.Message, error) {
 	var (
-		m     entity.Message
-		frags []byte
+		m         entity.Message
+		frags     []byte
+		guestName *string
 	)
 
 	if err := row.Scan(&m.ID, &m.StreamID, &m.User.ID, &m.Body, &frags, &m.Type, &m.CreatedAt,
-		&m.User.Username, &m.User.DisplayName, &m.Pinned, &m.Deleted); err != nil {
+		&m.User.Username, &m.User.DisplayName, &m.Pinned, &m.Deleted, &guestName); err != nil {
 		return entity.Message{}, fmt.Errorf("scan message: %w", err)
+	}
+
+	if guestName != nil {
+		m.User = entity.GuestAuthor(m.User.ID, *guestName)
 	}
 
 	if err := json.Unmarshal(frags, &m.Fragments); err != nil {

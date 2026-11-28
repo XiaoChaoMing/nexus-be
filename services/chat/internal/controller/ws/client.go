@@ -400,6 +400,8 @@ func (cl *client) leave(topic entity.Topic) {
 
 type sendData struct {
 	Body string `json:"body"`
+	// GuestName is the nickname a guest sends with each message (ignored for accounts).
+	GuestName string `json:"guestName"`
 }
 
 func (cl *client) onSend(f inFrame) {
@@ -429,7 +431,9 @@ func (cl *client) onSend(f inFrame) {
 	ctx, cancel := context.WithTimeout(cl.ctx, _opTimeout)
 	defer cancel()
 
-	res, err := cl.h.chat.Send(ctx, cl.principal(), topic.ID, entity.SendInput{ClientMsgID: f.ClientMsgID, Body: d.Body})
+	res, err := cl.h.chat.Send(ctx, cl.principal(), topic.ID, entity.SendInput{
+		ClientMsgID: f.ClientMsgID, Body: d.Body, GuestName: d.GuestName,
+	})
 	if err != nil {
 		cl.enqueueErr(err, f.ClientMsgID)
 

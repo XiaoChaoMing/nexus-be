@@ -405,7 +405,7 @@ func (a *actor) setSampling(on bool) {
 // priority messages are never sampled out: the reader's own, those mentioning them, and those of the
 // streamer and moderators (NXL-B BR22). System events are not messages and always pass.
 func priority(m *entity.Message, cl *client) bool {
-	userID := cl.principal().UserID
+	userID := cl.principal().AuthorID()
 	if userID != "" && (m.User.ID == userID || m.MentionsUser(userID)) {
 		return true
 	}

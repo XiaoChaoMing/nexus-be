@@ -81,12 +81,12 @@ func (r *Repo) inEventTx(ctx context.Context, op, eventID string, fn func(tx pgx
 
 // ---- rooms ---------------------------------------------------------------------------------------
 
-// _sendContextSQL reads the room with its channel's owner and settings and, for $2 (NULL for guests),
-// the user's role, profile and restriction: the latest of BAN / UNBAN / TIMEOUT / UNTIMEOUT decides (a new
+// _sendContextSQL reads the room with its channel's owner and settings and, for $2 (NULL for guests without a
+// key; a guest key has no role or profile), the user's role, profile and restriction: the latest of BAN / UNBAN / TIMEOUT / UNTIMEOUT decides (a new
 // timeout replaces a longer one, UNTIMEOUT lifts it, BAN outlasts timeouts until UNBAN).
 const _sendContextSQL = `WITH me AS (SELECT NULLIF($2, '')::uuid AS id)
 	SELECT r.channel_id::text, r.status, c.owner_id::text,
-	       s.slow_sec, s.followers_min, s.subs_only, s.block_links, s.updated_at,
+	       s.slow_sec, s.followers_min, s.subs_only, s.block_links, s.guest_chat, s.updated_at,
 	       cr.role, u.username, u.display_name, u.email_verified,
 	       COALESCE(last.type = 'BAN', false),
 	       CASE WHEN last.type = 'TIMEOUT' AND last.expires_at > now() THEN last.expires_at END
@@ -108,6 +108,7 @@ type sendContextRow struct {
 	owner, role           *string
 	slow                  *int
 	subsOnly, blockLinks  *bool
+	guestChat             *bool
 	settingsAt            *time.Time
 	username, displayName *string
 	verified              *bool
@@ -121,7 +122,7 @@ func (r *Repo) SendContext(ctx context.Context, streamID, userID string) (entity
 	)
 
 	err := r.Pool.QueryRow(ctx, _sendContextSQL, streamID, userID).
-		Scan(&sc.Room.ChannelID, &row.status, &row.owner, &row.slow, &sc.Settings.FollowersMin, &row.subsOnly, &row.blockLinks, &row.settingsAt,
+		Scan(&sc.Room.ChannelID, &row.status, &row.owner, &row.slow, &sc.Settings.FollowersMin, &row.subsOnly, &row.blockLinks, &row.guestChat, &row.settingsAt,
 			&row.role, &row.username, &row.displayName, &row.verified, &sc.Restriction.Banned, &sc.Restriction.TimedOutUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return entity.SendContext{}, entity.ErrNotFound
@@ -136,6 +137,7 @@ func (r *Repo) SendContext(ctx context.Context, streamID, userID string) (entity
 	sc.Settings.SlowSec = derefOr(row.slow, 0)
 	sc.Settings.SubsOnly = derefOr(row.subsOnly, false)
 	sc.Settings.BlockLinks = derefOr(row.blockLinks, false)
+	sc.Settings.GuestChat = derefOr(row.guestChat, false)
 	sc.OwnerID = derefOr(row.owner, "")
 
 	if row.role != nil {
@@ -241,8 +243,9 @@ func (r *Repo) Settings(ctx context.Context, channelID string) (entity.ChatSetti
 	var at time.Time
 
 	err := r.Pool.QueryRow(ctx,
-		`SELECT slow_sec, followers_min, subs_only, block_links, updated_by::text, updated_at FROM chat_settings WHERE channel_id = $1`,
-		channelID).Scan(&s.SlowSec, &s.FollowersMin, &s.SubsOnly, &s.BlockLinks, &s.UpdatedBy, &at)
+		`SELECT slow_sec, followers_min, subs_only, block_links, guest_chat, updated_by::text, updated_at
+		 FROM chat_settings WHERE channel_id = $1`,
+		channelID).Scan(&s.SlowSec, &s.FollowersMin, &s.SubsOnly, &s.BlockLinks, &s.GuestChat, &s.UpdatedBy, &at)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, nil
 	}
@@ -262,13 +265,14 @@ func (r *Repo) SaveSettings(ctx context.Context, s entity.ChatSettings, change *
 
 	err := r.inTx(ctx, "Repo - SaveSettings", func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx,
-			`INSERT INTO chat_settings (channel_id, slow_sec, followers_min, subs_only, block_links, updated_by, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, now())
+			`INSERT INTO chat_settings (channel_id, slow_sec, followers_min, subs_only, block_links, guest_chat, updated_by, updated_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 			 ON CONFLICT (channel_id) DO UPDATE
 			 SET slow_sec = EXCLUDED.slow_sec, followers_min = EXCLUDED.followers_min, subs_only = EXCLUDED.subs_only,
-			     block_links = EXCLUDED.block_links, updated_by = EXCLUDED.updated_by, updated_at = now()
+			     block_links = EXCLUDED.block_links, guest_chat = EXCLUDED.guest_chat, updated_by = EXCLUDED.updated_by,
+			     updated_at = now()
 			 RETURNING updated_at`,
-			s.ChannelID, s.SlowSec, s.FollowersMin, s.SubsOnly, s.BlockLinks, s.UpdatedBy).Scan(&at)
+			s.ChannelID, s.SlowSec, s.FollowersMin, s.SubsOnly, s.BlockLinks, s.GuestChat, s.UpdatedBy).Scan(&at)
 		if err != nil {
 			return fmt.Errorf("Repo - SaveSettings: %w", err)
 		}

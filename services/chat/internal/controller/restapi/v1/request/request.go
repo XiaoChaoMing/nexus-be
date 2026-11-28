@@ -44,6 +44,8 @@ type UpdateChatSettings struct {
 	SubsOnly     bool `json:"subsOnly"`
 	// BlockLinks refuses messages with links (owner, moderators, admins and VIPs exempt); absent = unchanged.
 	BlockLinks *bool `json:"blockLinks"`
+	// GuestChat lets guests send messages (owner and admins only); absent = unchanged.
+	GuestChat *bool `json:"guestChat"`
 }
 
 // Validate checks the enumerations of NXL-B API 04 (the rule lives on the entity).

@@ -30,7 +30,10 @@ func (o *recObserver) MessageSent()         { o.sent++ }
 func (o *recObserver) Rejected(code string) { o.rejects = append(o.rejects, code) }
 
 func defaultConfig() chat.Config {
-	return chat.Config{RateLimit: 3, RateLimitPrivileged: 10, RateLimitIP: 100, RateWindow: 30 * time.Second, MaxLines: 3, HistoryDefault: 50}
+	return chat.Config{
+		RateLimit: 3, RateLimitPrivileged: 10, RateLimitIP: 100, RateWindow: 30 * time.Second, MaxLines: 3, HistoryDefault: 50,
+		GuestSlow: 10 * time.Second, GuestRateLimitIP: 2, GuestMaxChars: 200,
+	}
 }
 
 func newUC(w *world, cfg chat.Config) (*chat.UseCase, *recObserver) {

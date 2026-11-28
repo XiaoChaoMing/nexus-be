@@ -87,6 +87,7 @@ type ChatSettings struct {
 	FollowersMin *int       `json:"followersMin"`
 	SubsOnly     bool       `json:"subsOnly"`
 	BlockLinks   bool       `json:"blockLinks"`
+	GuestChat    bool       `json:"guestChat"`
 	UpdatedAt    *time.Time `json:"updatedAt"`
 }
 
@@ -112,6 +113,8 @@ type Restriction struct {
 	Actor     ActorRef   `json:"actor"`
 	Reason    *string    `json:"reason"`
 	CreatedAt time.Time  `json:"createdAt"`
+	// Guest marks a guest: user.username is empty and user.displayName is the nickname.
+	Guest bool `json:"guest"`
 }
 
 // RestrictionPage is newest first.

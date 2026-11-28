@@ -226,6 +226,9 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 		HistoryDefault:      cfg.Chat.HistoryOnJoin,
 		Disabled:            cfg.Chat.Disabled,
 		RequireVerified:     cfg.Chat.RequireVerified,
+		GuestSlow:           cfg.Chat.GuestSlow,
+		GuestRateLimitIP:    cfg.Chat.GuestRateLimitIP,
+		GuestMaxChars:       cfg.Chat.GuestMaxChars,
 	}, l, chat.WithObserver(m), chat.WithAutoMod(modUC), chat.WithPins(modUC))
 
 	viewersUC := viewers.New(rt, pub, instanceID(), cfg.Chat.ViewerInterval, l)
@@ -236,6 +239,7 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 		gateway: gateway.New(gateway.Deps{
 			Verifier: jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer),
 			Chat:     chatUC, Viewers: viewersUC, Seq: rt, Presence: rt, Broker: br, Audience: rt, Live: rt, Locks: rt,
+			GuestSecret: []byte(cfg.HTTP.InternalSecret),
 		}, cfg.WS.MaxConnPerUser, l),
 		rooms: rooms.New(rooms.Repos{
 			Rooms: store, Messages: store, Users: store, Roles: store, Audience: rt, Presence: rt, Live: rt,

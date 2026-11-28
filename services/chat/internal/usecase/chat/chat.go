@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/minhnn/nexuslive-be/pkg/logger"
@@ -27,8 +29,9 @@ const (
 	_bodyHashBytes  = 16
 	_fallbackIDRune = 8
 
-	_rateKeyUser = "chat:rate:"
-	_rateKeyIP   = "chat:rate:ip:"
+	_rateKeyUser    = "chat:rate:"
+	_rateKeyIP      = "chat:rate:ip:"
+	_rateKeyGuestIP = "chat:rate:gip:"
 )
 
 // Config holds the NXL-B values (TSD §9).
@@ -41,6 +44,11 @@ type Config struct {
 	HistoryDefault      int
 	Disabled            bool
 	RequireVerified     bool
+	// Guests: at least GuestSlow between two messages in a room (never exempt), GuestRateLimitIP messages per
+	// RateWindow for every guest of one IP, GuestMaxChars runes per message.
+	GuestSlow        time.Duration
+	GuestRateLimitIP int
+	GuestMaxChars    int
 }
 
 // Publisher is the realtime fan-out (fanout.Publisher).
@@ -155,17 +163,22 @@ func (uc *UseCase) send(ctx context.Context, p entity.Principal, streamID string
 		return entity.SendResult{}, err
 	}
 
+	name, err := uc.guestName(ctx, p, sc, in.GuestName)
+	if err != nil {
+		return entity.SendResult{}, err
+	}
+
 	hash := bodyHash(body)
 	if lerr := uc.limit(ctx, p, sc, st, body, hash); lerr != nil {
 		return entity.SendResult{}, lerr
 	}
 
-	m, err := uc.store(ctx, p, sc, st, in.ClientMsgID, body)
+	m, err := uc.store(ctx, p, sc, st, in.ClientMsgID, body, name)
 	if err != nil {
 		return entity.SendResult{}, err
 	}
 
-	if rerr := uc.r.Guard.RememberMessage(ctx, p.UserID, streamID, in.ClientMsgID, m.ID, hash); rerr != nil {
+	if rerr := uc.r.Guard.RememberMessage(ctx, p.AuthorID(), streamID, in.ClientMsgID, m.ID, hash); rerr != nil {
 		uc.l.Warn("chat - remember %s: %v", m.ID, rerr)
 	}
 
@@ -178,7 +191,7 @@ func (uc *UseCase) send(ctx context.Context, p entity.Principal, streamID string
 
 // retried answers a clientMsgId that was already accepted with the stored message id.
 func (uc *UseCase) retried(ctx context.Context, p entity.Principal, streamID, clientMsgID string) (entity.SendResult, bool, error) {
-	id, ok, err := uc.r.Guard.AcceptedMessage(ctx, p.UserID, clientMsgID)
+	id, ok, err := uc.r.Guard.AcceptedMessage(ctx, p.AuthorID(), clientMsgID)
 	if err != nil {
 		return entity.SendResult{}, false, fmt.Errorf("ChatUseCase - Send - dedupe: %w", err)
 	}
@@ -198,6 +211,10 @@ func (uc *UseCase) prepare(ctx context.Context, p entity.Principal, streamID, ra
 		return "", entity.SendContext{}, entity.Standing{}, err
 	}
 
+	if p.Guest() && utf8.RuneCountInString(body) > uc.cfg.GuestMaxChars {
+		return "", entity.SendContext{}, entity.Standing{}, entity.Reject(entity.ErrValidation, "body", entity.DetailLength)
+	}
+
 	sc, st, err := uc.load(ctx, p, streamID)
 	if err != nil {
 		return "", entity.SendContext{}, entity.Standing{}, err
@@ -215,7 +232,7 @@ func (uc *UseCase) precheck(p entity.Principal, in entity.SendInput) error {
 		return entity.ErrChatDisabled
 	}
 
-	if p.Guest() {
+	if p.Guest() && p.GuestKey == "" {
 		return entity.ErrUnauthenticated
 	}
 
@@ -228,7 +245,7 @@ func (uc *UseCase) precheck(p entity.Principal, in entity.SendInput) error {
 
 // load reads the room and the caller's standing; a stream without a room is CHAT_CLOSED (BR02).
 func (uc *UseCase) load(ctx context.Context, p entity.Principal, streamID string) (entity.SendContext, entity.Standing, error) {
-	sc, err := uc.r.Rooms.SendContext(ctx, streamID, p.UserID)
+	sc, err := uc.r.Rooms.SendContext(ctx, streamID, p.AuthorID())
 	if errors.Is(err, entity.ErrNotFound) {
 		return entity.SendContext{}, entity.Standing{}, entity.ErrRoomClosed
 	}
@@ -278,7 +295,7 @@ func (uc *UseCase) admit(p entity.Principal, sc entity.SendContext, st entity.St
 	switch {
 	case uc.cfg.Disabled:
 		return entity.ErrChatDisabled
-	case p.Guest():
+	case p.Guest() && !uc.guestAllowed(p, sc.Settings):
 		return entity.ErrUnauthenticated
 	case sc.Room.Status == entity.RoomReadOnly:
 		return entity.ErrRoomReadOnly
@@ -293,6 +310,74 @@ func (uc *UseCase) admit(p entity.Principal, sc entity.SendContext, st entity.St
 	}
 
 	return modes(sc.Settings, st)
+}
+
+// guestAllowed: a guest with a key, in a channel with guest chat on, when accounts need no verified e-mail.
+func (uc *UseCase) guestAllowed(p entity.Principal, s entity.ChatSettings) bool {
+	return p.GuestKey != "" && s.GuestChat && !uc.cfg.RequireVerified
+}
+
+// guestName checks a guest's nickname (empty for accounts): its syntax, then the channel's blocked terms, the
+// accounts' usernames and the channel's handle and name. It runs after admit so a guest of a channel without guest
+// chat is told UNAUTHORIZED, not why the nickname is wrong.
+func (uc *UseCase) guestName(ctx context.Context, p entity.Principal, sc entity.SendContext, raw string) (string, error) {
+	if !p.Guest() {
+		return "", nil
+	}
+
+	name, err := entity.GuestNameInput(raw)
+	if err != nil {
+		return "", err
+	}
+
+	normalized := entity.Normalize(name)
+
+	if uc.automod != nil {
+		terms, terr := uc.automod.BlockedTerms(ctx, sc.Room.ChannelID)
+		if terr != nil {
+			return "", fmt.Errorf("ChatUseCase - guest name - terms: %w", terr)
+		}
+
+		for _, t := range terms {
+			if entity.MatchTerm(normalized, t) {
+				return "", entity.Reject(entity.ErrValidation, "guestName", entity.DetailBlocked)
+			}
+		}
+	}
+
+	taken, err := uc.nameTaken(ctx, sc.Room.ChannelID, name, normalized)
+	if err != nil {
+		return "", err
+	}
+
+	if taken {
+		return "", entity.Reject(entity.ErrValidation, "guestName", entity.DetailTaken)
+	}
+
+	return name, nil
+}
+
+// nameTaken reports a nickname that is an account's username or the channel's handle or name.
+func (uc *UseCase) nameTaken(ctx context.Context, channelID, name, normalized string) (bool, error) {
+	ids, err := uc.r.Users.UserIDsByUsername(ctx, []string{strings.ToLower(name)})
+	if err != nil {
+		return false, fmt.Errorf("ChatUseCase - guest name - users: %w", err)
+	}
+
+	if len(ids) > 0 {
+		return true, nil
+	}
+
+	ch, err := uc.r.Users.Channel(ctx, channelID)
+
+	switch {
+	case errors.Is(err, entity.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("ChatUseCase - guest name - channel: %w", err)
+	}
+
+	return normalized == entity.Normalize(ch.Handle) || normalized == entity.Normalize(ch.DisplayName), nil
 }
 
 func (uc *UseCase) restricted(sc entity.SendContext, st entity.Standing) error {
@@ -335,7 +420,7 @@ func modes(s entity.ChatSettings, st entity.Standing) error {
 // user and per IP, auto-mod (a blocked message still costs its rate token, BR-F12), then slow mode (its
 // marker is set last so a refused message does not start it).
 func (uc *UseCase) limit(ctx context.Context, p entity.Principal, sc entity.SendContext, st entity.Standing, body, hash string) error {
-	last, err := uc.r.Guard.LastBodyHash(ctx, p.UserID, sc.Room.StreamID)
+	last, err := uc.r.Guard.LastBodyHash(ctx, p.AuthorID(), sc.Room.StreamID)
 	if err != nil {
 		return fmt.Errorf("ChatUseCase - limit - duplicate: %w", err)
 	}
@@ -348,16 +433,16 @@ func (uc *UseCase) limit(ctx context.Context, p entity.Principal, sc entity.Send
 		return rerr
 	}
 
-	if aerr := uc.autoMod(ctx, sc, st, body); aerr != nil {
+	if aerr := uc.autoMod(ctx, p, sc, st, body); aerr != nil {
 		return aerr
 	}
 
 	return uc.slow(ctx, p, sc, st)
 }
 
-// autoMod applies the channel's blocked terms and link blocking (BR-F09, BR-F10).
-func (uc *UseCase) autoMod(ctx context.Context, sc entity.SendContext, st entity.Standing, body string) error {
-	rules := entity.AutoModRules{BlockLinks: sc.Settings.BlockLinks}
+// autoMod applies the channel's blocked terms and link blocking (BR-F09, BR-F10); links are always blocked for guests.
+func (uc *UseCase) autoMod(ctx context.Context, p entity.Principal, sc entity.SendContext, st entity.Standing, body string) error {
+	rules := entity.AutoModRules{BlockLinks: sc.Settings.BlockLinks || p.Guest()}
 
 	if uc.automod != nil && !st.Privileged() {
 		terms, err := uc.automod.BlockedTerms(ctx, sc.Room.ChannelID)
@@ -377,7 +462,7 @@ func (uc *UseCase) rates(ctx context.Context, p entity.Principal, st entity.Stan
 		capacity = uc.cfg.RateLimitPrivileged
 	}
 
-	if err := uc.take(ctx, _rateKeyUser+p.UserID, capacity); err != nil {
+	if err := uc.take(ctx, _rateKeyUser+p.AuthorID(), capacity); err != nil {
 		return err
 	}
 
@@ -385,15 +470,36 @@ func (uc *UseCase) rates(ctx context.Context, p entity.Principal, st entity.Stan
 		return nil
 	}
 
-	return uc.take(ctx, _rateKeyIP+p.IP, uc.cfg.RateLimitIP)
+	if err := uc.take(ctx, _rateKeyIP+p.IP, uc.cfg.RateLimitIP); err != nil || !p.Guest() {
+		return err
+	}
+
+	// Every guest of one IP shares this bucket: a new anonId does not buy new messages.
+	return uc.take(ctx, _rateKeyGuestIP+p.IP, uc.cfg.GuestRateLimitIP)
+}
+
+// slowFor is the gap the sender must keep between two messages: the channel's slow mode, at least GuestSlow for a
+// guest (never exempt); 0 = none.
+func (uc *UseCase) slowFor(p entity.Principal, s entity.ChatSettings, st entity.Standing) time.Duration {
+	d := time.Duration(s.SlowSec) * time.Second
+
+	switch {
+	case p.Guest():
+		return max(d, uc.cfg.GuestSlow)
+	case st.SkipsSlow():
+		return 0
+	}
+
+	return d
 }
 
 func (uc *UseCase) slow(ctx context.Context, p entity.Principal, sc entity.SendContext, st entity.Standing) error {
-	if sc.Settings.SlowSec == 0 || st.SkipsSlow() {
+	d := uc.slowFor(p, sc.Settings, st)
+	if d == 0 {
 		return nil
 	}
 
-	ok, left, err := uc.r.Guard.StartSlow(ctx, sc.Room.StreamID, p.UserID, time.Duration(sc.Settings.SlowSec)*time.Second)
+	ok, left, err := uc.r.Guard.StartSlow(ctx, sc.Room.StreamID, p.AuthorID(), d)
 	if err != nil {
 		return fmt.Errorf("ChatUseCase - slow: %w", err)
 	}
@@ -418,13 +524,13 @@ func (uc *UseCase) take(ctx context.Context, key string, capacity int) error {
 	return nil
 }
 
-// store builds the fragments and inserts the message.
+// store builds the fragments and inserts the message; a guest's message mentions nobody.
 func (uc *UseCase) store(ctx context.Context, p entity.Principal, sc entity.SendContext, st entity.Standing,
-	clientMsgID, body string,
+	clientMsgID, body, guestName string,
 ) (entity.Message, error) {
 	users := map[string]string{}
 
-	if names := entity.MentionCandidates(body); len(names) > 0 {
+	if names := entity.MentionCandidates(body); len(names) > 0 && !p.Guest() {
 		var err error
 		if users, err = uc.r.Users.UserIDsByUsername(ctx, names); err != nil {
 			return entity.Message{}, fmt.Errorf("ChatUseCase - store - mentions: %w", err)
@@ -436,9 +542,14 @@ func (uc *UseCase) store(ctx context.Context, p entity.Principal, sc entity.Send
 		return entity.Message{}, err
 	}
 
+	a := author(p.UserID, sc.User, st)
+	if p.Guest() {
+		a = entity.GuestAuthor(p.GuestKey, guestName)
+	}
+
 	m, err := uc.r.Messages.InsertMessage(ctx, entity.Message{
 		StreamID:    sc.Room.StreamID,
-		User:        author(p.UserID, sc.User, st),
+		User:        a,
 		Body:        body,
 		Fragments:   entity.BuildFragments(body, emotes, users),
 		Type:        entity.MessageNormal,

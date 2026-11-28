@@ -79,6 +79,10 @@ func (uc *UseCase) decorate(ctx context.Context, sc entity.SendContext, msgs []e
 	now := uc.now()
 
 	for i := range msgs {
+		if msgs[i].User.IsGuest() {
+			continue // the repo already set the nickname, the GUEST badge and the color
+		}
+
 		id := msgs[i].User.ID
 		st := entity.Standing{
 			Streamer:  id == sc.OwnerID,
@@ -118,8 +122,8 @@ func (uc *UseCase) Settings(ctx context.Context, channelID string) (entity.ChatS
 	return s, nil
 }
 
-// UpdateSettings lets the channel owner, its moderators and admins change the modes (NXL-B API 04);
-// a change is announced in every open room of the channel (AF05).
+// UpdateSettings lets the channel owner, its moderators and admins change the modes (NXL-B API 04); guest chat
+// is the owner's and admins' only. A change is announced in every open room of the channel (AF05).
 func (uc *UseCase) UpdateSettings(ctx context.Context, p entity.Principal, s entity.ChatSettings) (entity.ChatSettings, error) {
 	if p.Guest() {
 		return entity.ChatSettings{}, entity.ErrUnauthenticated
@@ -137,6 +141,10 @@ func (uc *UseCase) UpdateSettings(ctx context.Context, p entity.Principal, s ent
 	old, err := uc.r.Settings.Settings(ctx, s.ChannelID)
 	if err != nil {
 		return entity.ChatSettings{}, fmt.Errorf("ChatUseCase - UpdateSettings - read: %w", err)
+	}
+
+	if role == entity.ActorModerator && s.GuestChat != old.GuestChat {
+		return entity.ChatSettings{}, entity.ErrForbidden
 	}
 
 	s.UpdatedBy = &p.UserID
@@ -189,7 +197,9 @@ func (uc *UseCase) canManage(ctx context.Context, p entity.Principal, channelID 
 }
 
 func modesOf(s entity.ChatSettings) events.ChatModes {
-	return events.ChatModes{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks}
+	return events.ChatModes{
+		SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks, GuestChat: s.GuestChat,
+	}
 }
 
 type systemPayload struct {
@@ -328,7 +338,7 @@ func (uc *UseCase) Snapshot(ctx context.Context, p entity.Principal, streamID st
 	switch {
 	case errors.Is(err, entity.ErrRoomClosed):
 		snap := usecase.ChatSnapshot{Room: usecase.RoomSnapshot{Status: entity.RoomNotOpen, Mode: entity.ChatSettings{}.Mode()}}
-		snap.Me = me(p, entity.Standing{})
+		snap.Me = uc.me(p, entity.Standing{}, entity.ChatSettings{})
 		snap.Me.CanSend, snap.Me.Reason = false, reasonOf(entity.ErrRoomClosed)
 
 		return snap, nil
@@ -336,7 +346,7 @@ func (uc *UseCase) Snapshot(ctx context.Context, p entity.Principal, streamID st
 		return usecase.ChatSnapshot{}, err
 	}
 
-	snap := usecase.ChatSnapshot{Room: usecase.RoomSnapshot{Status: sc.Room.Status, Mode: sc.Settings.Mode()}, Me: me(p, st)}
+	snap := usecase.ChatSnapshot{Room: usecase.RoomSnapshot{Status: sc.Room.Status, Mode: sc.Settings.Mode()}, Me: uc.me(p, st, sc.Settings)}
 	snap.Me.Restriction = sc.Restriction.Current(uc.now())
 	snap.Room.Pinned = uc.pinned(ctx, streamID)
 
@@ -346,8 +356,8 @@ func (uc *UseCase) Snapshot(ctx context.Context, p entity.Principal, streamID st
 		return snap, nil
 	}
 
-	if sc.Settings.SlowSec > 0 && !st.SkipsSlow() {
-		left, serr := uc.r.Guard.SlowLeft(ctx, streamID, p.UserID)
+	if uc.slowFor(p, sc.Settings, st) > 0 {
+		left, serr := uc.r.Guard.SlowLeft(ctx, streamID, p.AuthorID())
 		if serr != nil {
 			return usecase.ChatSnapshot{}, fmt.Errorf("ChatUseCase - Snapshot - slow: %w", serr)
 		}
@@ -381,8 +391,12 @@ func (uc *UseCase) pinned(ctx context.Context, streamID string) *entity.Message 
 	return m
 }
 
-func me(p entity.Principal, st entity.Standing) usecase.MeSnapshot {
-	if p.Guest() {
+// me is the caller in the snapshot; a guest who may not write in the channel keeps the plain guest form.
+func (uc *UseCase) me(p entity.Principal, st entity.Standing, s entity.ChatSettings) usecase.MeSnapshot {
+	switch {
+	case p.Guest() && uc.guestAllowed(p, s):
+		return usecase.MeSnapshot{Role: "GUEST", Badges: []string{entity.BadgeGuest}, Color: entity.ColorOf(p.GuestKey)}
+	case p.Guest():
 		return usecase.MeSnapshot{Role: "GUEST", Badges: []string{}, Reason: reasonOf(entity.ErrUnauthenticated)}
 	}
 

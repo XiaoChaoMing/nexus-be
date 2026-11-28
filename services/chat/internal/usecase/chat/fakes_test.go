@@ -19,12 +19,14 @@ type world struct {
 	room     *entity.Room
 	settings entity.ChatSettings
 	ownerID  string
-	roles    map[string]entity.ChannelRole
-	banned   map[string]bool
-	timeouts map[string]time.Time
-	users    map[string]entity.User
-	follows  map[string]time.Time
-	tiers    map[string]int
+	// handle and chName are the channel copy's names.
+	handle, chName string
+	roles          map[string]entity.ChannelRole
+	banned         map[string]bool
+	timeouts       map[string]time.Time
+	users          map[string]entity.User
+	follows        map[string]time.Time
+	tiers          map[string]int
 	// grants override tiers with a period (tiers are legacy grants without one).
 	grants map[string]entity.SubGrant
 
@@ -132,7 +134,10 @@ func (f fakeMessages) History(_ context.Context, _ string, _ *string, limit int)
 	out := []entity.Message{}
 	for i := len(f.w.inserted) - 1; i >= 0 && len(out) < limit; i-- {
 		m := f.w.inserted[i]
-		m.User = entity.Author{ID: m.User.ID, Username: m.User.Username, DisplayName: m.User.DisplayName}
+		if !m.User.IsGuest() { // the repo returns a guest's nickname, badge and color as stored
+			m.User = entity.Author{ID: m.User.ID, Username: m.User.Username, DisplayName: m.User.DisplayName}
+		}
+
 		out = append(out, m)
 	}
 
@@ -230,7 +235,7 @@ func (f fakeUsers) Channel(_ context.Context, channelID string) (entity.Channel,
 		return entity.Channel{}, entity.ErrNotFound
 	}
 
-	return entity.Channel{ID: channelID, OwnerID: f.w.ownerID}, nil
+	return entity.Channel{ID: channelID, OwnerID: f.w.ownerID, Handle: f.w.handle, DisplayName: f.w.chName}, nil
 }
 
 // ---- Redis ----

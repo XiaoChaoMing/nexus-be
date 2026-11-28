@@ -158,7 +158,7 @@ func (r *routes) unpin(ctx *fiber.Ctx) error {
 //	@Produce     json
 //	@Security    BearerAuth
 //	@Param       channelId path     string          true "channel id"
-//	@Param       userId    path     string          true "user id"
+//	@Param       userId    path     string          true "user id, or the user.id of a guest's message (guest key)"
 //	@Param       body      body     request.Timeout true "duration (1–1209600 s) and reason"
 //	@Success     200       {object} response.Data[response.Restriction]
 //	@Failure     400       {object} response.Error "VALIDATION_FAILED (durationSec = REQUIRED | MIN | MAX, reason = LENGTH, userId = INVALID)"
@@ -222,7 +222,7 @@ func (r *routes) untimeout(ctx *fiber.Ctx) error {
 //	@Produce     json
 //	@Security    BearerAuth
 //	@Param       channelId path     string      true "channel id"
-//	@Param       userId    path     string      true "user id"
+//	@Param       userId    path     string      true "user id, or the user.id of a guest's message (guest key)"
 //	@Param       body      body     request.Ban false "reason"
 //	@Success     200       {object} response.Data[response.Restriction]
 //	@Failure     400       {object} response.Error "VALIDATION_FAILED (reason = LENGTH, userId = INVALID)"
@@ -468,7 +468,7 @@ func userRefOf(u entity.UserRef) response.UserRef {
 func restrictionOf(x entity.ActiveRestriction) response.Restriction {
 	out := response.Restriction{
 		User: userRefOf(x.User), Type: string(x.Type), Actor: response.ActorRef{ID: x.Actor.ID, Username: x.Actor.Username},
-		Reason: x.Reason, CreatedAt: x.CreatedAt.UTC(),
+		Reason: x.Reason, CreatedAt: x.CreatedAt.UTC(), Guest: x.Guest,
 	}
 
 	if x.Until != nil {

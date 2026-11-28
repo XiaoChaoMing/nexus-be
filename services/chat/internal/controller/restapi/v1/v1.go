@@ -230,7 +230,7 @@ func (r *routes) settings(ctx *fiber.Ctx) error {
 // updateSettings godoc
 //
 //	@Summary     Change the chat modes of a channel
-//	@Description Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message. blockLinks absent keeps the current value.
+//	@Description Channel owner, its moderators and admins. Every open room of the channel gets mode_change and a system message. blockLinks and guestChat absent keep the current value; only the owner and admins may change guestChat (a moderator gets 403).
 //	@Tags        chat
 //	@Accept      json
 //	@Produce     json
@@ -240,7 +240,7 @@ func (r *routes) settings(ctx *fiber.Ctx) error {
 //	@Success     200       {object} response.Data[response.ChatSettings]
 //	@Failure     400       {object} response.Error "VALIDATION_FAILED (details.slowSec / followersMin = ENUM)"
 //	@Failure     401       {object} response.Error "UNAUTHORIZED"
-//	@Failure     403       {object} response.Error "FORBIDDEN"
+//	@Failure     403       {object} response.Error "FORBIDDEN (not a manager of the channel, or a moderator changing guestChat)"
 //	@Router      /channels/{channelId}/chat-settings [put]
 func (r *routes) updateSettings(ctx *fiber.Ctx) error {
 	userID, ok := middleware.UserID(ctx)
@@ -264,17 +264,7 @@ func (r *routes) updateSettings(ctx *fiber.Ctx) error {
 
 	p := entity.Principal{UserID: userID, GlobalRole: middleware.Role(ctx), IP: ctx.IP()}
 
-	blockLinks := false
-
-	if body.BlockLinks != nil {
-		blockLinks = *body.BlockLinks
-	} else if cur, cerr := r.chat.Settings(ctx.UserContext(), channelID); cerr == nil {
-		blockLinks = cur.BlockLinks
-	}
-
-	s, err := r.chat.UpdateSettings(ctx.UserContext(), p, entity.ChatSettings{
-		ChannelID: channelID, SlowSec: body.SlowSec, FollowersMin: body.FollowersMin, SubsOnly: body.SubsOnly, BlockLinks: blockLinks,
-	})
+	s, err := r.chat.UpdateSettings(ctx.UserContext(), p, r.settingsFrom(ctx, channelID, body))
 	if err != nil {
 		return r.fail(ctx, "updateSettings", err)
 	}
@@ -282,8 +272,32 @@ func (r *routes) updateSettings(ctx *fiber.Ctx) error {
 	return ctx.JSON(response.Data[response.ChatSettings]{Data: settingsOf(s)})
 }
 
+// settingsFrom fills the fields the body leaves out (blockLinks, guestChat) with the current values; when they cannot
+// be read they are off.
+func (r *routes) settingsFrom(ctx *fiber.Ctx, channelID string, body request.UpdateChatSettings) entity.ChatSettings {
+	s := entity.ChatSettings{ChannelID: channelID, SlowSec: body.SlowSec, FollowersMin: body.FollowersMin, SubsOnly: body.SubsOnly}
+
+	if body.BlockLinks == nil || body.GuestChat == nil {
+		if cur, err := r.chat.Settings(ctx.UserContext(), channelID); err == nil {
+			s.BlockLinks, s.GuestChat = cur.BlockLinks, cur.GuestChat
+		}
+	}
+
+	if body.BlockLinks != nil {
+		s.BlockLinks = *body.BlockLinks
+	}
+
+	if body.GuestChat != nil {
+		s.GuestChat = *body.GuestChat
+	}
+
+	return s
+}
+
 func settingsOf(s entity.ChatSettings) response.ChatSettings {
-	out := response.ChatSettings{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks}
+	out := response.ChatSettings{
+		SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks, GuestChat: s.GuestChat,
+	}
 
 	if s.UpdatedAt != nil {
 		t := s.UpdatedAt.UTC()
