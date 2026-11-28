@@ -26,6 +26,9 @@ Nhánh `feat/stream-overlay` (nexuslive-be, nexuslive-web), đã rebase lên `ma
 | `make nxl-swag` | Đã sinh lại `services/chat/docs`; hoàn tác thay đổi không liên quan ở channel / identity / notification |
 | `docs/api/README.md` | Đã thêm 3 endpoint overlay và route edge |
 
+| E2E trên stack (bản gộp main + overlay; migration `20261128100001`, `20261129000001` áp lên `nxl_chat`) | `e2e/overlay.spec.ts` mới (trang alert công khai nhận alert thử; trang chat overlay nhận `overlay_settings` qua WebSocket khi lưu theme) + `guest-chat`, `m3`, `guest-modal`, `m4-moderator`, `takedown`: **9/9 đạt** |
+| Web: `pnpm typecheck`, `lint`, `test` (45 file, 479 test), `build` | Đạt |
+
 ## Việc còn lại
 1. Chạy các kiểm tra "chưa chạy" ở trên; `TestOverlayRoleNeedsNoAccount` giả định loại sự kiện `ack` chưa kiểm chứng.
 2. Chạy migration `20261129000001`.
