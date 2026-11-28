@@ -82,9 +82,10 @@ sequenceDiagram
   CU-->>G: snapshot me{role:GUEST, badges:[GUEST], canSend:true}
   G->>WS: send {clientMsgId, data:{body, guestName}}
   WS->>CU: Send(p, S, {Body, GuestName})
-  CU->>CU: precheck + GuestNameInput (syntax)
+  CU->>CU: precheck (guest key, clientMsgId)
   CU->>PG: SendContext(S, guestKey)
   CU->>CU: admit (guestChat, room, restriction, modes)
+  CU->>CU: GuestNameInput (syntax, reserved, link)
   CU->>PG: BlockedTerms / UserIDsByUsername / Channel (nickname)
   CU->>RD: LastBodyHash, Take(user), Take(ip), Take(guest ip)
   CU->>RD: StartSlow(S, guestKey, max(slowSec,10s))
@@ -223,7 +224,9 @@ sequenceDiagram
 
 ## 4. Contracts
 
-### 4.1 SQL — `services/chat/migrations/20261128000001_guest_chat`
+### 4.1 SQL — `services/chat/migrations/20261128100001_guest_chat`
+
+(v1.1: timestamp `100001` thay cho `000001` để không trùng với migration chat-svc của nhánh `feat/stream-overlay` cùng ngày.)
 
 `up.sql`:
 
@@ -348,13 +351,14 @@ ModerationRepo interface {
   `p.GuestKey = entity.GuestKey(secret, p.AnonID)` khi `AnonID` hợp lệ.
 - `chat.Config`: thêm `GuestSlow time.Duration`, `GuestRateLimitIP int`, `GuestMaxChars int`.
 - `chat.UseCase.Send`, theo thứ tự rẻ nhất trước:
-  1. `precheck`: khách thiếu `GuestKey` → `ErrUnauthenticated`. Kiểm tra `clientMsgId`. Khách chạy `GuestNameInput`.
+  1. `precheck`: khách thiếu `GuestKey` → `ErrUnauthenticated`. Kiểm tra `clientMsgId`. (v1.1: `GuestNameInput` chuyển xuống
+     bước 5, sau `admit`, để kênh tắt guest chat luôn trả `UNAUTHORIZED` như S4, kể cả khi biệt danh sai.)
   2. `retried(AuthorID)`.
   3. `prepare`: `NormalizeBody`. Khách dài hơn `GuestMaxChars` → `Reject(ErrValidation, "body", LENGTH)`.
      `load(SendContext(S, AuthorID))`.
   4. `admit`: khách khi `!GuestChat || RequireVerified` → `ErrUnauthenticated`. Sau đó chạy luật phòng, hạn chế, chế độ như
      cũ.
-  5. Biệt danh theo kênh: từ cấm (`automod.BlockedTerms`, có cache 5 s) → `BLOCKED`; `Users.UserIDsByUsername([lower])` và
+  5. Biệt danh: `GuestNameInput` (cú pháp, tên dành riêng, link), rồi theo kênh: từ cấm (`automod.BlockedTerms`, có cache 5 s) → `BLOCKED`; `Users.UserIDsByUsername([lower])` và
      `Users.Channel` (handle, display name, đã `Normalize`) → `TAKEN`.
   6. `limit`: chống trùng (`AuthorID`); `rates`: bucket theo người (`AuthorID`), bucket IP chung, cộng bucket
      `chat:rate:gip:{ip}` (`GuestRateLimitIP`) cho khách. `autoMod`: `BlockLinks = settings.BlockLinks || guest`. `slow`:
@@ -526,3 +530,4 @@ Nếu chủ dự án trả lời "có" cho các open question: ban theo IP +6–
 | Version | Date | Change |
 | --- | --- | --- |
 | 1.0 | 2026-11-28 | Initial |
+| 1.1 | 2026-11-28 | As shipped: migration `20261128100001_guest_chat`; nickname syntax checked after `admit` (S4 holds for a bad nickname too) |
