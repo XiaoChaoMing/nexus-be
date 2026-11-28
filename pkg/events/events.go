@@ -585,6 +585,7 @@ type ChatModes struct {
 	FollowersMin *int `json:"followersMin"`
 	SubsOnly     bool `json:"subsOnly"`
 	BlockLinks   bool `json:"blockLinks"`
+	GuestChat    bool `json:"guestChat"`
 }
 
 // ChatSettingsChanged is published when a channel's chat modes change.

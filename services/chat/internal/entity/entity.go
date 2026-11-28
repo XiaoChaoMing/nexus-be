@@ -3,6 +3,7 @@ package entity
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 )
@@ -18,6 +19,8 @@ const (
 	BadgeModerator = "MODERATOR"
 	BadgeVIP       = "VIP"
 	BadgeSubPrefix = "SUB_T" // SUB_T1..SUB_T3
+	// BadgeGuest marks a guest's message; only the server sets it.
+	BadgeGuest = "GUEST"
 	// MaxBadges is how many badges a message shows.
 	MaxBadges = 3
 )
@@ -38,6 +41,9 @@ type Principal struct {
 	GlobalRole string
 	// AnonID is the guest's browser id (sent in the auth frame); empty when unknown.
 	AnonID string
+	// GuestKey is the guest's public id, derived from AnonID by the gateway; empty for accounts and for guests
+	// without a valid anonId.
+	GuestKey string
 	// ConnID identifies the WebSocket connection; empty on REST.
 	ConnID string
 	IP     string
@@ -47,6 +53,15 @@ type Principal struct {
 
 // Guest reports whether the caller is not signed in.
 func (p Principal) Guest() bool { return p.UserID == "" }
+
+// AuthorID is who a message, a restriction or a rate bucket belongs to: the account, else the guest key.
+func (p Principal) AuthorID() string {
+	if p.UserID != "" {
+		return p.UserID
+	}
+
+	return p.GuestKey
+}
 
 // IsAdmin -.
 func (p Principal) IsAdmin() bool { return p.GlobalRole == GlobalRoleAdmin }
@@ -170,6 +185,14 @@ type Author struct {
 	Badges      []string `json:"badges"`
 }
 
+// IsGuest reports a guest author (the GUEST badge is set by the server only).
+func (a Author) IsGuest() bool { return slices.Contains(a.Badges, BadgeGuest) }
+
+// GuestAuthor is a guest as shown next to their message: no username, the nickname of that message.
+func GuestAuthor(guestKey, name string) Author {
+	return Author{ID: guestKey, DisplayName: name, Color: ColorOf(guestKey), Badges: []string{BadgeGuest}}
+}
+
 // Message is a chat message; its JSON form is the `message` event payload (TSD §5.1).
 type Message struct {
 	ID          string     `json:"id"`
@@ -236,6 +259,8 @@ func (m Message) MentionsUser(userID string) bool {
 type SendInput struct {
 	ClientMsgID string
 	Body        string
+	// GuestName is required from guests and ignored for accounts.
+	GuestName string
 }
 
 // SendResult answers a send; Duplicate is true when the clientMsgId was already accepted (retry).

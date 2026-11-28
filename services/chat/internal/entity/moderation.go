@@ -48,10 +48,12 @@ type ModAction struct {
 	ActorRole    ActorRole
 	Type         string
 	TargetUserID *string
-	MessageID    *string
-	Reason       *string
-	ExpiresAt    *time.Time
-	CreatedAt    time.Time
+	// TargetGuestName is the nickname when TargetUserID is a guest key.
+	TargetGuestName *string
+	MessageID       *string
+	Reason          *string
+	ExpiresAt       *time.Time
+	CreatedAt       time.Time
 }
 
 // RestrictionType -.
@@ -82,6 +84,8 @@ type ActiveRestriction struct {
 	Actor     UserRef
 	Reason    *string
 	CreatedAt time.Time
+	// Guest marks a guest key: User.Username is empty and User.DisplayName is the nickname.
+	Guest bool
 }
 
 // Current is the restriction of the caller shown in the chat: snapshot.

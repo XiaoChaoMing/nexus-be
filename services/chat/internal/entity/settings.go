@@ -25,7 +25,9 @@ type ChatSettings struct {
 	FollowersMin *int
 	SubsOnly     bool
 	BlockLinks   bool
-	UpdatedBy    *string
+	// GuestChat lets guests send messages; only the owner and admins change it.
+	GuestChat bool
+	UpdatedBy *string
 	// UpdatedAt is nil for a channel that never saved settings (defaults).
 	UpdatedAt *time.Time
 }
@@ -54,7 +56,8 @@ func (s ChatSettings) SameModes(o ChatSettings) bool {
 	sameFollowers := (s.FollowersMin == nil) == (o.FollowersMin == nil) &&
 		(s.FollowersMin == nil || *s.FollowersMin == *o.FollowersMin)
 
-	return s.SlowSec == o.SlowSec && s.SubsOnly == o.SubsOnly && s.BlockLinks == o.BlockLinks && sameFollowers
+	return s.SlowSec == o.SlowSec && s.SubsOnly == o.SubsOnly && s.BlockLinks == o.BlockLinks && s.GuestChat == o.GuestChat &&
+		sameFollowers
 }
 
 // Mode is the JSON form of the modes in snapshots and mode_change events.
@@ -63,9 +66,10 @@ type Mode struct {
 	FollowersMin *int `json:"followersMin"`
 	SubsOnly     bool `json:"subsOnly"`
 	BlockLinks   bool `json:"blockLinks"`
+	GuestChat    bool `json:"guestChat"`
 }
 
 // Mode -.
 func (s ChatSettings) Mode() Mode {
-	return Mode{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks}
+	return Mode{SlowSec: s.SlowSec, FollowersMin: s.FollowersMin, SubsOnly: s.SubsOnly, BlockLinks: s.BlockLinks, GuestChat: s.GuestChat}
 }
