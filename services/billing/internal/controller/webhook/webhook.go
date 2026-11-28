@@ -46,7 +46,9 @@ func Handler(uc usecase.Payments, l logger.Interface) fiber.Handler {
 
 		header := http.Header{}
 
-		ctx.Request().Header.VisitAll(func(k, v []byte) { header.Add(string(k), string(v)) })
+		for k, v := range ctx.Request().Header.All() {
+			header.Add(string(k), string(v))
+		}
 
 		res, err := uc.Notify(ctx.UserContext(), header, body)
 

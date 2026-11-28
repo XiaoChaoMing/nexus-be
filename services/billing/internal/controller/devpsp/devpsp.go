@@ -73,9 +73,9 @@ func (h *handlers) render(ctx *fiber.Ctx, status int, v view) error {
 func (h *handlers) open(ctx *fiber.Ctx) error {
 	var fields []entity.Field
 
-	ctx.Request().PostArgs().VisitAll(func(k, v []byte) {
+	for k, v := range ctx.Request().PostArgs().All() {
 		fields = append(fields, entity.Field{Name: string(k), Value: string(v)})
-	})
+	}
 
 	o, err := h.uc.FakeOpen(ctx.UserContext(), fields)
 	if err != nil {
