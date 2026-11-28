@@ -59,16 +59,16 @@ jobs:
           - services/notification
           - services/billing
     services:
-      # Repository tests of stream-svc and channel-svc (skipped when NXL_TEST_PG_URL_<SVC> is unset).
+      # Repository tests (skipped when NXL_TEST_PG_URL_<SVC> is unset; they refuse a database not ending in _test).
       postgres:
         image: postgres:18.6-alpine
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: pass
-          POSTGRES_DB: nxl_stream
+          POSTGRES_DB: nxl_stream_test
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U user -d nxl_stream"
+          --health-cmd "pg_isready -U user -d nxl_stream_test"
           --health-interval 2s --health-timeout 3s --health-retries 30
       # Redis-backed tests of chat-svc and pkg/redis (skipped when NXL_TEST_REDIS_ADDR is unset).
       redis:
@@ -78,13 +78,13 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 2s --health-timeout 3s --health-retries 30
     env:
-      NXL_TEST_PG_URL_STREAM: postgres://user:pass@localhost:5432/nxl_stream?sslmode=disable
-      NXL_TEST_PG_URL_CHANNEL: postgres://user:pass@localhost:5432/nxl_channel?sslmode=disable
-      NXL_TEST_PG_URL_CHAT: postgres://user:pass@localhost:5432/nxl_chat?sslmode=disable
-      NXL_TEST_PG_URL_IDENTITY: postgres://user:pass@localhost:5432/nxl_identity?sslmode=disable
-      NXL_TEST_PG_URL_SAFETY: postgres://user:pass@localhost:5432/nxl_safety?sslmode=disable
-      NXL_TEST_PG_URL_NOTIFICATION: postgres://user:pass@localhost:5432/nxl_notification?sslmode=disable
-      NXL_TEST_PG_URL_BILLING: postgres://user:pass@localhost:5432/nxl_billing?sslmode=disable
+      NXL_TEST_PG_URL_STREAM: postgres://user:pass@localhost:5432/nxl_stream_test?sslmode=disable
+      NXL_TEST_PG_URL_CHANNEL: postgres://user:pass@localhost:5432/nxl_channel_test?sslmode=disable
+      NXL_TEST_PG_URL_CHAT: postgres://user:pass@localhost:5432/nxl_chat_test?sslmode=disable
+      NXL_TEST_PG_URL_IDENTITY: postgres://user:pass@localhost:5432/nxl_identity_test?sslmode=disable
+      NXL_TEST_PG_URL_SAFETY: postgres://user:pass@localhost:5432/nxl_safety_test?sslmode=disable
+      NXL_TEST_PG_URL_NOTIFICATION: postgres://user:pass@localhost:5432/nxl_notification_test?sslmode=disable
+      NXL_TEST_PG_URL_BILLING: postgres://user:pass@localhost:5432/nxl_billing_test?sslmode=disable
       NXL_TEST_REDIS_ADDR: localhost:6379
     steps:
       - uses: actions/checkout@v7
@@ -101,42 +101,42 @@ jobs:
         if: matrix.module == 'services/channel'
         run: |
           docker run --rm --network host -e PGPASSWORD=pass postgres:18.6-alpine \
-            psql -h localhost -U user -d nxl_stream -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_channel'
+            psql -h localhost -U user -d nxl_stream_test -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_channel_test'
           docker run --rm --network host -v "$PWD/services/channel/migrations:/migrations:ro" \
             migrate/migrate:v4.18.3 -path /migrations -database "$NXL_TEST_PG_URL_CHANNEL" up
       - name: Create and migrate the chat database
         if: matrix.module == 'services/chat'
         run: |
           docker run --rm --network host -e PGPASSWORD=pass postgres:18.6-alpine \
-            psql -h localhost -U user -d nxl_stream -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_chat'
+            psql -h localhost -U user -d nxl_stream_test -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_chat_test'
           docker run --rm --network host -v "$PWD/services/chat/migrations:/migrations:ro" \
             migrate/migrate:v4.18.3 -path /migrations -database "$NXL_TEST_PG_URL_CHAT" up
       - name: Create and migrate the identity database
         if: matrix.module == 'services/identity'
         run: |
           docker run --rm --network host -e PGPASSWORD=pass postgres:18.6-alpine \
-            psql -h localhost -U user -d nxl_stream -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_identity'
+            psql -h localhost -U user -d nxl_stream_test -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_identity_test'
           docker run --rm --network host -v "$PWD/services/identity/migrations:/migrations:ro" \
             migrate/migrate:v4.18.3 -path /migrations -database "$NXL_TEST_PG_URL_IDENTITY" up
       - name: Create and migrate the safety database
         if: matrix.module == 'services/safety'
         run: |
           docker run --rm --network host -e PGPASSWORD=pass postgres:18.6-alpine \
-            psql -h localhost -U user -d nxl_stream -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_safety'
+            psql -h localhost -U user -d nxl_stream_test -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_safety_test'
           docker run --rm --network host -v "$PWD/services/safety/migrations:/migrations:ro" \
             migrate/migrate:v4.18.3 -path /migrations -database "$NXL_TEST_PG_URL_SAFETY" up
       - name: Create and migrate the notification database
         if: matrix.module == 'services/notification'
         run: |
           docker run --rm --network host -e PGPASSWORD=pass postgres:18.6-alpine \
-            psql -h localhost -U user -d nxl_stream -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_notification'
+            psql -h localhost -U user -d nxl_stream_test -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_notification_test'
           docker run --rm --network host -v "$PWD/services/notification/migrations:/migrations:ro" \
             migrate/migrate:v4.18.3 -path /migrations -database "$NXL_TEST_PG_URL_NOTIFICATION" up
       - name: Create and migrate the billing database
         if: matrix.module == 'services/billing'
         run: |
           docker run --rm --network host -e PGPASSWORD=pass postgres:18.6-alpine \
-            psql -h localhost -U user -d nxl_stream -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_billing'
+            psql -h localhost -U user -d nxl_stream_test -v ON_ERROR_STOP=1 -c 'CREATE DATABASE nxl_billing_test'
           docker run --rm --network host -v "$PWD/services/billing/migrations:/migrations:ro" \
             migrate/migrate:v4.18.3 -path /migrations -database "$NXL_TEST_PG_URL_BILLING" up
       - name: Unit tests

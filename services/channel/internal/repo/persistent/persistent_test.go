@@ -1,12 +1,13 @@
 package persistent_test
 
-// Integration tests against a migrated nxl_channel database:
-//   NXL_TEST_PG_URL_CHANNEL=postgres://user:pass@localhost:5432/nxl_channel?sslmode=disable go test ./...
+// Integration tests against a migrated nxl_channel_test database:
+//   NXL_TEST_PG_URL_CHANNEL=postgres://user:pass@localhost:5432/nxl_channel_test?sslmode=disable go test ./...
 // Skipped when the variable is not set.
 
 import (
 	"context"
 	"encoding/json"
+	neturl "net/url"
 	"os"
 	"strings"
 	"sync"
@@ -28,6 +29,14 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	url := os.Getenv("NXL_TEST_PG_URL_CHANNEL")
 	if url == "" {
 		t.Skip("NXL_TEST_PG_URL_CHANNEL not set")
+	}
+
+	// setup wipes every table: only a throwaway database (name ending in _test) is accepted.
+	dsn, err := neturl.Parse(url)
+	require.NoError(t, err)
+
+	if !strings.HasSuffix(dsn.Path, "_test") {
+		t.Fatalf("NXL_TEST_PG_URL_CHANNEL must name a database ending in _test (got %q)", strings.TrimPrefix(dsn.Path, "/"))
 	}
 
 	pg, err := postgres.New(url, postgres.MaxPoolSize(4))

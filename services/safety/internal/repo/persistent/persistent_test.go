@@ -1,13 +1,15 @@
 package persistent_test
 
-// Integration tests against a migrated nxl_safety database:
-//   NXL_TEST_PG_URL_SAFETY=postgres://user:pass@localhost:5432/nxl_safety?sslmode=disable go test ./...
+// Integration tests against a migrated nxl_safety_test database:
+//   NXL_TEST_PG_URL_SAFETY=postgres://user:pass@localhost:5432/nxl_safety_test?sslmode=disable go test ./...
 // Skipped when the variable is not set.
 
 import (
 	"context"
 	"encoding/json"
+	neturl "net/url"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +28,14 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	url := os.Getenv("NXL_TEST_PG_URL_SAFETY")
 	if url == "" {
 		t.Skip("NXL_TEST_PG_URL_SAFETY not set")
+	}
+
+	// setup wipes every table: only a throwaway database (name ending in _test) is accepted.
+	dsn, err := neturl.Parse(url)
+	require.NoError(t, err)
+
+	if !strings.HasSuffix(dsn.Path, "_test") {
+		t.Fatalf("NXL_TEST_PG_URL_SAFETY must name a database ending in _test (got %q)", strings.TrimPrefix(dsn.Path, "/"))
 	}
 
 	pg, err := postgres.New(url, postgres.MaxPoolSize(4))

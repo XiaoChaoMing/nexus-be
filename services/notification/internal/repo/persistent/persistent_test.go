@@ -1,13 +1,15 @@
 package persistent_test
 
-// Integration tests against a migrated nxl_notification database:
-//   NXL_TEST_PG_URL_NOTIFICATION=postgres://user:pass@localhost:5432/nxl_notification?sslmode=disable go test ./...
+// Integration tests against a migrated nxl_notification_test database:
+//   NXL_TEST_PG_URL_NOTIFICATION=postgres://user:pass@localhost:5432/nxl_notification_test?sslmode=disable go test ./...
 // Skipped when the variable is not set.
 
 import (
 	"context"
 	"encoding/json"
+	neturl "net/url"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -30,6 +32,14 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	url := os.Getenv("NXL_TEST_PG_URL_NOTIFICATION")
 	if url == "" {
 		t.Skip("NXL_TEST_PG_URL_NOTIFICATION not set")
+	}
+
+	// setup wipes every table: only a throwaway database (name ending in _test) is accepted.
+	dsn, err := neturl.Parse(url)
+	require.NoError(t, err)
+
+	if !strings.HasSuffix(dsn.Path, "_test") {
+		t.Fatalf("NXL_TEST_PG_URL_NOTIFICATION must name a database ending in _test (got %q)", strings.TrimPrefix(dsn.Path, "/"))
 	}
 
 	dbMu.Lock()
