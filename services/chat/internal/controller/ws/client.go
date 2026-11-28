@@ -257,12 +257,16 @@ func (cl *client) onAuth(f inFrame) {
 
 	cl.armExpiry(p.ExpiresAt)
 
-	var userID *string
+	var userID, guestKey *string
 	if !p.Guest() {
 		userID = &p.UserID
+	} else if p.GuestKey != "" {
+		guestKey = &p.GuestKey
 	}
 
-	cl.enqueue(encode(readyFrame{Op: "ready", ConnID: cl.id, UserID: userID, HeartbeatSec: int(cl.h.o.Heartbeat.Seconds())}))
+	cl.enqueue(encode(readyFrame{
+		Op: "ready", ConnID: cl.id, UserID: userID, GuestKey: guestKey, HeartbeatSec: int(cl.h.o.Heartbeat.Seconds()),
+	}))
 }
 
 // identify stores the principal of the first auth, or the new expiry of a refreshed token; it reports

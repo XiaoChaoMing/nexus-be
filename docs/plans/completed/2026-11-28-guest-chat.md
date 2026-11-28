@@ -88,6 +88,12 @@ Không có thay đổi hợp đồng wire so với TSD: frame `send.data.guestNa
 `{id: guestKey, username: "", displayName, color, badges: ["GUEST"]}`, `Mode.guestChat`, REST `guestChat` / `guest`,
 `ChatModes.guestChat`, mã lỗi và `details` đúng bảng TSD §6.
 
+**Bổ sung sau duyệt (TSD v1.2, chủ dự án đồng ý trong chat 2026-11-28):** frame `ready` thêm `guestKey` (tùy chọn, chỉ
+cho khách). Lý do: client không biết `guestKey` của mình nên khách bị timeout khi chưa gửi tin nào chưa bị khóa ô nhập ngay.
+Thay đổi additive, client cũ bỏ qua trường lạ. Test: `TestGuestReadsButCannotSend` kiểm `guestKey` đúng
+`entity.GuestKey`, `TestSendAckAndErrors` kiểm tài khoản không có trường này; `go test ./services/chat/internal/controller/ws/`
+và golangci-lint chat: pass.
+
 ## 3. Issues encountered
 
 - `make nxl-swag` trong Git Bash hỏng do MSYS đổi đường dẫn `-w /src` → chạy `MSYS_NO_PATHCONV=1 make nxl-swag`.

@@ -74,7 +74,7 @@ sequenceDiagram
   G->>WS: {"op":"auth","token":null,"anonId":A}
   WS->>GW: Authorize(ctx, nil, A)
   GW-->>WS: Principal{AnonID:A, GuestKey:HMAC(A)}
-  WS-->>G: ready (userId null)
+  WS-->>G: ready (userId null, guestKey)
   G->>WS: subscribe chat:S
   WS->>CU: Snapshot(p, S)
   CU->>PG: SendContext(S, guestKey)
@@ -398,7 +398,7 @@ ModerationRepo interface {
 {"slowSec":0,"followersMin":null,"subsOnly":false,"blockLinks":false,"guestChat":false}
 ```
 
-Frame `auth` và `ready` không đổi.
+Frame `auth` không đổi. Frame `ready` thêm trường tùy chọn `guestKey` (chỉ có khi người kết nối là khách có `anonId` hợp lệ; tài khoản không có trường này) để client nhận ra tin và hạn chế của chính mình (v1.2).
 
 ### 4.6 REST (qua edge, không đổi route)
 
@@ -531,3 +531,4 @@ Nếu chủ dự án trả lời "có" cho các open question: ban theo IP +6–
 | --- | --- | --- |
 | 1.0 | 2026-11-28 | Initial |
 | 1.1 | 2026-11-28 | As shipped: migration `20261128100001_guest_chat`; nickname syntax checked after `admit` (S4 holds for a bad nickname too) |
+| 1.2 | 2026-11-28 | `ready.guestKey` (additive, guests only), approved in chat: lets the client lock the input on `user_cleared` before the guest has sent anything |

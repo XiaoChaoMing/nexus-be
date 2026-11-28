@@ -80,13 +80,15 @@ func (b *bus) listening(topic string) bool {
 	return len(b.listeners[topic]) > 0
 }
 
+const _testGuestHMACKey = "test-guest-hmac"
+
 type fakeGateway struct {
 	b *bus
 }
 
 func (fakeGateway) Authorize(_ context.Context, token *string, anonID string) (entity.Principal, error) {
 	if token == nil {
-		return entity.Principal{AnonID: anonID}, nil
+		return entity.Principal{AnonID: anonID, GuestKey: entity.GuestKey([]byte(_testGuestHMACKey), anonID)}, nil
 	}
 
 	if *token == "locked" {
@@ -325,6 +327,7 @@ func TestGuestReadsButCannotSend(t *testing.T) {
 	ready := c.auth(nil)
 	require.Equal(t, "ready", ready["op"])
 	require.Nil(t, ready["userId"])
+	require.Equal(t, entity.GuestKey([]byte(_testGuestHMACKey), "0199d4a2-0000-7000-8000-00000000a0a0"), ready["guestKey"])
 	require.InDelta(t, 25, ready["heartbeatSec"], 0)
 
 	c.send(map[string]any{"op": "subscribe", "topic": chatT})
@@ -363,7 +366,9 @@ func TestSendAckAndErrors(t *testing.T) {
 
 	s := start(t, nil)
 	c := dial(t, s, nil)
-	require.Equal(t, userA, c.auth("good-" + userA)["userId"])
+	ready := c.auth("good-" + userA)
+	require.Equal(t, userA, ready["userId"])
+	require.NotContains(t, ready, "guestKey", "only a guest is told its guest key")
 
 	c.send(map[string]any{"op": "send", "topic": chatT, "type": "message", "data": map[string]string{"body": "hello"}, "clientMsgId": "k1"})
 	ack := c.next()

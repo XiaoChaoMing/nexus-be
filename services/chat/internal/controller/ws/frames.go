@@ -38,9 +38,12 @@ type inFrame struct {
 }
 
 type readyFrame struct {
-	Op           string  `json:"op"`
-	ConnID       string  `json:"connId"`
-	UserID       *string `json:"userId"`
+	Op     string  `json:"op"`
+	ConnID string  `json:"connId"`
+	UserID *string `json:"userId"`
+	// GuestKey is set for a guest only: the id its messages carry, so the client can recognize its own
+	// lines and the restrictions aimed at it.
+	GuestKey     *string `json:"guestKey,omitempty"`
 	HeartbeatSec int     `json:"heartbeatSec"`
 }
 
