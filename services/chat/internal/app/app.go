@@ -35,6 +35,7 @@ import (
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/fanout"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/gateway"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/moderation"
+	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/overlay"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/rooms"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/usecase/viewers"
 )
@@ -53,6 +54,7 @@ type useCases struct {
 	gateway    *gateway.UseCase
 	rooms      *rooms.UseCase
 	moderation *moderation.UseCase
+	overlay    *overlay.UseCase
 }
 
 // Run creates objects via constructors.
@@ -121,7 +123,7 @@ func Run(cfg *config.Config) { //nolint:funlen,gocyclo,cyclop // linear wiring: 
 	server := httpserver.New(l, httpserver.Port(cfg.HTTP.Port))
 	// Before the routes, so every request is counted (GET /metrics included).
 	server.App.Use(httpmetrics.New(m.Registerer()))
-	restapi.NewRouter(server.App, v1.UseCases{Chat: uc.chat, Moderation: uc.moderation, Roles: uc.moderation},
+	restapi.NewRouter(server.App, v1.UseCases{Chat: uc.chat, Moderation: uc.moderation, Roles: uc.moderation, Overlay: uc.overlay},
 		jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer), l, cfg.Swagger.Enabled)
 	server.App.Get("/metrics", adaptor.HTTPHandler(m.Handler()))
 
@@ -235,6 +237,7 @@ func wire(cfg *config.Config, pg *postgres.Postgres, rdb *redis.Client, br *brok
 
 	return useCases{
 		chat:    chatUC,
+		overlay: overlay.New(overlay.Repos{Overlay: store, Users: store}, pub, l),
 		viewers: viewersUC,
 		gateway: gateway.New(gateway.Deps{
 			Verifier: jwt.NewJWKSVerifier(cfg.Auth.JWKSURL, cfg.Auth.JWTIssuer),

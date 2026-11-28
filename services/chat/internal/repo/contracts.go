@@ -47,6 +47,14 @@ type (
 		SaveSettings(ctx context.Context, s entity.ChatSettings, change *events.ChatSettingsChanged) (entity.ChatSettings, error)
 	}
 
+	// OverlayRepo owns overlay_settings.
+	OverlayRepo interface {
+		// Overlay returns defaults (UpdatedAt nil) when the channel never saved any.
+		Overlay(ctx context.Context, channelID string) (entity.OverlaySettings, error)
+		// SaveOverlay replaces the channel's options and returns them with UpdatedAt set.
+		SaveOverlay(ctx context.Context, s entity.OverlaySettings) (entity.OverlaySettings, error)
+	}
+
 	// RoleRepo owns channel_roles.
 	RoleRepo interface {
 		// Roles returns the roles of the given users in the channel.

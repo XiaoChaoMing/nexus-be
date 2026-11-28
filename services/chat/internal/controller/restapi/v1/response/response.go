@@ -1,7 +1,11 @@
 // Package response holds the response DTOs of chat-svc's public REST API.
 package response
 
-import "time"
+import (
+	"time"
+
+	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
+)
 
 // Data wraps every successful body.
 type Data[T any] struct {
@@ -89,6 +93,13 @@ type ChatSettings struct {
 	BlockLinks   bool       `json:"blockLinks"`
 	GuestChat    bool       `json:"guestChat"`
 	UpdatedAt    *time.Time `json:"updatedAt"`
+}
+
+// OverlaySettings -.
+type OverlaySettings struct {
+	Chat      entity.OverlayChat  `json:"chat"`
+	Alert     entity.OverlayAlert `json:"alert"`
+	UpdatedAt *time.Time          `json:"updatedAt"`
 }
 
 // UserRef -. AvatarURL is always null: accounts have no picture yet.

@@ -45,6 +45,16 @@ type (
 		Snapshot(ctx context.Context, p entity.Principal, streamID string) (ChatSnapshot, error)
 	}
 
+	// Overlay is the OBS overlay of a channel: its look and the alerts the streamer sends to test it.
+	Overlay interface {
+		// Get returns the defaults for a channel that never saved any; entity.ErrNotFound for an unknown channel.
+		Get(ctx context.Context, channelID string) (entity.OverlaySettings, error)
+		// Update (channel owner or admin) replaces the options and pushes them to the open overlay pages.
+		Update(ctx context.Context, p entity.Principal, s entity.OverlaySettings) (entity.OverlaySettings, error)
+		// TestGift (channel owner or admin) shows a gift alert on the open overlay pages only.
+		TestGift(ctx context.Context, p entity.Principal, channelID string, g entity.GiftMeta) error
+	}
+
 	// Rooms reacts to domain events: room lifecycle, stream relays and the identity/channel copies.
 	// eventID de-duplicates the copies.
 	Rooms interface {

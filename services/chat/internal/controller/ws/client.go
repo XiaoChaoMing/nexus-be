@@ -250,6 +250,8 @@ func (cl *client) onAuth(f inFrame) {
 	}
 
 	p.ConnID, p.IP = cl.id, cl.ip
+	// Only a guest can be an overlay: it reads what any viewer reads, so no account is needed or trusted for it.
+	p.Overlay = f.Role == roleOverlay && f.Token == nil
 
 	if !cl.identify(ctx, p) {
 		return
@@ -409,6 +411,12 @@ type sendData struct {
 }
 
 func (cl *client) onSend(f inFrame) {
+	if cl.principal().Overlay {
+		cl.enqueue(encodeError(entity.CodeForbidden, "overlay connections are read only", f.ClientMsgID, nil))
+
+		return
+	}
+
 	topic, err := entity.ParseTopic(f.Topic)
 	if err != nil || topic.Kind != entity.TopicChat {
 		cl.enqueue(encodeError(entity.CodeValidationFailed, "only chat topics accept messages", f.ClientMsgID,

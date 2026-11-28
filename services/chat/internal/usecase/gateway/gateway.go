@@ -156,6 +156,11 @@ func (uc *UseCase) Join(ctx context.Context, p entity.Principal, topic entity.To
 			return nil, fmt.Errorf("GatewayUseCase - Join - chat: %w", err)
 		}
 
+		// An OBS overlay watches the chat for the streamer: it is not a viewer.
+		if p.Overlay {
+			return snap, nil
+		}
+
 		if _, err = uc.viewers.Join(ctx, topic.ID, p.ViewerKey()); err != nil {
 			uc.l.Warn("gateway - viewer join: %v", err)
 		}
@@ -163,6 +168,9 @@ func (uc *UseCase) Join(ctx context.Context, p entity.Principal, topic entity.To
 		return snap, nil
 	case entity.TopicStream:
 		return uc.streamSnapshot(ctx, p, topic.ID), nil
+	case entity.TopicOverlay:
+		// Public like the chat it restyles: what it carries (a look, a test alert) is shown on a public stream.
+		return nil, nil
 	}
 
 	return nil, entity.ErrInvalidTopic
@@ -193,7 +201,7 @@ func (uc *UseCase) streamSnapshot(ctx context.Context, p entity.Principal, strea
 
 // Leave -.
 func (uc *UseCase) Leave(p entity.Principal, topic entity.Topic) {
-	if id := topic.StreamID(); id != "" {
+	if id := topic.StreamID(); id != "" && !p.Overlay {
 		uc.viewers.Leave(id, p.ViewerKey())
 	}
 }

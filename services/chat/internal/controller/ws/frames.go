@@ -16,6 +16,9 @@ const (
 	opSend        = "send"
 )
 
+// roleOverlay is the auth frame's role of an OBS overlay page (guests only).
+const roleOverlay = "overlay"
+
 // Close codes (NXL-00 §10.4).
 const (
 	CloseServiceRestart = 1012
@@ -30,6 +33,7 @@ type inFrame struct {
 	Op          string          `json:"op"`
 	Token       *string         `json:"token"`
 	AnonID      string          `json:"anonId"`
+	Role        string          `json:"role"`
 	Topic       string          `json:"topic"`
 	LastSeq     *int64          `json:"lastSeq"`
 	Type        string          `json:"type"`

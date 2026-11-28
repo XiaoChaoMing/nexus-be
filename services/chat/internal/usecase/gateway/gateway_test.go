@@ -208,3 +208,41 @@ func TestAuthorizeLockedAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, userID, p.UserID)
 }
+
+type chatSnap struct{ usecase.Chat }
+
+func (chatSnap) Snapshot(context.Context, entity.Principal, string) (usecase.ChatSnapshot, error) {
+	return usecase.ChatSnapshot{}, nil
+}
+
+func TestOverlayIsNotAViewer(t *testing.T) {
+	t.Parallel()
+
+	v := &viewers{}
+	uc := gateway.New(gateway.Deps{Verifier: verifier{}, Viewers: v, Presence: &presence{}, Chat: chatSnap{}}, 1, logger.New("error"))
+	ctx := context.Background()
+
+	obs := entity.Principal{AnonID: "0199d4a2-0000-7000-8000-00000000a0a0", Overlay: true}
+
+	_, err := uc.Join(ctx, obs, entity.ChatTopic(stream))
+	require.NoError(t, err)
+	require.Empty(t, v.joined, "an OBS overlay reads the chat for the streamer: it is not in the viewer count")
+
+	viewer := entity.Principal{AnonID: "0199d4a2-0000-7000-8000-00000000b0b0"}
+
+	_, err = uc.Join(ctx, viewer, entity.ChatTopic(stream))
+	require.NoError(t, err)
+	require.Equal(t, []string{"a:" + viewer.AnonID}, v.joined, "a real guest still counts")
+}
+
+func TestJoinOverlayTopicIsPublic(t *testing.T) {
+	t.Parallel()
+
+	v := &viewers{}
+	uc := gateway.New(gateway.Deps{Verifier: verifier{}, Viewers: v, Presence: &presence{}}, 1, logger.New("error"))
+
+	snap, err := uc.Join(context.Background(), entity.Principal{}, entity.OverlayTopic(stream))
+	require.NoError(t, err)
+	require.Nil(t, snap)
+	require.Empty(t, v.joined)
+}

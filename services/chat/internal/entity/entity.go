@@ -49,6 +49,8 @@ type Principal struct {
 	IP     string
 	// ExpiresAt is when the access token expires (zero for guests).
 	ExpiresAt time.Time
+	// Overlay marks an OBS browser source: a read-only guest that is not counted as a viewer and cannot send.
+	Overlay bool
 }
 
 // Guest reports whether the caller is not signed in.

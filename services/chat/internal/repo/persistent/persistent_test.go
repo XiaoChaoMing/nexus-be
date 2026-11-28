@@ -41,7 +41,7 @@ func setup(t *testing.T) (*persistent.Repo, *postgres.Postgres) {
 	t.Cleanup(pg.Close)
 
 	_, err = pg.Pool.Exec(context.Background(),
-		`TRUNCATE chat_messages, chat_rooms, chat_settings, channel_roles, mod_actions, blocked_terms, users, channels, outbox,
+		`TRUNCATE chat_messages, chat_rooms, chat_settings, overlay_settings, channel_roles, mod_actions, blocked_terms, users, channels, outbox,
 		 processed_events, replica_backfills CASCADE`)
 	require.NoError(t, err)
 

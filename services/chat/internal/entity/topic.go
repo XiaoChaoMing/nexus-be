@@ -16,6 +16,8 @@ const (
 	TopicUser   TopicKind = "user"
 	// TopicSidebar carries the live state of the channels a user follows (sidebar:{userId}).
 	TopicSidebar TopicKind = "sidebar"
+	// TopicOverlay carries the OBS overlay options and test alerts of a channel (overlay:{channelId}); public to read.
+	TopicOverlay TopicKind = "overlay"
 )
 
 // Topic is "<kind>:<uuid>".
@@ -33,10 +35,13 @@ func StreamTopic(streamID string) Topic { return Topic{Kind: TopicStream, ID: st
 // UserTopic -.
 func UserTopic(userID string) Topic { return Topic{Kind: TopicUser, ID: userID} }
 
+// OverlayTopic -.
+func OverlayTopic(channelID string) Topic { return Topic{Kind: TopicOverlay, ID: channelID} }
+
 // SidebarTopic -.
 func SidebarTopic(userID string) Topic { return Topic{Kind: TopicSidebar, ID: userID} }
 
-// ParseTopic accepts chat:{uuid}, stream:{uuid}, user:{uuid} and sidebar:{uuid}; the id is lower-cased.
+// ParseTopic accepts chat:{uuid}, stream:{uuid}, user:{uuid}, sidebar:{uuid} and overlay:{uuid}; the id is lower-cased.
 func ParseTopic(s string) (Topic, error) {
 	kind, id, ok := strings.Cut(s, ":")
 	if !ok {
@@ -44,7 +49,7 @@ func ParseTopic(s string) (Topic, error) {
 	}
 
 	switch TopicKind(kind) {
-	case TopicChat, TopicStream, TopicUser, TopicSidebar:
+	case TopicChat, TopicStream, TopicUser, TopicSidebar, TopicOverlay:
 	default:
 		return Topic{}, ErrInvalidTopic
 	}

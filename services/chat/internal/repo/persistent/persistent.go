@@ -29,6 +29,7 @@ var (
 	_ repo.RoomRepo     = (*Repo)(nil)
 	_ repo.MessageRepo  = (*Repo)(nil)
 	_ repo.SettingsRepo = (*Repo)(nil)
+	_ repo.OverlayRepo  = (*Repo)(nil)
 	_ repo.RoleRepo     = (*Repo)(nil)
 	_ repo.EmoteRepo    = (*Repo)(nil)
 	_ repo.UserRepo     = (*Repo)(nil)

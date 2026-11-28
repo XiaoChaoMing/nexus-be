@@ -16,10 +16,11 @@ import (
 )
 
 type routes struct {
-	chat  usecase.Chat
-	mod   usecase.Moderation
-	roles usecase.Roles
-	l     logger.Interface
+	chat    usecase.Chat
+	mod     usecase.Moderation
+	roles   usecase.Roles
+	overlay usecase.Overlay
+	l       logger.Interface
 }
 
 // UseCases groups what the routes call.
@@ -27,6 +28,7 @@ type UseCases struct {
 	Chat       usecase.Chat
 	Moderation usecase.Moderation
 	Roles      usecase.Roles
+	Overlay    usecase.Overlay
 }
 
 // Auth holds the two authentication middlewares: Required rejects guests, Optional identifies callers when a
@@ -38,7 +40,7 @@ type Auth struct {
 
 // NewRoutes registers /v1/chat/*, the chat routes of /v1/channels/{channelId} and /v1/me/channel-roles.
 func NewRoutes(group fiber.Router, uc UseCases, auth Auth, l logger.Interface) {
-	r := &routes{chat: uc.Chat, mod: uc.Moderation, roles: uc.Roles, l: l}
+	r := &routes{chat: uc.Chat, mod: uc.Moderation, roles: uc.Roles, overlay: uc.Overlay, l: l}
 
 	group.Get("/chat/rooms/:streamId/messages", r.history)
 	group.Delete("/chat/rooms/:streamId/messages/:messageId", auth.Required, r.deleteMessage)
@@ -49,6 +51,9 @@ func NewRoutes(group fiber.Router, uc UseCases, auth Auth, l logger.Interface) {
 	ch := group.Group("/channels/:channelId")
 	ch.Get("/chat-settings", r.settings)
 	ch.Put("/chat-settings", auth.Required, r.updateSettings)
+	ch.Get("/overlay-settings", r.overlaySettings)
+	ch.Put("/overlay-settings", auth.Required, r.updateOverlaySettings)
+	ch.Post("/overlay-test", auth.Required, r.testOverlay)
 	ch.Put("/timeouts/:userId", auth.Required, r.timeout)
 	ch.Delete("/timeouts/:userId", auth.Required, r.untimeout)
 	ch.Put("/bans/:userId", auth.Required, r.ban)
@@ -89,6 +94,8 @@ func statusOf(code string) int {
 		return http.StatusConflict
 	case entity.CodeContentBlocked:
 		return http.StatusUnprocessableEntity
+	case entity.CodeRateLimited:
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusInternalServerError
 	}

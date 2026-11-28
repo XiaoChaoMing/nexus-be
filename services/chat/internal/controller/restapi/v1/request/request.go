@@ -3,6 +3,7 @@ package request
 
 import (
 	"regexp"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/minhnn/nexuslive-be/services/chat/internal/entity"
@@ -179,4 +180,71 @@ func (p Page) Validate() map[string]string {
 	}
 
 	return errs
+}
+
+// UpdateOverlay is the body of PUT /channels/{channelId}/overlay-settings: both parts, whole (the rules live on the entity).
+type UpdateOverlay struct {
+	Chat  entity.OverlayChat  `json:"chat"`
+	Alert entity.OverlayAlert `json:"alert"`
+}
+
+// Settings returns the entity to validate and store for channelID.
+func (b UpdateOverlay) Settings(channelID string) entity.OverlaySettings {
+	return entity.OverlaySettings{ChannelID: channelID, Chat: b.Chat, Alert: b.Alert}
+}
+
+// Bounds of the test alert fields.
+const (
+	_maxTestUsername = 25
+	_maxTestItem     = 50
+	_maxTestIcon     = 20
+	_maxTestMessage  = 200
+	_maxTestQuantity = 99
+	_maxTestTotal    = 100_000_000
+)
+
+// TestOverlayGift is the optional body of POST /channels/{channelId}/overlay-test; empty fields take demo values.
+type TestOverlayGift struct {
+	Username string  `json:"username"`
+	ItemName string  `json:"itemName"`
+	Icon     string  `json:"icon"`
+	Quantity int     `json:"quantity"`
+	Total    int64   `json:"total"`
+	Message  *string `json:"message"`
+}
+
+// Validate returns the field errors (NXL-00 §4.1).
+func (t TestOverlayGift) Validate() map[string]string {
+	errs := map[string]string{}
+
+	if utf8.RuneCountInString(t.Username) > _maxTestUsername {
+		errs["username"] = "MAX"
+	}
+
+	if utf8.RuneCountInString(t.ItemName) > _maxTestItem {
+		errs["itemName"] = "MAX"
+	}
+
+	if utf8.RuneCountInString(t.Icon) > _maxTestIcon {
+		errs["icon"] = "MAX"
+	}
+
+	if t.Message != nil && utf8.RuneCountInString(*t.Message) > _maxTestMessage {
+		errs["message"] = "MAX"
+	}
+
+	if t.Quantity < 0 || t.Quantity > _maxTestQuantity {
+		errs["quantity"] = "MAX"
+	}
+
+	if t.Total < 0 || t.Total > _maxTestTotal {
+		errs["total"] = "MAX"
+	}
+
+	return errs
+}
+
+// Gift is the alert as the entity carries it.
+func (t TestOverlayGift) Gift() entity.GiftMeta {
+	return entity.GiftMeta{Username: t.Username, ItemName: t.ItemName, Icon: t.Icon, Quantity: t.Quantity, Total: t.Total, Message: t.Message}
 }

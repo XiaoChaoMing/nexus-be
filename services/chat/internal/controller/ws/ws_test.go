@@ -568,3 +568,46 @@ func TestLockedAccountCloses4003(t *testing.T) {
 	other.send(map[string]any{"op": "ping"})
 	require.Equal(t, "pong", other.next()["op"], "other users stay connected")
 }
+
+func TestOverlayReadsButCannotSend(t *testing.T) {
+	t.Parallel()
+
+	const overlayT = "overlay:" + streamID
+
+	s := start(t, nil)
+	c := dial(t, s, nil)
+
+	c.send(map[string]any{"op": "auth", "role": "overlay", "anonId": "0199d4a2-0000-7000-8000-00000000a0a0"})
+	require.Equal(t, "ready", c.next()["op"])
+
+	c.send(map[string]any{"op": "subscribe", "topic": overlayT})
+	require.Equal(t, "subscribed", c.next()["op"])
+
+	waitListening(t, s.bus, overlayT)
+	s.bus.publish(overlayT, "overlay_test_gift", map[string]string{"itemName": "Hoa hồng"}, true)
+
+	ev := c.next()
+	require.Equal(t, "event", ev["op"])
+	require.Equal(t, overlayT, ev["topic"])
+	require.Equal(t, "overlay_test_gift", ev["type"])
+
+	c.send(map[string]any{"op": "send", "topic": chatT, "type": "message", "data": map[string]string{"body": "hi"}, "clientMsgId": "k1"})
+	errFrame := c.next()
+	require.Equal(t, "error", errFrame["op"])
+	require.Equal(t, "FORBIDDEN", errFrame["code"])
+	require.Equal(t, "k1", errFrame["ref"])
+}
+
+func TestOverlayRoleNeedsNoAccount(t *testing.T) {
+	t.Parallel()
+
+	s := start(t, nil)
+	c := dial(t, s, nil)
+
+	// A token and the overlay role together: the role is ignored, the account stays an ordinary one that can send.
+	c.send(map[string]any{"op": "auth", "role": "overlay", "token": "good-" + userA})
+	require.Equal(t, "ready", c.next()["op"])
+
+	c.send(map[string]any{"op": "send", "topic": chatT, "type": "message", "data": map[string]string{"body": "hi"}, "clientMsgId": "k2"})
+	require.Equal(t, "ack", c.next()["type"])
+}
