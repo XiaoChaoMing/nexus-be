@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.5 (Draft) |
-| **Cập nhật** | 2026-11-27 (chi trả rút tiền; ví và quà tặng) |
+| **Phiên bản** | 1.6 (Draft) |
+| **Cập nhật** | 2026-11-28 (khách chat; overlay OBS) |
 | **Nguồn** | PRD v2.1 §8.2, NXL-A §7, NXL-B §7, NXL-D §7 |
 
 Mức khái niệm: entity, trường chính, trạng thái và quan hệ. ERD mức logic (bảng, cột, kiểu, ràng buộc)
@@ -63,12 +63,13 @@ Viewer count hiện tại nằm trong Redis; chỉ `peak_viewers` được ghi v
 | Entity | Trường chính | Trạng thái |
 | --- | --- | --- |
 | **ChatRoom** | stream_id ⇢ (1–1), channel_id ⇢, status | `OPEN` · `READ_ONLY` · `CLOSED` (NXL-B §7A) |
-| **ChatSettings** | channel_id ⇢, slow_sec, followers_min, subs_only, updated_by ⇢, updated_at | — |
-| **ChatMessage** | id, stream_id ⇢, user_id ⇢, client_msg_id, body, fragments (jsonb), type (`NORMAL`/`SYSTEM`), deleted_at, deleted_by ⇢, pinned, created_at | Bảng phân vùng theo ngày |
+| **ChatSettings** | channel_id ⇢, slow_sec, followers_min, subs_only, block_links (GĐ5), guest_chat (v1.6: khách chat, mặc định `false`), updated_by ⇢, updated_at | — |
+| **ChatMessage** | id, stream_id ⇢, user_id ⇢, client_msg_id, body, fragments (jsonb), type (`NORMAL`/`SYSTEM`), deleted_at, deleted_by ⇢, pinned, created_at, guest_name (v1.6: `varchar(20)`, `NULL` = tin của tài khoản; tin khách có `user_id` = guest key dẫn xuất từ `anonId`, không phải `users.id` — ADR-017) | Bảng phân vùng theo ngày |
 | **ChannelRole** | channel_id ⇢, user_id ⇢, role (`MODERATOR`/`VIP`), granted_by ⇢ | — |
-| **ModAction** | id, channel_id ⇢, actor_id ⇢, target_user_id ⇢, type (`DELETE`/`TIMEOUT`/`BAN`/`UNBAN`/`PIN`), message_id, reason, expires_at | — |
+| **ModAction** | id, channel_id ⇢, actor_id ⇢, target_user_id ⇢ (v1.6: có thể là guest key), type (`DELETE`/`TIMEOUT`/`BAN`/`UNBAN`/`PIN`), message_id, reason, expires_at, target_guest_name (v1.6: biệt danh khách lúc bị xử lý, cho danh sách bị cấm) | — |
 | **BlockedTerm** | channel_id ⇢, term, created_by ⇢ | — |
 | **Emote** | id, scope (`GLOBAL`/`CHANNEL`), channel_id ⇢, code, image_url, animated, tier_required | — |
+| **OverlaySettings** (v1.6) | channel_id ⇢ (PK), chat (jsonb: preset, background, bgColor, bgOpacity, textColor, fontFamily, fontSize, showBadges, usernameColor, maxMessages, fadeAfterSec), alert (jsonb: accentColor, durationSec, position, animation, minTotal, showMessage), updated_by ⇢, updated_at | Không có dòng = giá trị mặc định; giá trị hợp lệ kiểm ở chat-svc, không CHECK trong DB (ADR-018) |
 
 Bản sao trong Redis (không phải nguồn sự thật): `follow_since:{channel}:{user}`,
 `sub_tier:{channel}:{user}`, `ban:{channel}:{user}`, `timeout:{channel}:{user}`.
@@ -161,7 +162,7 @@ erDiagram
 | Tier subscription | chat-svc (Redis) | billing-svc | `subscription.*` |
 | Username, display_name | channel-svc, chat-svc | identity-svc | `user.updated` |
 | Trạng thái khóa tài khoản | chat-svc, stream-svc | identity-svc / safety-svc | `user.locked`, `safety.user_actioned` |
-| SearchDocument | channel-svc | channel-svc, stream-svc | `stream.*`, `stream.viewers`; VOD: `stream.vod_ready`, `vod.updated`, `vod.deleted`, `vod.published` (v1.3, video tải lên) |
+| SearchDocument | channel-svc | channel-svc, stream-svc | `stream.*` (v1.6: không có sự kiện `stream.viewers` — số người xem đọc thẳng khóa Redis `viewers:{streamId}` do chat-svc ghi); VOD: `stream.vod_ready`, `vod.updated`, `vod.deleted`, `vod.published` (v1.3, video tải lên) |
 | VodCopy (v1.3) | safety-svc | stream-svc | `stream.vod_ready`, `vod.published`, `vod.updated`, `vod.deleted` |
 
 Mỗi bản sao phải có cách dựng lại từ đầu (API đọc của service nguồn) khi phát hiện lệch.
@@ -175,3 +176,4 @@ Mỗi bản sao phải có cách dựng lại từ đầu (API đọc của serv
 | 1.3 | 2026-11-04 | Tải video lên (ADR-014, TSD `2026-11-02-video-upload-abr` §4.4, §4.8): `Vod` thêm `source`, `description`, `published_at`, `failure_*`, `processing_*`, `stream_id` / `expires_at` rỗng với `UPLOAD`, trạng thái `FAILED`; entity mới `VideoUpload`; safety: report target `VOD`, `TAKEDOWN_VOD`, bản sao `VodCopy`; quan hệ §8, bản sao §9 |
 | 1.4 | 2026-11-27 | Chi trả rút tiền (ADR-015, TSD `2026-11-27-payout-settlement` §4.1): `PayoutRequest` thêm `PROCESSING`, `PAID`, `FAILED` và `provider`, `provider_ref`, `paid_at`, `settled_*`, `failure_reason`; `LedgerEntry.kind` `PAYOUT` → `PAYOUT_HOLD` + `PAYOUT_REVERSAL` |
 | 1.5 | 2026-11-27 | Ví và quà tặng (ADR-016, DL-24, TSD `2026-11-27-donate` §4.1): `CheckoutOrder.order_type` (`TOPUP`: không tier / kênh); entity mới `WalletEntry`, `GiftItem`, `GiftSend`; `LedgerEntry` thêm nguồn `gift_send_id`, kind `GIFT_REVENUE`; §8 thêm quan hệ ví / quà |
+| 1.6 | 2026-11-28 | Khách chat (ADR-017, DL-25, migration `20261128100001_guest_chat`): `ChatSettings.guest_chat`, `ChatMessage.guest_name`, `ModAction.target_guest_name`; ghi thêm `ChatSettings.block_links` (có từ GĐ5). Overlay OBS (ADR-018, DL-26, migration `20261129000001_overlay_settings`): entity mới `OverlaySettings`. §9 bỏ sự kiện `stream.viewers` (không có trong code) |

@@ -2,8 +2,8 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.4 |
-| **Cập nhật** | 2026-11-27 (H3: Donate bằng vật phẩm trả từ ví VND — DL-24); 2026-11-27 (H2: vòng đời chi trả rút tiền — DL-23); 2026-11-04 (thêm A10 "Tải video lên + ABR" — DL-22) |
+| **Phiên bản** | 1.5 |
+| **Cập nhật** | 2026-11-28 (B7: khách chat — DL-25; G5: overlay OBS — DL-26); 2026-11-27 (H3: Donate bằng vật phẩm trả từ ví VND — DL-24); 2026-11-27 (H2: vòng đời chi trả rút tiền — DL-23); 2026-11-04 (thêm A10 "Tải video lên + ABR" — DL-22) |
 | **Nguồn** | PRD v2.0 §4, Core Features & Roadmap §1; PRD v2.1 FR-VD-08 (E-36) |
 
 ## Cách đọc
@@ -42,6 +42,7 @@
 | B4 | Virtualized list, reconnect + resume, sampling, optimistic UI | P0 | ✅ | chat, web | NXL-B | GĐ3 | Là nội dung chính của tiêu chí S3, S4 |
 | B5 | Reply, cài đặt chat cá nhân, chat rules | P1 | ⬜ | chat | — | — | |
 | B6 | Poll, Prediction, Hype Train, Raid | P2 | ⬜ | chat | — | — | |
+| B7 | Khách (chưa đăng nhập) chat khi kênh bật "Cho phép khách chat" | — (bổ sung) | ✅ | chat, web | NXL-B v1.4 BR32–BR34, NXL-F v1.2 BR-F30 | Sau GĐ6 (TSD `2026-11-28-guest-chat`) | Quyết định DL-25, ADR-017; cờ kênh mặc định tắt, chỉ chủ kênh / Admin đổi; danh tính `guestKey` (HMAC từ `anonId`); biệt danh 3–20 ký tự gửi kèm từng tin, huy hiệu Khách; 200 ký tự, luôn chặn link, ≥ 10 s/tin, bucket chung theo IP, không @mention; Followers/Subs-only vẫn chặn; mod xử lý khách theo `guestKey`; không ban theo IP |
 
 ## C. Khám phá & Điều hướng
 
@@ -90,7 +91,8 @@
 | G1 | Go Live / Stream Manager: stream key, tiêu đề, category, preview, sức khỏe stream | P0 | ✅ | stream, media | NXL-G1 | GĐ2 | Sức khỏe: bitrate, fps nhận được từ ffmpeg |
 | G2 | Dashboard, Content (VOD), Schedule, Community (Mod/VIP) | P0 | ◐ | stream, channel, chat | NXL-G2 | GĐ4, GĐ5 | Dashboard: viewers hiện tại, follower mới; Content: ẩn/xóa VOD |
 | G3 | Analytics | P1 | ⬜ | — | — | — | |
-| G4 | Alerts/overlay, quản lý emote & badge | P1 | ◐ | chat | — | GĐ6 | Chỉ upload emote kênh cho tier |
+| G4 | Alerts/overlay, quản lý emote & badge | P1 | ◐ | chat | — | GĐ6 | Chỉ upload emote kênh cho tier; alerts/overlay tách ra G5 |
+| G5 | Overlay OBS: chat nền trong suốt có theme + alert quà (Browser Source), Studio → Overlay OBS (link, theme, xem trước, Gửi thử) | P1 (PRD Settings "Alerts/overlay", FR-MN-04) | ◐ | chat, web | NXL-G2 v1.4 §3.9 | Sau GĐ6 (TSD `2026-11-28-stream-overlay`) | Quyết định DL-26, ADR-018; link công khai theo handle, không token, kết nối `role = "overlay"` không tính người xem; theme là tập giá trị hữu hạn; alert thật từ dòng `GIFT`, alert thử không vào chat / sổ cái; không âm thanh / TTS, alert Follow / Sub / Raid, CSS tự viết, goal bar |
 
 ## H. Thu nhập
 
@@ -120,15 +122,15 @@ Nhóm I không có spec riêng: yêu cầu được ghi vào từng spec (Respon
 | Nhóm | ✅ Làm đủ | ◐ Rút gọn | ⬜ Sau đồ án |
 | --- | --- | --- | --- |
 | A | 4 | 3 | 3 |
-| B | 4 | 0 | 2 |
+| B | 5 | 0 | 2 |
 | C | 3 | 2 | 2 |
 | D | 1 | 3 | 1 |
 | E | 1 | 1 | 1 |
 | F | 2 | 2 | 1 |
-| G | 1 | 2 | 1 |
+| G | 1 | 3 | 1 |
 | H | 1 | 3 | 1 |
 | I | 0 | 4 | 1 |
-| **Tổng** | **17** | **20** | **13** |
+| **Tổng** | **18** | **21** | **13** |
 
 Mọi tính năng P0 của PRD đều có mặt trong đồ án ở mức ✅ hoặc ◐.
 

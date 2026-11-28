@@ -2,9 +2,9 @@
 
 | | |
 | --- | --- |
-| **Phiên bản** | 1.4 (Draft) |
-| **Cập nhật** | 2026-11-27 |
-| **Quyết định nền** | [decisions.md](decisions.md) — ADR-001 → ADR-016 |
+| **Phiên bản** | 1.5 (Draft) |
+| **Cập nhật** | 2026-11-28 |
+| **Quyết định nền** | [decisions.md](decisions.md) — ADR-001 → ADR-018 |
 | **Dữ liệu** | [data-model.md](data-model.md) |
 
 > Tài liệu ở mức kiến trúc. Chi tiết hợp đồng API, mã lỗi, sự kiện được chốt trong spec `NXL-00`;
@@ -110,10 +110,10 @@ flowchart TB
 | Web người dùng (`nexuslive-web`) | React 19, Vite, TypeScript, TanStack Query, hls.js | Giao diện Guest, Viewer, Creator Studio; không chứa màn quản trị |
 | Web quản trị (`nexuslive-admin`) — GĐ1 | React 19, Vite, TypeScript, TanStack Query (cùng stack web người dùng) | Màn Admin: duyệt đơn Creator (GĐ1); report, khóa tài khoản/kênh, gỡ stream, audit (GĐ5). Deploy riêng (`admin.<domain>`) — ADR-013 |
 | Cổng vào (Nginx) | Nginx | Điểm vào duy nhất cho trình duyệt: TLS, định tuyến theo tiền tố đường dẫn, rate limit, CORS (origin web + admin), header bảo mật, nâng cấp WebSocket, phục vụ HLS từ MinIO (URL có chữ ký 📋 GĐ5/GĐ7) |
-| 7 business service | Go, Fiber (REST), HTTP nội bộ (gRPC khi có toolchain proto), khuôn go-clean-template | Logic nghiệp vụ theo domain (§4) |
+| 7 business service | Go, Fiber (REST), HTTP nội bộ `/internal/v1/*` (header `X-Internal-Secret`, không qua cổng vào), khuôn go-clean-template | Logic nghiệp vụ theo domain (§4) |
 | media-svc | Go + ffmpeg | Nhận RTMP, hỏi stream-svc xác thực key, khởi chạy/giám sát ffmpeg, báo sự kiện ingest; chuyển mã video Creator tải lên (hàng đợi JetStream, live được ưu tiên — ADR-014) |
-| PostgreSQL | PostgreSQL 16 | Dữ liệu bền của từng service; mỗi service một database riêng trong cùng instance |
-| Redis | Redis 7 | Rate limit, presence, viewer count, cache quyền chat, phiên |
+| PostgreSQL | PostgreSQL 18 | Dữ liệu bền của từng service; mỗi service một database riêng trong cùng instance |
+| Redis | Redis 7 | Rate limit, presence, viewer count (chat-svc ghi `viewers:{streamId}`, stream-svc và channel-svc đọc), cache quyền chat, phiên |
 | NATS JetStream | NATS | Sự kiện miền giữa các service; fan-out chat giữa các instance chat-svc |
 | MinIO | S3-compatible | Segment HLS, playlist, VOD, thumbnail, avatar/banner, emote; file gốc của video tải lên (bucket riêng tư, §8) |
 
@@ -132,19 +132,19 @@ flowchart TB
 
 ## 4. Danh mục service
 
-Mỗi service **sở hữu dữ liệu của mình**; service khác chỉ đọc qua API/gRPC hoặc giữ bản sao cục bộ
+Mỗi service **sở hữu dữ liệu của mình**; service khác chỉ đọc qua API (REST hoặc HTTP nội bộ) hoặc giữ bản sao cục bộ
 dựng từ sự kiện. Không service nào đọc database của service khác.
 
 | Service | Trách nhiệm | Dữ liệu sở hữu | Cổng giao tiếp | Phát sự kiện | Nghe sự kiện | Có từ |
 | --- | --- | --- | --- | --- | --- | --- |
 | **identity-svc** | Đăng ký, đăng nhập, xác minh email, phiên, JWT, hồ sơ tài khoản, vai trò toàn cục (admin), đăng ký Creator, block giữa người dùng | User, Credential, Session, CreatorApplication, UserBlock | REST, JWKS, CLI `identity promote-admin` | `user.registered`, `auth.email_requested`, `user.email_verified`, `user.profile_updated`, `creator.application_submitted`, `creator.approved`, `creator.rejected`; 📋 `user.locked` | `channel.created` (bản sao `user_channels`), `auth.email_requested` (consumer `identity-mailer` gửi SMTP tới GĐ5); 📋 `safety.user_actioned` | GĐ1 |
 | **channel-svc** | Kênh, Creator Profile, Follow, Schedule + Reminder, Category, khám phá và tìm kiếm | Channel, Follow, Schedule, Reminder, Category, bảng đọc tìm kiếm | REST (cổng 8094) | `channel.created` (GĐ1); 📋 `channel.updated`, `follow.created`, `follow.deleted`, `schedule.created`, `schedule.cancelled`, `reminder.due` | `creator.approved` (tạo kênh), `stream.started`/`stream.ended` (`is_live`) — GĐ1; 📋 `user.profile_updated`; tải lên: `vod.published` (bảng tìm kiếm) | **GĐ1 tối thiểu** (tạo kênh, `GET /v1/channels/{handle}`) · GĐ4 đầy đủ |
-| **stream-svc** | Stream key, vòng đời Stream (state machine NXL-A §7A), playback session, VOD, tiến độ xem, viewer count; phiên tải video lên (ADR-014) | StreamKey, Stream, StreamSettings, Vod, WatchProgress, PlaybackSession (📋), bản sao `creator_channels`; VideoUpload + bucket `nxl-uploads` (tải lên) | REST, HTTP nội bộ (authorize; `GET /internal/v1/vods/{id}` cho safety) | `stream.scheduled`, `stream.started`, `stream.interrupted`, `stream.resumed`, `stream.ended`, `vod.ready`, `stream.viewers`; tải lên: `upload.completed`, `vod.published` | `ingest.*`, `vod.processed`, `channel.created` (GĐ1); 📋 `safety.stream_takedown`, `schedule.*`; tải lên: `upload.progress`, `upload.processed`, `upload.failed`, `safety.vod_takedown` | GĐ0 (PoC L1–L4) |
+| **stream-svc** | Stream key, vòng đời Stream (state machine NXL-A §7A), playback session, VOD, tiến độ xem, đỉnh người xem (`peak_viewers`, do chat-svc báo); phiên tải video lên (ADR-014) | StreamKey, Stream, StreamSettings, Vod, WatchProgress, PlaybackSession (📋), bản sao `creator_channels`; VideoUpload + bucket `nxl-uploads` (tải lên) | REST, HTTP nội bộ (authorize; `GET /internal/v1/vods/{id}` cho safety) | `stream.scheduled`, `stream.started`, `stream.status_changed` (`INTERRUPTED` / nối lại), `stream.updated`, `stream.ended`, `stream.vod_ready`, `vod.updated`, `vod.deleted`; tải lên: `upload.completed`, `vod.published` | `ingest.*`, `vod.processed`, `channel.created`, `channel.updated` (GĐ1); `stream.peak_viewers` (chat-svc); 📋 `safety.stream_takedown`, `schedule.*`; tải lên: `upload.progress`, `upload.processed`, `upload.failed`, `safety.vod_takedown` | GĐ0 (PoC L1–L4) |
 | **media-svc** | RTMP ingest, điều phối ffmpeg, ghi HLS + VOD, sinh thumbnail, đo sức khỏe ingest; chuyển mã video tải lên | Không có dữ liệu nghiệp vụ (chỉ trạng thái tiến trình) | RTMP, HTTP nội bộ (client), HTTP health/metrics | `ingest.started`, `ingest.stopped`, `ingest.health`, `vod.processed`; tải lên: `upload.progress`, `upload.processed`, `upload.failed` | `stream.ended` (kick + chốt VOD); `vod.deleted` (xóa theo `playlistPrefix`); tải lên: `upload.completed` (durable `media-transcode`) | GĐ0 (PoC L1–L4) |
-| **chat-svc** | **Realtime gateway** (một kết nối WebSocket cho mọi chủ đề), phòng chat, tin nhắn, emote, chế độ chat, hành động mod trong chat, từ khóa chặn | ChatRoom, ChatMessage, ChatSettings, Emote, ModAction, BlockedTerm, ChannelRole (Mod/VIP) | WebSocket, REST | `chat.message_sent`, `chat.mention`, `chat.mod_action` | `stream.*`, `follow.*`, `subscription.*`, `payment.*`, `gift.sent` (system `GIFT`), `notification.created`, `user.locked` | GĐ3 |
+| **chat-svc** | **Realtime gateway** (một kết nối WebSocket cho mọi chủ đề), phòng chat, tin nhắn, emote, chế độ chat (gồm khách chat — ADR-017), hành động mod trong chat, từ khóa chặn, **đếm người xem** (BR31, DL-17); cài đặt overlay OBS (ADR-018) | ChatRoom, ChatMessage, ChatSettings, Emote, ModAction, BlockedTerm, ChannelRole (Mod/VIP), OverlaySettings | WebSocket, REST, HTTP nội bộ (bằng chứng tin cho safety) | `chat.mention`, `chat.mod_action`, `chat.settings_changed`, `channel.role_changed`, `stream.peak_viewers` (đỉnh người xem khi buổi phát kết thúc) | `stream.*`, `follow.*`, `subscription.*`, `payment.*`, `gift.sent` (system `GIFT`), `notification.created`, `user.locked` | GĐ3 |
 | **safety-svc** | Report, xử lý của Admin (khóa tài khoản/kênh, gỡ stream, gỡ video), audit log nền tảng | Report, AdminAction, AuditLog; bản sao VOD (report target `VOD`) | REST | `safety.stream_takedown`, `safety.user_actioned`, `safety.report_resolved`; `safety.vod_takedown` | `chat.mod_action` (để audit); `vod.published`, `vod.updated`, `vod.deleted` (bản sao VOD) | GĐ5 |
 | **notification-svc** | Tạo thông báo, notification center, gửi email, cài đặt nhận thông báo | Notification, NotificationSetting, EmailOutbox | REST | `notification.created` | `stream.started`, `reminder.due`, `chat.mention`, `safety.report_resolved`, `subscription.*`, `payment.*` (theo `orderType`), `payout.*`, `gift.sent` | GĐ5 |
-| **billing-svc** | Tier subscription, Checkout, giao dịch với PSP, webhook, trạng thái Subscription, sổ cái số dư Creator, yêu cầu rút tiền; ví VND của người dùng, nạp ví, danh mục vật phẩm, tặng quà (ADR-016) | SubscriptionTier, Subscription, CheckoutOrder, Transaction, LedgerEntry, PayoutRequest, WalletEntry, GiftItem, GiftSend | REST, webhook | `subscription.activated`, `subscription.renewed`, `subscription.expired`, `subscription.cancelled`, `payment.succeeded/failed/voided` (+ `orderType`), `payout.paid`, `payout.failed`, `payout.rejected`, `gift.sent` | `creator.approved` (tạo tier mặc định) | GĐ6 |
+| **billing-svc** | Tier subscription, Checkout, giao dịch với PSP, webhook, trạng thái Subscription, sổ cái số dư Creator, yêu cầu rút tiền; ví VND của người dùng, nạp ví, danh mục vật phẩm, tặng quà (ADR-016) | SubscriptionTier, Subscription, CheckoutOrder, Transaction, LedgerEntry, PayoutRequest, WalletEntry, GiftItem, GiftSend | REST, webhook | `subscription.activated`, `subscription.renewed`, `subscription.updated`, `subscription.expiring`, `subscription.expired`, `payment.succeeded/failed/voided` (+ `orderType`), `payout.paid`, `payout.failed`, `payout.rejected`, `gift.sent` | `channel.created` (bản sao kênh + tạo tier mặc định), `channel.updated`, `channel.suspended`, `channel.restored` | GĐ6 |
 
 **Nguyên tắc ranh giới**
 
@@ -162,18 +162,20 @@ dựng từ sự kiện. Không service nào đọc database của service khác
 | Kiểu | Dùng khi | Công nghệ | Quy tắc |
 | --- | --- | --- | --- |
 | **Client → service** | Trình duyệt gọi nghiệp vụ | REST/JSON qua Gateway, tiền tố `/v1` | Envelope, mã lỗi, phân trang theo NXL-00 |
-| **Service → service đồng bộ** | Cần câu trả lời ngay để quyết định (xác thực stream key, kiểm tra kênh tồn tại) | gRPC nội bộ | Timeout ≤ 300ms, không gọi chuỗi quá 1 bước, có đường lui khi lỗi |
+| **Service → service đồng bộ** | Cần câu trả lời ngay để quyết định (xác thực stream key, kiểm tra kênh tồn tại) | HTTP/JSON nội bộ `/internal/v1/*` trên cổng nội bộ riêng của service, header `X-Internal-Secret` (`NXL_INTERNAL_SECRET`); cổng vào chặn `/internal` | Timeout ≤ 300ms, không gọi chuỗi quá 1 bước, có đường lui khi lỗi |
 | **Service → service bất đồng bộ** | Thông báo một việc đã xảy ra | NATS JetStream | Sự kiện bất biến, có `eventId` để chống xử lý trùng, phát qua transactional outbox |
 
-Mặc định là **bất đồng bộ**. Một lời gọi gRPC mới phải nêu lý do trong TSD.
+Mặc định là **bất đồng bộ**. Một lời gọi đồng bộ mới phải nêu lý do trong TSD. Không service nào dùng gRPC
+(`pkg/grpcserver` có sẵn từ khuôn nhưng chưa được dùng).
 
 ### 5.2 Định dạng sự kiện
 
 - Subject: `nxl.<domain>.<event>.v<n>` — ví dụ `nxl.stream.started.v1`.
 - Metadata đi trong **header NATS**, body chỉ là payload của sự kiện (quyết định 13/10/2026, GĐ0 Q3):
-  `Nats-Msg-Id` = `eventId` (UUID, JetStream dùng để chống publish trùng); `type` = subject bỏ tiền tố `nxl.`;
-  `Nxl-Occurred-At`, `Nxl-Producer`, `traceparent` thêm vào `pkg/eventbus` từ GĐ1. Lý do: `Nats-Msg-Id` vốn là
-  header, và outbox + consumer đã chạy theo cách này từ L2. Định dạng chính thức: NXL-00 §11.
+  `Nats-Msg-Id` = `eventId` (UUID, JetStream dùng để chống publish trùng); `type` = subject bỏ tiền tố `nxl.`
+  (không có header riêng); `Nxl-Occurred-At` (RFC 3339) và `Nxl-Producer` (tên service) do `pkg/eventbus` gắn.
+  Lý do: `Nats-Msg-Id` vốn là header, và outbox + consumer đã chạy theo cách này từ L2. Không có header
+  `traceparent`: trace không đi qua NATS. Định dạng chính thức: NXL-00 §11.
 - Bên phát ghi sự kiện vào bảng **outbox** trong cùng transaction với thay đổi dữ liệu; một worker
   đẩy outbox lên NATS. Bên nghe lưu `eventId` đã xử lý (bảng `processed_events`) để idempotent.
 - Bắt buộc dùng outbox cho billing-svc và stream-svc; các service khác dùng khi sự kiện ảnh hưởng dữ liệu.
@@ -185,12 +187,26 @@ chat-svc giữ **một** endpoint WebSocket `/v1/ws` cho trình duyệt. Client 
 | Chủ đề | Nội dung | Nguồn |
 | --- | --- | --- |
 | `chat:{streamId}` | Tin nhắn, system message, delete, pin, mode_change… (NXL-B) | chat-svc |
-| `stream:{streamId}` | `stream_status_changed`, `viewer_count`, `vod_ready` (NXL-A) | stream-svc qua NATS |
-| `user:{userId}` | Thông báo mới, kết quả subscription | notification-svc, billing-svc qua NATS |
-| `sidebar:{userId}` | Kênh đang theo dõi vừa live/offline | channel-svc qua NATS |
+| `stream:{streamId}` | `status_changed`, `title_changed`, `viewer_count`, `vod_ready` (NXL-A) | chat-svc: chuyển tiếp `stream.*` nghe từ NATS; `viewer_count` do chat-svc tự đếm |
+| `user:{userId}` | Thông báo mới, số chưa đọc, kết quả thanh toán | chat-svc chuyển tiếp sự kiện của notification-svc, billing-svc qua NATS |
+| `sidebar:{userId}` | `channel_live`, `channel_offline` của kênh đang theo dõi; `viewer_count_batch` | chat-svc tự dựng từ bản sao follow và `stream.started` / `stream.ended` (không có sự kiện riêng từ channel-svc) |
+| `overlay:{channelId}` | `overlay_settings` (theme vừa lưu), `overlay_test_gift` (alert thử) — trang overlay OBS (ADR-018) | chat-svc (REST overlay) |
 
 Cách này gộp kênh `stream:{id}` của NXL-A và `/v1/chat/ws` của NXL-B vào một kết nối; NXL-A/B sẽ
 được cập nhật theo NXL-00 ở đợt đồng bộ.
+
+**Số người xem** do chat-svc đếm (DL-17, NXL-B BR31): mỗi người nghe `stream:{streamId}` hoặc `chat:{streamId}` tính
+một lần (tài khoản theo `userId`, Guest theo `anonId`), ZSET Redis, phát `viewer_count` trên `stream:{streamId}` và ghi
+khóa `viewers:{streamId}` cho stream-svc, channel-svc đọc. Khi buổi phát kết thúc, chat-svc phát `stream.peak_viewers.v1`
+(outbox) để stream-svc lưu `streams.peak_viewers`.
+
+**Khách và overlay** (frame `auth` không có token):
+
+- **Khách chat** (ADR-017): khi kênh bật `guestChat`, khách có `anonId` hợp lệ gửi tin với `data.guestName`. Server dẫn xuất
+  `guestKey` từ `anonId` bằng HMAC, dùng làm `user.id` của tin, khóa giới hạn tần suất và đích của timeout / ban; frame
+  `ready` trả `guestKey` cho chính khách. Kênh tắt cờ (mặc định) → khách chỉ đọc như trước.
+- **Overlay OBS** (ADR-018): frame `auth` có `role: "overlay"` (chỉ nhận khi không có token) → kết nối chỉ đọc, đăng ký
+  `chat:{streamId}` và `overlay:{channelId}`, không tính vào số người xem, `send` bị `FORBIDDEN`.
 
 Co giãn ngang: mỗi instance chat-svc subscribe các subject NATS của những phòng có client đang kết
 nối tới nó; tin nhắn gửi vào instance A được publish lên NATS và instance B đẩy cho client của mình.
@@ -213,7 +229,7 @@ sequenceDiagram
     participant W as Web (viewer)
 
     OBS->>M: RTMP publish (rtmp://…/live/{streamKey})
-    M->>S: gRPC ValidateStreamKey(key)
+    M->>S: HTTP nội bộ POST /internal/v1/ingest/authorize (key)
     S-->>M: ok (channelId, streamId)
     M->>F: khởi chạy ffmpeg (ABR ladder → HLS)
     F->>O: ghi segment + playlist
@@ -222,7 +238,7 @@ sequenceDiagram
     S->>S: Stream SCHEDULED/∅ → LIVE (outbox)
     S->>N: stream.started
     N->>C: stream.started
-    C-->>W: stream_status_changed LIVE (chủ đề stream:{id})
+    C-->>W: status_changed LIVE (chủ đề stream:{id})
     N->>NT: stream.started
     NT->>NT: tạo thông báo cho follower (in-app + email)
 ```
@@ -241,7 +257,7 @@ sequenceDiagram
     W->>G: GET /v1/streams/{id}
     G->>S: chuyển tiếp
     S-->>W: chi tiết + trạng thái
-    W->>G: POST /v1/streams/{id}/playback-sessions
+    W->>G: POST /v1/streams/{id}/playback
     G->>S: kiểm tra trạng thái, mature, khóa kênh
     S-->>W: manifestUrl có chữ ký + expiresAt
     loop mỗi segment
@@ -267,7 +283,7 @@ sequenceDiagram
     U->>C1: message {clientMsgId, body}
     C1->>R: rate limit, slow mode, bản sao follow/sub, ban/timeout
     C1->>C1: chuẩn hóa, từ khóa chặn, tạo fragments
-    C1->>P: lưu tin (ghi theo lô)
+    C1->>P: lưu từng tin (một INSERT mỗi tin)
     C1-->>U: ack {clientMsgId, messageId}
     C1->>N: publish chat:{streamId}
     N->>C2: chat:{streamId}
@@ -378,7 +394,8 @@ sequenceDiagram
   `chat`, `safety`, `notification`, `billing`) trong cùng một instance khi dev/demo. Migration theo
   golang-migrate trong thư mục của từng service.
 - **Tham chiếu chéo service chỉ bằng ID** (UUID); không có foreign key xuyên database.
-- **Redis:** khóa có tiền tố theo service (`chat:`, `stream:`, `idn:`); không service nào đọc khóa của service khác.
+- **Redis:** khóa có tiền tố theo service (`chat:`, `stream:`, `idn:`); không service nào đọc khóa của service khác, trừ
+  `viewers:{streamId}` (chat-svc ghi số người xem, stream-svc và channel-svc chỉ đọc).
 - **MinIO buckets** (thiết kế ban đầu ghi `hls-live`, `vod`, `thumbnails`, `media-public` — không còn dùng):
 
   | Bucket | Nội dung | Quyền | Lifecycle | Tạo bởi |
@@ -396,7 +413,7 @@ Chi tiết entity: [data-model.md](data-model.md).
 | Chủ đề | Thiết kế |
 | --- | --- |
 | Xác thực | identity-svc phát **access token JWT** (EdDSA, 15 phút) + **refresh token** xoay vòng (30 ngày, lưu băm). Các service tự xác minh JWT bằng khóa công khai lấy từ JWKS, không gọi identity-svc mỗi request |
-| Guest | Không có token; Gateway cho phép các endpoint đọc công khai. WebSocket nhận kết nối Guest ở chế độ chỉ đọc |
+| Guest | Không có token; Gateway cho phép các endpoint đọc công khai. WebSocket nhận kết nối Guest ở chế độ chỉ đọc; kênh bật khách chat thì Guest gửi được tin theo `guestKey` = HMAC(`NXL_INTERNAL_SECRET`, `anonId`) — client không chọn được id, nên không mạo danh được tài khoản (ADR-017). Overlay OBS là Guest chỉ đọc, không tính người xem (ADR-018) |
 | Phân quyền | Kiểm tra ở service sở hữu tài nguyên, không bao giờ chỉ ở frontend (PRD §8.3). Vai trò toàn cục trong JWT; vai trò theo kênh tra trong chat-svc |
 | Stream key | Sinh ngẫu nhiên ≥ 32 byte, chỉ lưu bản băm; hiển thị một lần, có thể reset |
 | Media | URL HLS có chữ ký và hạn dùng (Nginx `secure_link`); playback session cấp lại khi gần hết hạn |
@@ -420,7 +437,8 @@ Chi tiết entity: [data-model.md](data-model.md).
 
 ## 11. Quan sát (Observability)
 
-- **Tracing:** OpenTelemetry (go-clean-template đã có decorator tracing) — trace xuyên Gateway → service → NATS bằng header truyền ngữ cảnh.
+- **Tracing:** OpenTelemetry (go-clean-template đã có decorator tracing) — trace trong từng service (propagator W3C
+  trace-context cho HTTP); sự kiện NATS không mang `traceparent` nên trace không nối qua NATS.
 - **Log:** JSON có `traceId`, `userId` (nếu có), không ghi token/mật khẩu.
 - **Metrics:** Prometheus — số kết nối WS, tin nhắn/giây, độ trễ gửi→nhận, số stream đang transcode, CPU ffmpeg, độ dài hàng đợi outbox, tỷ lệ lỗi API. Grafana cho buổi demo.
 - **Sự kiện sản phẩm (I4, rút gọn):** `stream_view_start`, `stream_view_heartbeat`, `chat_sent`, `follow`, `subscribe_complete`, `checkout_failed` — ghi log có cấu trúc, không có dashboard KPI.
@@ -450,7 +468,7 @@ nexuslive-be/
 │   ├── safety/
 │   ├── notification/
 │   └── billing/
-├── pkg/                ← dùng chung: logger, jwt verify, nats + outbox, postgres, tracing, httpserver, grpcserver
+├── pkg/                ← dùng chung: logger, jwt verify, eventbus + events + outbox, postgres, redis, tracing, httpserver, httpmetrics, hlssign (grpcserver: từ khuôn, chưa dùng)
 ├── deploy/             ← nginx/, prometheus/, grafana/, postgres/ (docker-compose.yml ở thư mục gốc)
 ├── docs/               ← tài liệu này
 └── go.work
@@ -458,7 +476,7 @@ nexuslive-be/
 
 Repo khởi đầu từ khuôn `go-clean-template` (một service). GĐ0 đã chuyển thành monorepo `nexuslive-be`
 (module `github.com/minhnn/nexuslive-be`), gỡ app mẫu và cập nhật `AGENTS.md` cho nhiều service.
-Hợp đồng gRPC nội bộ (`proto/`) sẽ thêm khi có lời gọi gRPC đầu tiên; hiện các service gọi nhau qua HTTP nội bộ.
+Các service gọi nhau qua HTTP nội bộ `/internal/v1/*` (§5.1); không có hợp đồng gRPC (`proto/`).
 
 ## 14. Chỉ tiêu phi chức năng cho đồ án
 
@@ -486,6 +504,7 @@ Hợp đồng gRPC nội bộ (`proto/`) sẽ thêm khi có lời gọi gRPC đ�
 
 | Phiên bản | Ngày | Thay đổi |
 | --- | --- | --- |
+| 1.5 | 2026-11-28 | Sửa chỗ lệch code: lời gọi đồng bộ là HTTP nội bộ `/internal/v1/*` + `X-Internal-Secret` (không gRPC, §3, §4, §5.1, §6.1); PostgreSQL 18; `POST /v1/streams/{id}/playback` (§6.2); header sự kiện thực tế `Nats-Msg-Id`, `Nxl-Occurred-At`, `Nxl-Producer`, không `traceparent` (§5.2, §11); chat lưu từng tin (§6.3); `sidebar:` do chat-svc dựng, sự kiện `status_changed` (§5.3, §6.1); số người xem do chat-svc đếm, phát `stream.peak_viewers.v1` (§4, §5.3, §8); §4 sự kiện stream-svc / chat-svc / billing-svc theo `pkg/events`, billing tạo tier mặc định khi nghe `channel.created`. Thêm chủ đề `overlay:{channelId}` và khách chat vào §5.3, §9 (ADR-017, ADR-018, DL-25, DL-26) |
 | 1.4 | 2026-11-27 | Ví và quà tặng (ADR-016, DL-24): §4 billing sở hữu WalletEntry, GiftItem, GiftSend, phát `gift.sent` và `payment.*` có `orderType`; chat nghe `gift.sent` (system `GIFT`), notification nghe `gift.sent`, `payment.*` theo `orderType` |
 | 1.3 | 2026-11-27 | Chi trả rút tiền (ADR-015, DL-23): §4 billing phát `payout.paid/failed/rejected`, notification nghe `payout.*` |
 | 1.2 | 2026-11-04 | Tải video lên (ADR-014, DL-22): §3 container (stream-svc ghi multipart, media-svc đọc file gốc); §4 stream / media / safety / channel thêm sự kiện `upload.*`, `vod.published`, `safety.vod_takedown`; §7 hạn 14 ngày chỉ cho VOD `source = LIVE`, `/hls` nhận `videos/`; §7.1 luồng tải lên (sơ đồ tuần tự, hàng đợi, ưu tiên live); §8 sửa danh sách bucket cũ (`hls-live`, `vod`, `thumbnails`, `media-public`) thành `nxl-media`, `nxl-public`, `nxl-uploads` |

@@ -7,7 +7,7 @@ ADR mới với trạng thái *Thay thế ADR-xxx*, không sửa nội dung ADR 
 | --- | --- | --- |
 | [ADR-001](#adr-001) | Microservices theo domain, số lượng ít, đưa vào theo giai đoạn | Chấp nhận |
 | [ADR-002](#adr-002) | Go + khuôn go-clean-template cho mọi service, trong một monorepo | Chấp nhận |
-| [ADR-003](#adr-003) | NATS JetStream cho sự kiện và fan-out chat; gRPC cho lời gọi đồng bộ nội bộ | Chấp nhận |
+| [ADR-003](#adr-003) | NATS JetStream cho sự kiện và fan-out chat; gRPC cho lời gọi đồng bộ nội bộ | Chấp nhận — phần gRPC không hiện thực: lời gọi đồng bộ là HTTP nội bộ (xem ghi chú hiện thực) |
 | [ADR-004](#adr-004) | Tự xây media server: RTMP ingest, transcode ffmpeg, phát HLS | Chấp nhận — chi tiết ở ADR-012 |
 | [ADR-005](#adr-005) | PostgreSQL database-per-service, Redis cho trạng thái nóng, MinIO cho media | Chấp nhận |
 | [ADR-006](#adr-006) | Một realtime gateway WebSocket đặt trong chat-svc | Chấp nhận |
@@ -21,6 +21,8 @@ ADR mới với trạng thái *Thay thế ADR-xxx*, không sửa nội dung ADR 
 | [ADR-014](#adr-014) | Tải video lên theo phần qua API + S3 multipart, hàng đợi chuyển mã trên JetStream, live được ưu tiên | Chấp nhận |
 | [ADR-015](#adr-015) | Chi trả rút tiền sau interface `PayoutProvider`, sổ cái giữ tiền / hoàn tiền | Chấp nhận |
 | [ADR-016](#adr-016) | Ví VND chỉ-thêm và quà tặng ngoài checkout; nạp ví đi chung pipeline đơn GĐ6, mỗi loại đơn một applier | Chấp nhận |
+| [ADR-017](#adr-017) | Khách chat theo `guestKey` = HMAC của `anonId` (UUIDv8), biệt danh theo từng tin, cờ kênh mặc định tắt | Chấp nhận |
+| [ADR-018](#adr-018) | Overlay OBS đọc công khai qua chủ đề `overlay:{channelId}`, kết nối `role: "overlay"` không tính người xem, không token riêng | Chấp nhận |
 
 ---
 
@@ -72,6 +74,14 @@ ADR mới với trạng thái *Thay thế ADR-xxx*, không sửa nội dung ADR 
 - **Cái giá:**
   - JetStream cần cấu hình stream/consumer cẩn thận.
   - Bắt buộc dùng outbox để không mất sự kiện khi DB commit nhưng publish lỗi.
+- **Ghi chú hiện thực (đối chiếu code 28/11/2026, không đổi quyết định về NATS):**
+  - **Không có gRPC.** Mọi lời gọi đồng bộ giữa service là HTTP/JSON nội bộ `/internal/v1/*` trên cổng nội bộ riêng của
+    service (ví dụ stream 8093, chat 8085), xác thực bằng header `X-Internal-Secret` (`NXL_INTERNAL_SECRET`); cổng vào chặn
+    `/internal`. `pkg/grpcserver` còn lại từ khuôn nhưng không service nào dùng.
+  - Sự kiện: một stream JetStream `NXL`, subject `nxl.<type>`; header `Nats-Msg-Id` (event id), `Nxl-Occurred-At`,
+    `Nxl-Producer`; không có header `traceparent` (kiến trúc §5.2).
+  - Fan-out realtime giữa hai instance chat-svc dùng NATS core, subject `rt.<topic>` (nằm ngoài `nxl.>` nên JetStream không
+    lưu); tin chat được lưu PostgreSQL từng tin trước khi phát.
 
 ## ADR-004
 
@@ -407,3 +417,98 @@ ADR mới với trạng thái *Thay thế ADR-xxx*, không sửa nội dung ADR 
   `TOPUP_*`, `topup_receipt`); NXL-00 v1.8 (`CANNOT_GIFT_SELF`, `INSUFFICIENT_FUNDS`, `GIFT_INACTIVE`, `gift.sent.v1`,
   `orderType`); data-model v1.5; ERD-billing v1.3; `docs/api/README.md` v1.13; Nginx (`/v1/me/wallet`, `/v1/gift-items`,
   `/v1/admin/gift-items`, `/v1/channels/{id}/gifts`); `BILLING_TOPUP_MIN`, `BILLING_TOPUP_MAX`, `BILLING_GIFT_MAX_TOTAL`.
+
+## ADR-017
+
+**Khách chat theo `guestKey` = HMAC của `anonId` (UUIDv8), biệt danh theo từng tin, cờ kênh mặc định tắt** — quyết định
+28/11/2026 (Working Plan + TSD `docs/plans/{working,technical}/2026-11-28-guest-chat.md` v1.2; DL-25)
+
+- **Bối cảnh:**
+  - Khách chưa đăng nhập chỉ đọc chat. Chủ đồ án muốn Creator cho phép khách chat trên kênh của mình.
+  - Khách chỉ có `anonId`: UUID v4 do web sinh, lưu `localStorage`, gửi trong frame `auth` để đếm người xem (DL-17). Server
+    không ký `anonId`, client tự chọn được giá trị.
+  - Mọi cột định danh của chat là `uuid` (`chat_messages.user_id`, `mod_actions.target_user_id`); tên tác giả lấy qua
+    `LEFT JOIN users`. `user.id` của mọi tài khoản lộ trong payload tin. Dùng thẳng `anonId` làm `user_id` thì khách đặt
+    `anonId` = id của streamer để hiện tin dưới tên streamer, hoặc để mod ban nhầm tài khoản thật.
+- **Quyết định:**
+  - **Định danh khách** `guestKey = HMAC-SHA256(NXL_INTERNAL_SECRET, "nxl-guest-chat:v1:" + anonId)`, cắt 128 bit, đặt bit
+    version 8 / variant RFC 4122 thành UUID. Tính một lần trong `gateway.Authorize`. `guestKey` là `user.id` của tin khách,
+    `target_user_id` của `mod_actions` và khóa Redis của slow / bucket / chống trùng. `anonId` thô không bao giờ được phát
+    ra. Nhãn cố định tách lần dùng này của `NXL_INTERNAL_SECRET` khỏi các lần dùng khác; không thêm biến môi trường.
+  - Frame `ready` trả `guestKey` (tùy chọn, chỉ cho khách có `anonId` hợp lệ; TSD v1.2) để client nhận ra tin và hạn chế của
+    chính mình.
+  - **Biệt danh theo từng tin** (`send.data.guestName`, lưu `chat_messages.guest_name`), không frame mới, không lưu trong
+    Redis. 3–20 ký tự (chữ, số, khoảng trắng, `_ - .`), không link, không từ cấm của kênh, không tên dành riêng, không trùng
+    username hay handle / tên hiển thị kênh. Tin khách luôn có huy hiệu `GUEST` do server gắn.
+  - **Cờ kênh** `chat_settings.guest_chat`, mặc định `false`; chỉ chủ kênh và Admin đổi (Moderator gửi giá trị khác →
+    `403 FORBIDDEN`). Giới hạn riêng cho khách: tối thiểu 10 s / tin không miễn (`CHAT_GUEST_SLOW`), bucket chung mọi khách
+    cùng IP (`CHAT_GUEST_RATE_LIMIT_IP`), tối đa 200 ký tự (`CHAT_GUEST_MAX_CHARS`), luôn chặn link, không mention.
+    Followers-only, Subs-only và `CHAT_REQUIRE_VERIFIED_EMAIL` vẫn chặn khách.
+  - **Moderation** dùng `guestKey` trên các route sẵn có (xóa, ghim, timeout, ban, gỡ); `mod_actions.target_guest_name` giữ
+    biệt danh cho danh sách bị cấm. Không ban theo IP. Không thêm mã lỗi.
+- **Lý do:**
+  - Client không chọn được `guestKey` và không suy ngược được `anonId`, nên không mạo danh được tài khoản; vẫn vừa cột
+    `uuid`, không đổi kiểu hay ràng buộc nào.
+  - Cùng `anonId` luôn ra cùng `guestKey`, nên timeout / ban của khách có hiệu lực ngay qua đường tra hạn chế sẵn có.
+  - Biệt danh theo tin không cần trạng thái; moderation tính theo `guestKey` nên đổi tên không lách được.
+- **Cái giá:**
+  - Xóa `localStorage` hoặc mở cửa sổ ẩn danh là có `guestKey` mới; ban khách chỉ cản người không cố tình lách. Giảm nhẹ
+    bằng bucket theo IP, 10 s / tin, chặn link và nút tắt guest chat.
+  - NAT / CGNAT: nhiều khách thật chung một IP chia chung bucket.
+  - Đổi `NXL_INTERNAL_SECRET` làm mọi `guestKey` đổi, timeout / ban của khách mất hiệu lực.
+  - Báo cáo tin khách: nhãn admin hiện `@?`, khóa "tài khoản" của khách không có tác dụng (Follow-up).
+- **Phương án đã cân nhắc:**
+
+  | Phương án | Không chọn vì |
+  | --- | --- |
+  | Dùng thẳng `anonId` làm `user_id` | Client chọn được, mạo danh / ban nhầm tài khoản thật |
+  | Lưu biệt danh trong Redis, đặt một lần | Thêm frame, khóa Redis, xử lý hết hạn; không chặn thêm được gì vì khách đổi `anonId` là xong |
+  | Ban khách theo IP | +6–8 h, chặn nhầm cả trường học / nhà mạng di động sau NAT; chốt không làm |
+
+- **Việc kéo theo:** migration `20261128100001_guest_chat`; data-model v1.6; `pkg/events.ChatModes.guestChat`;
+  `docs/api/README.md`; NXL-B, NXL-00, NXL-F, NXL-G2 (spec); web: hộp thoại biệt danh, huy hiệu Khách, công tắc Studio.
+
+## ADR-018
+
+**Overlay OBS đọc công khai qua chủ đề `overlay:{channelId}`, kết nối `role: "overlay"` không tính người xem, không token
+riêng** — quyết định 28/11/2026 (Working Plan + TSD `docs/plans/{working,technical}/2026-11-28-stream-overlay.md`; DL-26)
+
+- **Bối cảnh:**
+  - Buổi demo cần chat và alert quà hiện thẳng trên hình stream: Creator thêm trang web vào OBS bằng Browser Source. OBS
+    không có phiên đăng nhập.
+  - Dữ liệu overlay hiển thị (tin chat, dòng quà `GIFT`) vốn công khai với mọi người xem.
+  - Kết nối ẩn danh vào `chat:{streamId}` được tính là một người xem (DL-17).
+- **Quyết định:**
+  - **Hai trang web** `/overlay/chat/:handle` và `/overlay/alerts/:handle`, nền trong suốt, không đăng nhập, **không token
+    riêng**: link chỉ chứa handle (`GET /v1/channels/{x}` chỉ nhận handle). Trang hỏi profile để lấy `channelId` và
+    `currentStreamId` (5 s khi chưa live, 30 s khi đã live), nên bật OBS trước khi phát vẫn chạy.
+  - **Kết nối overlay:** frame `auth {token: null, anonId, role: "overlay"}`; `role` chỉ được nhận khi không có token. Kết
+    nối overlay chỉ đọc (`send` → `FORBIDDEN`) và không `viewers.Join` / `Leave` khi đăng ký `chat:{streamId}`.
+  - **Chủ đề `overlay:{channelId}`:** ai cũng đăng ký được, không snapshot. Sự kiện `overlay_settings` (cài đặt vừa lưu) và
+    `overlay_test_gift` (alert thử) phát qua fan-out chung như mọi chủ đề (có `seq`). Alert thật lấy từ system `GIFT` của
+    `chat:{streamId}` (đã qua AutoMod), không đổi billing-svc.
+  - **Cài đặt** trong chat-svc, bảng `overlay_settings` (`chat`, `alert` jsonb); giá trị hợp lệ (enum, khoảng số,
+    `#RRGGBB`) kiểm ở entity, không CHECK trong DB. `GET /v1/channels/{channelId}/overlay-settings` công khai (chưa lưu →
+    mặc định); `PUT` và `POST …/overlay-test` chỉ chủ kênh và Admin (Moderator → `403`). Lưu xong mới phát; phát lỗi chỉ
+    ghi cảnh báo.
+  - **Alert thử** không vào chat, không vào sổ cái; tối đa 1 lần / giây / kênh (`429 RATE_LIMITED`), đếm trong bộ nhớ
+    của instance chat-svc.
+- **Lý do:**
+  - Ít việc nhất mà không mất tính năng: quyền chỉ cần cho ghi cài đặt và gửi thử, cả hai đã đi qua REST có đăng nhập.
+  - Đổi theme áp dụng ngay trên OBS, không phải tải lại Browser Source.
+  - Số người xem không bị thổi phồng bởi trang overlay của chính streamer.
+- **Cái giá:**
+  - Link công khai: ai biết handle cũng mở được overlay của kênh (chỉ thấy dữ liệu công khai). Đổi handle phải copy lại link.
+  - `role: "overlay"` do client tự khai, nên một kết nối ẩn danh bất kỳ có thể tự xin không bị đếm (chỉ làm giảm số đếm).
+  - Phòng đông: sampling của `chat:` cũng bỏ bớt tin trên overlay như với người xem.
+  - Giới hạn alert thử theo từng instance: hai instance chat-svc cho tối đa 2 lần / giây / kênh.
+- **Phương án đã cân nhắc:**
+
+  | Phương án | Không chọn vì |
+  | --- | --- |
+  | Token chỉ-đọc riêng cho overlay | Thêm cấp / thu hồi token mà dữ liệu vốn công khai |
+  | Sự kiện overlay không `seq` | Actor của hub dựa vào `seq` cho mọi chủ đề; overlay chỉ cần sự kiện mới nhất nên `seq` vô hại |
+  | CSS tự do cho theme | Không kiểm được phía server, dễ ra chữ khó đọc trên video |
+
+- **Việc kéo theo:** migration `20261129000001_overlay_settings`; data-model v1.6; kiến trúc §5.3; Nginx route chat-svc thêm
+  `overlay-settings|overlay-test`; `docs/api/README.md`; web: hai trang overlay, Studio → Overlay OBS, Vite proxy.
