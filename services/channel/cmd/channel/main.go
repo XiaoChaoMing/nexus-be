@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	_ "time/tzdata" // the scratch image has no zoneinfo; schedules take IANA zones (Asia/Ho_Chi_Minh)
 
 	"github.com/minhnn/nexuslive-be/services/channel/config"
 	"github.com/minhnn/nexuslive-be/services/channel/internal/app"
