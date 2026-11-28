@@ -30,8 +30,8 @@ func TestOverlaySettingsValidate(t *testing.T) {
 	}{
 		{"unknown preset", func(s *entity.OverlaySettings) { s.Chat.Preset = "RAINBOW" }, map[string]string{"chat.preset": entity.DetailEnum}},
 		{"unknown font", func(s *entity.OverlaySettings) { s.Chat.FontFamily = "COMIC" }, map[string]string{"chat.fontFamily": entity.DetailEnum}},
-		{"short colour", func(s *entity.OverlaySettings) { s.Chat.TextColor = "#FFF" }, map[string]string{"chat.textColor": entity.DetailFormat}},
-		{"css injection in colour", func(s *entity.OverlaySettings) { s.Alert.AccentColor = "red;background:url(x)" }, map[string]string{"alert.accentColor": entity.DetailFormat}},
+		{"short color", func(s *entity.OverlaySettings) { s.Chat.TextColor = "#FFF" }, map[string]string{"chat.textColor": entity.DetailFormat}},
+		{"css injection in color", func(s *entity.OverlaySettings) { s.Alert.AccentColor = "red;background:url(x)" }, map[string]string{"alert.accentColor": entity.DetailFormat}},
 		{"opacity over 100", func(s *entity.OverlaySettings) { s.Chat.BgOpacity = 101 }, map[string]string{"chat.bgOpacity": entity.DetailLength}},
 		{"font too small", func(s *entity.OverlaySettings) { s.Chat.FontSize = 11 }, map[string]string{"chat.fontSize": entity.DetailLength}},
 		{"too many messages", func(s *entity.OverlaySettings) { s.Chat.MaxMessages = 31 }, map[string]string{"chat.maxMessages": entity.DetailLength}},

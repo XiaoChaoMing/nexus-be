@@ -19,6 +19,9 @@ type History struct {
 
 const _maxLimit = 100
 
+// _detailMax is the validation detail for a value over its limit.
+const _detailMax = "MAX"
+
 // Validate returns the field errors (NXL-00 §4.1).
 func (h History) Validate() map[string]string {
 	errs := map[string]string{}
@@ -30,7 +33,7 @@ func (h History) Validate() map[string]string {
 	}
 
 	if h.Limit < 0 || h.Limit > _maxLimit {
-		errs["limit"] = "MAX"
+		errs["limit"] = _detailMax
 	}
 
 	return errs
@@ -176,7 +179,7 @@ func (p Page) Validate() map[string]string {
 	}
 
 	if p.Limit < 0 || p.Limit > _maxPage {
-		errs["limit"] = "MAX"
+		errs["limit"] = _detailMax
 	}
 
 	return errs
@@ -218,27 +221,27 @@ func (t TestOverlayGift) Validate() map[string]string {
 	errs := map[string]string{}
 
 	if utf8.RuneCountInString(t.Username) > _maxTestUsername {
-		errs["username"] = "MAX"
+		errs["username"] = _detailMax
 	}
 
 	if utf8.RuneCountInString(t.ItemName) > _maxTestItem {
-		errs["itemName"] = "MAX"
+		errs["itemName"] = _detailMax
 	}
 
 	if utf8.RuneCountInString(t.Icon) > _maxTestIcon {
-		errs["icon"] = "MAX"
+		errs["icon"] = _detailMax
 	}
 
 	if t.Message != nil && utf8.RuneCountInString(*t.Message) > _maxTestMessage {
-		errs["message"] = "MAX"
+		errs["message"] = _detailMax
 	}
 
 	if t.Quantity < 0 || t.Quantity > _maxTestQuantity {
-		errs["quantity"] = "MAX"
+		errs["quantity"] = _detailMax
 	}
 
 	if t.Total < 0 || t.Total > _maxTestTotal {
-		errs["total"] = "MAX"
+		errs["total"] = _detailMax
 	}
 
 	return errs

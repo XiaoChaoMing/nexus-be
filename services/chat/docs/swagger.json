@@ -359,6 +359,178 @@
                 ]
             }
         },
+        "/channels/{channelId}/overlay-settings": {
+            "get": {
+                "description": "Public: the overlay pages run in OBS without a sign-in. A channel that never saved any gets the defaults.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "overlay"
+                ],
+                "summary": "OBS overlay options of a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_OverlaySettings"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Channel owner and admins. Overlay pages that are open restyle themselves at once (overlay:{channelId} event overlay_settings).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "overlay"
+                ],
+                "summary": "Change the OBS overlay options of a channel",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "chat theme and gift alert",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UpdateOverlay"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_OverlaySettings"
+                        }
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED (details.\u003cchat|alert\u003e.\u003cfield\u003e = ENUM | FORMAT | LENGTH)",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/channels/{channelId}/overlay-test": {
+            "post": {
+                "description": "Channel owner and admins. The alert goes to overlay pages only: not to chat, not to the ledger. At most one per second per channel.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "overlay"
+                ],
+                "summary": "Show a test gift alert on the channel's open overlay pages",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "channel id (uuid)",
+                        "name": "channelId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "optional alert fields; empty ones take demo values",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/TestOverlayGift"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "VALIDATION_FAILED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "401": {
+                        "description": "UNAUTHORIZED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "403": {
+                        "description": "FORBIDDEN",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "404": {
+                        "description": "NOT_FOUND",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    },
+                    "429": {
+                        "description": "RATE_LIMITED",
+                        "schema": {
+                            "$ref": "#/definitions/Error"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ]
+            }
+        },
         "/channels/{channelId}/restrictions": {
             "get": {
                 "produces": [
@@ -1296,6 +1468,14 @@
                 }
             }
         },
+        "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_OverlaySettings": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/OverlaySettings"
+                }
+            }
+        },
         "Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Pinned": {
             "type": "object",
             "properties": {
@@ -1531,6 +1711,83 @@
                 }
             }
         },
+        "OverlayAlert": {
+            "type": "object",
+            "properties": {
+                "accentColor": {
+                    "type": "string"
+                },
+                "animation": {
+                    "type": "string"
+                },
+                "durationSec": {
+                    "type": "integer"
+                },
+                "minTotal": {
+                    "description": "MinTotal hides gifts worth less than this many đồng; 0 shows all.",
+                    "type": "integer"
+                },
+                "position": {
+                    "type": "string"
+                },
+                "showMessage": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "OverlayChat": {
+            "type": "object",
+            "properties": {
+                "background": {
+                    "type": "string"
+                },
+                "bgColor": {
+                    "type": "string"
+                },
+                "bgOpacity": {
+                    "type": "integer"
+                },
+                "fadeAfterSec": {
+                    "description": "FadeAfterSec hides a message after that many seconds; 0 keeps it until it scrolls out.",
+                    "type": "integer"
+                },
+                "fontFamily": {
+                    "type": "string"
+                },
+                "fontSize": {
+                    "type": "integer"
+                },
+                "maxMessages": {
+                    "type": "integer"
+                },
+                "preset": {
+                    "type": "string"
+                },
+                "showBadges": {
+                    "type": "boolean"
+                },
+                "textColor": {
+                    "type": "string"
+                },
+                "usernameColor": {
+                    "type": "string"
+                }
+            }
+        },
+        "OverlaySettings": {
+            "type": "object",
+            "properties": {
+                "alert": {
+                    "$ref": "#/definitions/OverlayAlert"
+                },
+                "chat": {
+                    "$ref": "#/definitions/OverlayChat"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
         "Pin": {
             "type": "object",
             "properties": {
@@ -1622,6 +1879,29 @@
                 }
             }
         },
+        "TestOverlayGift": {
+            "type": "object",
+            "properties": {
+                "icon": {
+                    "type": "string"
+                },
+                "itemName": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "Timeout": {
             "type": "object",
             "properties": {
@@ -1656,6 +1936,17 @@
                 },
                 "subsOnly": {
                     "type": "boolean"
+                }
+            }
+        },
+        "UpdateOverlay": {
+            "type": "object",
+            "properties": {
+                "alert": {
+                    "$ref": "#/definitions/OverlayAlert"
+                },
+                "chat": {
+                    "$ref": "#/definitions/OverlayChat"
                 }
             }
         },

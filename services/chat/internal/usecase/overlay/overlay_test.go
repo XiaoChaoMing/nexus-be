@@ -254,6 +254,7 @@ func TestTestGiftRules(t *testing.T) {
 	require.ErrorIs(t, uc.TestGift(ctx, owner(), channelID, entity.GiftMeta{}), entity.ErrRateLimited, "two inside a second")
 
 	now = now.Add(1100 * time.Millisecond)
+
 	require.NoError(t, uc.TestGift(ctx, owner(), channelID, entity.GiftMeta{}))
 	require.Len(t, b.sent, 2)
 }

@@ -14,7 +14,7 @@ const (
 	EventOverlayTestGift = "overlay_test_gift"
 )
 
-// Overlay chat presets, backgrounds, fonts and username colouring.
+// Overlay chat presets, backgrounds, fonts and username coloring.
 const (
 	OverlayPresetGlass   = "GLASS"
 	OverlayPresetDark    = "DARK"
@@ -96,17 +96,24 @@ type OverlaySettings struct {
 	UpdatedAt *time.Time   `json:"updatedAt"`
 }
 
+const (
+	_defaultOverlayBgOpacity   = 40
+	_defaultOverlayFontSize    = 18
+	_defaultOverlayMaxMessages = 12
+	_defaultAlertDurationSec   = 8
+)
+
 // DefaultOverlaySettings is what a channel that never saved anything gets.
 func DefaultOverlaySettings(channelID string) OverlaySettings {
 	return OverlaySettings{
 		ChannelID: channelID,
 		Chat: OverlayChat{
-			Preset: OverlayPresetGlass, Background: OverlayBackgroundTransparent, BgColor: "#000000", BgOpacity: 40,
-			TextColor: "#FFFFFF", FontFamily: OverlayFontInter, FontSize: 18, ShowBadges: true,
-			UsernameColor: OverlayUsernamePalette, MaxMessages: 12, FadeAfterSec: 0,
+			Preset: OverlayPresetGlass, Background: OverlayBackgroundTransparent, BgColor: "#000000", BgOpacity: _defaultOverlayBgOpacity,
+			TextColor: "#FFFFFF", FontFamily: OverlayFontInter, FontSize: _defaultOverlayFontSize, ShowBadges: true,
+			UsernameColor: OverlayUsernamePalette, MaxMessages: _defaultOverlayMaxMessages, FadeAfterSec: 0,
 		},
 		Alert: OverlayAlert{
-			AccentColor: "#8B5CF6", DurationSec: 8, Position: OverlayPositionTop, Animation: OverlayAnimationSlide,
+			AccentColor: "#8B5CF6", DurationSec: _defaultAlertDurationSec, Position: OverlayPositionTop, Animation: OverlayAnimationSlide,
 			MinTotal: 0, ShowMessage: true,
 		},
 	}

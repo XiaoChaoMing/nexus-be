@@ -115,6 +115,11 @@ definitions:
       data:
         $ref: '#/definitions/ModChannelList'
     type: object
+  Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_OverlaySettings:
+    properties:
+      data:
+        $ref: '#/definitions/OverlaySettings'
+    type: object
   Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_Pinned:
     properties:
       data:
@@ -268,6 +273,59 @@ definitions:
       isLive:
         type: boolean
     type: object
+  OverlayAlert:
+    properties:
+      accentColor:
+        type: string
+      animation:
+        type: string
+      durationSec:
+        type: integer
+      minTotal:
+        description: MinTotal hides gifts worth less than this many đồng; 0 shows
+          all.
+        type: integer
+      position:
+        type: string
+      showMessage:
+        type: boolean
+    type: object
+  OverlayChat:
+    properties:
+      background:
+        type: string
+      bgColor:
+        type: string
+      bgOpacity:
+        type: integer
+      fadeAfterSec:
+        description: FadeAfterSec hides a message after that many seconds; 0 keeps
+          it until it scrolls out.
+        type: integer
+      fontFamily:
+        type: string
+      fontSize:
+        type: integer
+      maxMessages:
+        type: integer
+      preset:
+        type: string
+      showBadges:
+        type: boolean
+      textColor:
+        type: string
+      usernameColor:
+        type: string
+    type: object
+  OverlaySettings:
+    properties:
+      alert:
+        $ref: '#/definitions/OverlayAlert'
+      chat:
+        $ref: '#/definitions/OverlayChat'
+      updatedAt:
+        type: string
+    type: object
   Pin:
     properties:
       messageId:
@@ -328,6 +386,21 @@ definitions:
       role:
         type: string
     type: object
+  TestOverlayGift:
+    properties:
+      icon:
+        type: string
+      itemName:
+        type: string
+      message:
+        type: string
+      quantity:
+        type: integer
+      total:
+        type: integer
+      username:
+        type: string
+    type: object
   Timeout:
     properties:
       durationSec:
@@ -358,6 +431,13 @@ definitions:
         type: integer
       subsOnly:
         type: boolean
+    type: object
+  UpdateOverlay:
+    properties:
+      alert:
+        $ref: '#/definitions/OverlayAlert'
+      chat:
+        $ref: '#/definitions/OverlayChat'
     type: object
   UserCard:
     properties:
@@ -628,6 +708,121 @@ paths:
       summary: Change the chat modes of a channel
       tags:
       - chat
+  /channels/{channelId}/overlay-settings:
+    get:
+      description: 'Public: the overlay pages run in OBS without a sign-in. A channel
+        that never saved any gets the defaults.'
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: channelId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_OverlaySettings'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      summary: OBS overlay options of a channel
+      tags:
+      - overlay
+    put:
+      consumes:
+      - application/json
+      description: Channel owner and admins. Overlay pages that are open restyle themselves
+        at once (overlay:{channelId} event overlay_settings).
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: chat theme and gift alert
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/UpdateOverlay'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/Data-github_com_minhnn_nexuslive-be_services_chat_internal_controller_restapi_v1_response_OverlaySettings'
+        "400":
+          description: VALIDATION_FAILED (details.<chat|alert>.<field> = ENUM | FORMAT
+            | LENGTH)
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Change the OBS overlay options of a channel
+      tags:
+      - overlay
+  /channels/{channelId}/overlay-test:
+    post:
+      consumes:
+      - application/json
+      description: 'Channel owner and admins. The alert goes to overlay pages only:
+        not to chat, not to the ledger. At most one per second per channel.'
+      parameters:
+      - description: channel id (uuid)
+        in: path
+        name: channelId
+        required: true
+        type: string
+      - description: optional alert fields; empty ones take demo values
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/TestOverlayGift'
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: VALIDATION_FAILED
+          schema:
+            $ref: '#/definitions/Error'
+        "401":
+          description: UNAUTHORIZED
+          schema:
+            $ref: '#/definitions/Error'
+        "403":
+          description: FORBIDDEN
+          schema:
+            $ref: '#/definitions/Error'
+        "404":
+          description: NOT_FOUND
+          schema:
+            $ref: '#/definitions/Error'
+        "429":
+          description: RATE_LIMITED
+          schema:
+            $ref: '#/definitions/Error'
+      security:
+      - BearerAuth: []
+      summary: Show a test gift alert on the channel's open overlay pages
+      tags:
+      - overlay
   /channels/{channelId}/restrictions:
     get:
       parameters:

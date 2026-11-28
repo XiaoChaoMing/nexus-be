@@ -2,6 +2,7 @@
 package v1
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -219,19 +220,24 @@ func (r *routes) emotes(ctx *fiber.Ctx) error {
 //	@Failure 404       {object} response.Error "NOT_FOUND"
 //	@Router  /channels/{channelId}/chat-settings [get]
 func (r *routes) settings(ctx *fiber.Ctx) error {
+	return readChannelDoc(ctx, r, "settings", r.chat.Settings, settingsOf)
+}
+
+// readChannelDoc serves a public per-channel document: 404 for a malformed id, never cached, {"data": view(doc)}.
+func readChannelDoc[E, R any](ctx *fiber.Ctx, r *routes, op string, get func(context.Context, string) (E, error), view func(E) R) error {
 	channelID := ctx.Params("channelId")
 	if _, err := uuid.Parse(channelID); err != nil {
 		return errorJSON(ctx, http.StatusNotFound, entity.CodeNotFound, "channel not found", nil)
 	}
 
-	s, err := r.chat.Settings(ctx.UserContext(), channelID)
+	doc, err := get(ctx.UserContext(), channelID)
 	if err != nil {
-		return r.fail(ctx, "settings", err)
+		return r.fail(ctx, op, err)
 	}
 
 	ctx.Set(fiber.HeaderCacheControl, "no-cache")
 
-	return ctx.JSON(response.Data[response.ChatSettings]{Data: settingsOf(s)})
+	return ctx.JSON(response.Data[R]{Data: view(doc)})
 }
 
 // updateSettings godoc

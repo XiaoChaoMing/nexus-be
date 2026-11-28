@@ -22,19 +22,7 @@ import (
 //	@Failure     404       {object} response.Error "NOT_FOUND"
 //	@Router      /channels/{channelId}/overlay-settings [get]
 func (r *routes) overlaySettings(ctx *fiber.Ctx) error {
-	channelID := ctx.Params("channelId")
-	if _, err := uuid.Parse(channelID); err != nil {
-		return errorJSON(ctx, http.StatusNotFound, entity.CodeNotFound, "channel not found", nil)
-	}
-
-	s, err := r.overlay.Get(ctx.UserContext(), channelID)
-	if err != nil {
-		return r.fail(ctx, "overlaySettings", err)
-	}
-
-	ctx.Set(fiber.HeaderCacheControl, "no-cache")
-
-	return ctx.JSON(response.Data[response.OverlaySettings]{Data: overlayOf(s)})
+	return readChannelDoc(ctx, r, "overlaySettings", r.overlay.Get, overlayOf)
 }
 
 // updateOverlaySettings godoc
