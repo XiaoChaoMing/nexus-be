@@ -177,15 +177,18 @@ func (uc *UseCase) Join(ctx context.Context, p entity.Principal, topic entity.To
 }
 
 // streamSnapshot degrades to an unknown status and a zero count when Redis is down: reading stays up.
+// An OBS overlay is not a viewer (Leave skips it too): its snapshot count stays 0 until the next viewer_count.
 func (uc *UseCase) streamSnapshot(ctx context.Context, p entity.Principal, streamID string) usecase.StreamSnapshot {
 	snap := usecase.StreamSnapshot{}
 
-	n, err := uc.viewers.Join(ctx, streamID, p.ViewerKey())
-	if err != nil {
-		uc.l.Warn("gateway - viewer join: %v", err)
-	}
+	if !p.Overlay {
+		n, err := uc.viewers.Join(ctx, streamID, p.ViewerKey())
+		if err != nil {
+			uc.l.Warn("gateway - viewer join: %v", err)
+		}
 
-	snap.ViewerCount = n
+		snap.ViewerCount = n
+	}
 
 	status, err := uc.presence.StreamStatus(ctx, streamID)
 	if err != nil {

@@ -228,6 +228,10 @@ func TestOverlayIsNotAViewer(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, v.joined, "an OBS overlay reads the chat for the streamer: it is not in the viewer count")
 
+	_, err = uc.Join(ctx, obs, entity.StreamTopic(stream))
+	require.NoError(t, err)
+	require.Empty(t, v.joined, "nor through the stream topic, which Leave does not undo for an overlay")
+
 	viewer := entity.Principal{AnonID: "0199d4a2-0000-7000-8000-00000000b0b0"}
 
 	_, err = uc.Join(ctx, viewer, entity.ChatTopic(stream))
